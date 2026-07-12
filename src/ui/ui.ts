@@ -7,7 +7,7 @@ import {
   type CatalogDef,
 } from '../model/catalog';
 import { toCatalogDef } from '../model/parts';
-import { demoDesign, emptyDesign, Store } from '../model/store';
+import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
 import type { Item } from '../model/types';
 import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
@@ -16,6 +16,11 @@ import { PartStudio } from './partstudio';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
   document.querySelector(sel) as T;
+
+/** radians → whole degrees in [0, 360) for display; the model keeps radians unbounded */
+function displayDeg(rad: number): number {
+  return ((Math.round((rad * 180) / Math.PI) % 360) + 360) % 360;
+}
 
 export class UI {
   private store: Store;
@@ -27,24 +32,26 @@ export class UI {
     this.store = store;
     this.plan = plan;
     this.view = view;
-    this.studio = new PartStudio(store, () => this.renderCatalog());
+    this.studio = new PartStudio(store, () => this.renderCatalogIfPartsChanged());
 
     this.renderCatalog();
     this.renderProps();
     this.wireTopbar();
     this.wireKeyboard();
 
-    plan.onArmedChange = () => this.markArmedTile();
     store.on('selection', () => this.renderProps());
     store.on('history', () => {
-      this.renderProps();
-      this.renderCatalog();
+      // skip the full panel rebuild while the user is interacting inside it —
+      // steppers, choice rows and inputs keep themselves current
+      const active = document.activeElement;
+      if (!active || !$('#props').contains(active)) this.renderProps();
+      this.renderCatalogIfPartsChanged();
       this.updateUndoButtons();
       this.updateInfo();
     });
     store.on('change', (info) => {
       this.updateInfo();
-      if (info.transient) this.refreshPositionInputs();
+      if (info.transient) this.refreshTransientInputs();
     });
     this.updateUndoButtons();
     this.updateInfo();
@@ -52,7 +59,17 @@ export class UI {
 
   /* ================= catalog ================= */
 
+  private lastPartsSig = '';
+
+  /** The catalog only changes when the parts library does — skip pointless rebuilds. */
+  private renderCatalogIfPartsChanged(): void {
+    const sig = JSON.stringify(this.store.design.customParts);
+    if (sig === this.lastPartsSig) return;
+    this.renderCatalog();
+  }
+
   private renderCatalog(): void {
+    this.lastPartsSig = JSON.stringify(this.store.design.customParts);
     const root = $('#catalog-inner');
     root.innerHTML = '';
 
@@ -70,14 +87,22 @@ export class UI {
       const tile = document.createElement('div');
       tile.className = 'cat-item';
       tile.dataset.defId = def.id;
+      tile.role = 'button';
+      tile.tabIndex = 0;
+      tile.title = `Click, then click in the plan to place — ${def.label.toLowerCase()}`;
       const canvas = document.createElement('canvas');
       renderThumbnail(canvas, def.kind, def.w, def.d, def.color);
       tile.appendChild(canvas);
       const label = document.createElement('span');
       label.textContent = def.label;
       tile.appendChild(label);
-      tile.addEventListener('click', () => {
-        this.plan.setArmed(this.plan.armedDef?.id === def.id ? null : def);
+      const arm = () => this.plan.setArmed(this.plan.armedDef?.id === def.id ? null : def);
+      tile.addEventListener('click', arm);
+      tile.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          arm();
+        }
       });
       wrap.appendChild(tile);
       if (editable) {
@@ -105,10 +130,19 @@ export class UI {
         const grid2 = addSection('My parts');
         const newTile = document.createElement('div');
         newTile.className = 'cat-item cat-new';
+        newTile.role = 'button';
+        newTile.tabIndex = 0;
         newTile.innerHTML = `<span style="font-size:20px">＋</span><span>New part</span>`;
-        newTile.addEventListener('click', () => {
+        const openStudio = () => {
           this.plan.setArmed(null);
           this.studio.open();
+        };
+        newTile.addEventListener('click', openStudio);
+        newTile.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openStudio();
+          }
         });
         grid2.appendChild(newTile);
         for (const part of this.store.design.customParts) {
@@ -214,6 +248,26 @@ export class UI {
     parent.appendChild(sw);
   }
 
+  /** Segmented two-way choice; updates its own active state so no re-render is needed. */
+  private choiceRow(
+    parent: HTMLElement,
+    options: [string, string][],
+    current: string,
+    onPick: (v: string) => void
+  ): void {
+    const row = this.el('<div class="btn-row"></div>');
+    for (const [value, label] of options) {
+      const b = this.el(`<button class="btn${value === current ? ' active' : ''}">${label}</button>`);
+      b.addEventListener('click', () => {
+        onPick(value);
+        row.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+        this.store.commit();
+      });
+      row.appendChild(b);
+    }
+    parent.appendChild(row);
+  }
+
   private toggleRow(parent: HTMLElement, label: string, value: boolean, onChange: (v: boolean) => void): void {
     const row = this.el(`<div class="toggle-row"><label>${label}</label>
       <label class="switch"><input type="checkbox" ${value ? 'checked' : ''}><span class="track"></span></label></div>`);
@@ -263,8 +317,12 @@ export class UI {
     const shape = this.section(root, 'Room shape');
     const btns = this.el(`<div class="btn-row"><button class="btn">Rectangle</button><button class="btn">L-shape</button></div>`);
     const [rectBtn, lBtn] = Array.from(btns.querySelectorAll('button'));
-    rectBtn.addEventListener('click', () => this.store.setShapePreset('rect'));
-    lBtn.addEventListener('click', () => this.store.setShapePreset('lshape'));
+    const applyPreset = (preset: 'rect' | 'lshape') => {
+      this.store.setShapePreset(preset);
+      this.store.commit();
+    };
+    rectBtn.addEventListener('click', () => applyPreset('rect'));
+    lBtn.addEventListener('click', () => applyPreset('lshape'));
     shape.appendChild(btns);
     shape.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Drag ■ corners to reshape · drag ◆ to bend a wall</p>`));
 
@@ -322,15 +380,20 @@ export class UI {
     this.numberRow(pos, 'Y', Math.round(item.y * 100), 'cm', (v) =>
       this.store.updateItem(item.id, { y: v / 100 }), { cls: 'pos-y' });
     const rotRow = this.el(`<div class="prop-row"><label>Rotate</label>
-      <div class="stepper"><button title="Rotate left">⟲</button><span>${Math.round(((item.rotation * 180) / Math.PI) % 360)}°</span><button title="Rotate right">⟳</button></div></div>`);
+      <div class="stepper"><button title="Rotate left">⟲</button><input type="number" data-cls="rot" step="15" value="${displayDeg(item.rotation)}"><button title="Rotate right">⟳</button></div>
+      <span class="unit">°</span></div>`);
     const [ccw, cw] = Array.from(rotRow.querySelectorAll('button'));
-    ccw.addEventListener('click', () => {
-      this.store.updateItem(item.id, { rotation: item.rotation - Math.PI / 2 }, { structural: false });
+    const rotInput = rotRow.querySelector('input') as HTMLInputElement;
+    const rotate = (rad: number) => {
+      this.store.updateItem(item.id, { rotation: rad }, { structural: false });
+      rotInput.value = String(displayDeg(rad));
       this.store.commit();
-    });
-    cw.addEventListener('click', () => {
-      this.store.updateItem(item.id, { rotation: item.rotation + Math.PI / 2 }, { structural: false });
-      this.store.commit();
+    };
+    ccw.addEventListener('click', () => rotate(item.rotation - Math.PI / 2));
+    cw.addEventListener('click', () => rotate(item.rotation + Math.PI / 2));
+    rotInput.addEventListener('change', () => {
+      const v = Number(rotInput.value);
+      if (Number.isFinite(v)) rotate((v * Math.PI) / 180);
     });
     pos.appendChild(rotRow);
 
@@ -397,15 +460,28 @@ export class UI {
     }
   }
 
-  private refreshPositionInputs(): void {
+  /** Keep panel fields in sync mid-gesture without a full re-render. */
+  private refreshTransientInputs(): void {
+    const set = (cls: string, value: number) => {
+      const input = document.querySelector<HTMLInputElement>(`input[data-cls="${cls}"]`);
+      if (input && document.activeElement !== input) input.value = String(value);
+    };
     const sel = this.store.selection;
-    if (sel.kind !== 'item') return;
-    const item = this.store.itemById(sel.id);
-    if (!item) return;
-    const x = document.querySelector<HTMLInputElement>('input[data-cls="pos-x"]');
-    const y = document.querySelector<HTMLInputElement>('input[data-cls="pos-y"]');
-    if (x && document.activeElement !== x) x.value = String(Math.round(item.x * 100));
-    if (y && document.activeElement !== y) y.value = String(Math.round(item.y * 100));
+    if (sel.kind === 'item') {
+      const item = this.store.itemById(sel.id);
+      if (!item) return;
+      set('pos-x', Math.round(item.x * 100));
+      set('pos-y', Math.round(item.y * 100));
+      set('rot', displayDeg(item.rotation));
+    } else if (sel.kind === 'corner') {
+      const c = this.store.cornerById(sel.id);
+      if (!c) return;
+      set('corner-x', Math.round(c.x * 100));
+      set('corner-y', Math.round(c.y * 100));
+    } else if (sel.kind === 'opening') {
+      const o = this.store.openingById(sel.id);
+      if (o) set('opening-off', Math.round(o.offset * 100));
+    }
   }
 
   /* ---------- wall / opening / corner ---------- */
@@ -447,7 +523,14 @@ export class UI {
     }
     if (g) {
       this.numberRow(s, 'From corner', Math.round(o.offset * 100), 'cm', (v) =>
-        this.store.updateOpening(id, { offset: v / 100 }), { min: 0, max: Math.round(g.len * 100) });
+        this.store.updateOpening(id, { offset: v / 100 }), { min: 0, max: Math.round(g.len * 100), cls: 'opening-off' });
+    }
+    if (o.type === 'door') {
+      const swing = this.section(root, 'Swing');
+      this.choiceRow(swing, [['left', 'Hinge left'], ['right', 'Hinge right']], o.hinge ?? 'left', (v) =>
+        this.store.updateOpening(id, { hinge: v as 'left' | 'right' }));
+      this.choiceRow(swing, [['in', 'Opens in'], ['out', 'Opens out']], o.swing ?? 'in', (v) =>
+        this.store.updateOpening(id, { swing: v as 'in' | 'out' }));
     }
     const a = this.section(root, 'Actions');
     const del = this.el(`<div class="btn-row"><button class="btn danger">Delete</button></div>`);
@@ -464,12 +547,17 @@ export class UI {
     root.appendChild(this.el(`<p class="props-sub">Drag it in the plan, or set exact coordinates</p>`));
     const s = this.section(root, 'Position');
     this.numberRow(s, 'X', Math.round(c.x * 100), 'cm', (v) =>
-      this.store.moveCorner(id, v / 100, c.y, false));
+      this.store.moveCorner(id, v / 100, c.y, false), { cls: 'corner-x' });
     this.numberRow(s, 'Y', Math.round(c.y * 100), 'cm', (v) =>
-      this.store.moveCorner(id, c.x, v / 100, false));
+      this.store.moveCorner(id, c.x, v / 100, false), { cls: 'corner-y' });
     const a = this.section(root, 'Actions');
     const del = this.el(`<div class="btn-row"><button class="btn danger">Remove corner</button></div>`);
-    del.querySelector('button')!.addEventListener('click', () => {
+    const delBtn = del.querySelector('button') as HTMLButtonElement;
+    if (this.store.design.corners.length <= 3) {
+      delBtn.disabled = true;
+      delBtn.title = 'A room needs at least 3 corners';
+    }
+    delBtn.addEventListener('click', () => {
       this.store.deleteCorner(id);
       this.store.commit();
     });
@@ -485,10 +573,23 @@ export class UI {
       $('#pane3d').classList.toggle('hidden', mode === '2d');
       document.querySelectorAll<HTMLElement>('#view-toggle button').forEach((b) =>
         b.classList.toggle('active', b.dataset.view === mode));
-      if (mode !== '3d') requestAnimationFrame(() => this.plan.zoomFit());
     };
     document.querySelectorAll<HTMLElement>('#view-toggle button').forEach((b) =>
       b.addEventListener('click', () => setView(b.dataset.view as '2d' | 'split' | '3d')));
+
+    // narrow screens: the catalog is an off-canvas drawer; click-away closes it
+    const catalogBtn = $('#btn-catalog');
+    catalogBtn.addEventListener('click', () => $('#catalog').classList.toggle('open'));
+    document.addEventListener('pointerdown', (e) => {
+      const cat = $('#catalog');
+      if (!cat.classList.contains('open')) return;
+      const t = e.target as Node;
+      if (!cat.contains(t) && !catalogBtn.contains(t)) cat.classList.remove('open');
+    });
+    this.plan.onArmedChange = () => {
+      this.markArmedTile();
+      if (this.plan.armedDef) $('#catalog').classList.remove('open');
+    };
 
     $('#btn-undo').addEventListener('click', () => this.store.undo());
     $('#btn-redo').addEventListener('click', () => this.store.redo());
@@ -499,12 +600,14 @@ export class UI {
     };
     dayBtn.addEventListener('click', () => {
       this.store.setNight(!this.store.design.scene.night);
+      this.store.commit();
       refreshDay();
     });
     this.store.on('history', refreshDay);
     refreshDay();
 
     $('#btn-new').addEventListener('click', () => {
+      if (!confirm('Start a new design? Your current design will be replaced (Undo can restore it).')) return;
       this.plan.setArmed(null);
       this.store.replaceDesign(emptyDesign());
       this.plan.zoomFit();
@@ -522,8 +625,8 @@ export class UI {
       fileInput.value = '';
       if (!f) return;
       try {
-        const d = JSON.parse(await f.text());
-        if (d?.version !== 1 || !Array.isArray(d.corners)) throw new Error('bad file');
+        const d = sanitizeDesign(JSON.parse(await f.text()));
+        if (!d) throw new Error('bad file');
         this.store.replaceDesign(d);
         this.plan.zoomFit();
       } catch {

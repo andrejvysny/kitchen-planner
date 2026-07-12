@@ -9,14 +9,18 @@ backend, no 3D asset files — all meshes are procedural.
 npm run dev                 # dev server :5173
 npx tsc --noEmit            # type-check (run before build; build also runs it)
 npm run build               # tsc + vite build → dist/
-npx vite preview &          # serve dist on :4173 (required for tests)
+npm run test:unit           # Vitest: geometry/store/snapping + mesh-builder smoke
+npx vite preview &          # serve dist on :4173 (required for E2E)
 node test/interact.mjs      # E2E suite (Playwright, exits 1 on failure)
 node test/screenshot.mjs    # UI screenshots → /tmp/shot-*.png
 ```
 
-There are no unit tests; `test/interact.mjs` is the safety net — run it after
-any change to snapping, store mutations, or the plan editor. Tests assume the
-production build, so `npm run build` first.
+`test/interact.mjs` is the main safety net — run it after any change to
+snapping, store mutations, or the plan editor. It assumes the production
+build, so `npm run build` first. Unit tests (test/unit/) cover the model
+invariants (CCW normalization + opening remap, sanitizeDesign, clamps) and
+instantiate every catalog mesh builder headless. Playwright resolves its own
+chromium; set `KP_CHROMIUM_PATH` to override the browser binary.
 
 ## Architecture (read this before editing)
 
@@ -76,7 +80,8 @@ Coordinate conventions (easy to get wrong):
   temporarily clears the selection tint so it doesn't bake into materials.
 - `window.__kp = {store, plan, view}` is exposed for tests/debugging — keep it.
 - Autosave key `kitchen-planner-design-v1`, parts library
-  `kitchen-planner-parts-v1`. Bump `Design.version` + migrate in
-  `normalizeDesign()` on schema changes.
-- Date/format: all lengths meters internally; UI shows cm (ints) except wall
-  lengths (m, 2 decimals).
+  `kitchen-planner-parts-v1`. Bump `DESIGN_VERSION` + migrate in
+  `sanitizeDesign()` (store.ts) on schema changes — it is the single
+  validation/repair gate for autosave and file import.
+- Date/format: all lengths meters internally; UI shows cm (ints) everywhere,
+  including wall lengths and canvas dimension labels.

@@ -23,10 +23,15 @@ interface WallEntry {
 
 const SHADOW_LIGHT_BUDGET = 4;
 
+const LIGHT_COOL = new THREE.Color('#dfeaff');
+const LIGHT_WARM = new THREE.Color('#ffb46b');
+const BG_DAY = new THREE.Color('#e6e4df');
+const BG_NIGHT = new THREE.Color('#171a20');
+const scratchColor = new THREE.Color();
+
+/** Shared scratch — consumers must copy() the result, never keep the reference. */
 function lightColor(warmth: number): THREE.Color {
-  const cool = new THREE.Color('#dfeaff');
-  const warm = new THREE.Color('#ffb46b');
-  return cool.clone().lerp(warm, warmth);
+  return scratchColor.copy(LIGHT_COOL).lerp(LIGHT_WARM, warmth);
 }
 
 export class View3D {
@@ -50,6 +55,8 @@ export class View3D {
   private dragOffset = new THREE.Vector2();
   private dragMoved = false;
   private downPos = new THREE.Vector2();
+  private lastTintedId: string | null = null;
+  private scratchToCam = new THREE.Vector3();
 
   private getArmed: () => CatalogDef | null;
   private clearArmed: () => void;
@@ -104,6 +111,7 @@ export class View3D {
     canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     canvas.addEventListener('pointermove', (e) => this.onPointerMove(e));
     canvas.addEventListener('pointerup', (e) => this.onPointerUp(e));
+    canvas.addEventListener('pointercancel', () => this.endDrag());
 
     this.rebuild();
     this.setPreset('corner');
@@ -132,7 +140,7 @@ export class View3D {
   private updateWallVisibility(): void {
     const camPos = this.camera.position;
     for (const w of this.walls) {
-      const toCam = new THREE.Vector3().subVectors(camPos, w.mid);
+      const toCam = this.scratchToCam.subVectors(camPos, w.mid);
       toCam.y = 0;
       toCam.normalize();
       w.group.visible = w.inward.dot(toCam) > -0.25;
@@ -177,6 +185,7 @@ export class View3D {
 
   private disposeGroup(root: THREE.Object3D): void {
     root.traverse((o) => {
+      if ((o as THREE.Light).isLight) (o as THREE.Light).dispose(); // frees shadow-map render targets
       const mesh = o as THREE.Mesh;
       if (mesh.geometry) mesh.geometry.dispose();
       const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
@@ -321,23 +330,25 @@ export class View3D {
       mullion.position.set(0, o.sill + o.height / 2, 0);
       g.add(mullion);
     } else {
-      // door leaf, slightly ajar
+      // door leaf, slightly ajar; mirrored for right hinges / outward swings
+      const sign = o.hinge === 'right' ? -1 : 1;
+      const out = o.swing === 'out';
       const leaf = new THREE.Group();
-      leaf.position.set(-o.width / 2 + fw, 0, t / 2);
+      leaf.position.set(sign * (-o.width / 2 + fw), 0, out ? -t / 2 : t / 2);
       const slab = new THREE.Mesh(
         new THREE.BoxGeometry(o.width - fw * 2, o.height - fw - 0.02, 0.045),
         new THREE.MeshStandardMaterial({ color: '#ece7db', roughness: 0.6 })
       );
-      slab.position.set((o.width - fw * 2) / 2, (o.height - fw) / 2, 0);
+      slab.position.set((sign * (o.width - fw * 2)) / 2, (o.height - fw) / 2, 0);
       slab.castShadow = true;
       leaf.add(slab);
       const knob = new THREE.Mesh(
         new THREE.SphereGeometry(0.022, 12, 10),
         new THREE.MeshStandardMaterial({ color: '#2b2b28', roughness: 0.3, metalness: 0.7 })
       );
-      knob.position.set(o.width - fw * 2 - 0.06, 1.02, 0.045);
+      knob.position.set(sign * (o.width - fw * 2 - 0.06), 1.02, out ? -0.045 : 0.045);
       leaf.add(knob);
-      leaf.rotation.y = -0.5;
+      leaf.rotation.y = (o.hinge === 'right') === out ? -0.5 : 0.5;
       g.add(leaf);
     }
     wallGroup.add(g);
@@ -396,7 +407,7 @@ export class View3D {
 
   private relight(): void {
     const night = this.store.design.scene.night;
-    this.scene.background = new THREE.Color(night ? '#171a20' : '#e6e4df');
+    this.scene.background = night ? BG_NIGHT : BG_DAY;
     this.hemi.intensity = night ? 0.1 : 0.72;
     this.hemi.color.set(night ? '#5a6b8c' : '#ffffff');
     this.sun.intensity = night ? 0.04 : 1.7;
@@ -450,19 +461,24 @@ export class View3D {
     }
   }
 
+  private setTint(id: string, on: boolean): void {
+    const entry = this.items.get(id);
+    if (!entry) return;
+    entry.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      const m = mesh.material as THREE.MeshStandardMaterial | undefined;
+      if (!m || !('emissive' in m) || mesh.userData.bulb) return;
+      m.emissive.set(on ? '#1e5a49' : '#000000');
+      m.emissiveIntensity = on ? 0.45 : 1;
+    });
+  }
+
   private applySelectionTint(): void {
     const sel = this.store.selection;
     const selectedId = sel.kind === 'item' ? sel.id : null;
-    for (const [id, entry] of this.items) {
-      const tint = id === selectedId;
-      entry.group.traverse((o) => {
-        const mesh = o as THREE.Mesh;
-        const m = mesh.material as THREE.MeshStandardMaterial | undefined;
-        if (!m || !('emissive' in m) || mesh.userData.bulb) return;
-        m.emissive.set(tint ? '#1e5a49' : '#000000');
-        m.emissiveIntensity = tint ? 0.45 : 1;
-      });
-    }
+    if (this.lastTintedId && this.lastTintedId !== selectedId) this.setTint(this.lastTintedId, false);
+    if (selectedId) this.setTint(selectedId, true);
+    this.lastTintedId = selectedId;
   }
 
   /* ---------------- picking & dragging ---------------- */
@@ -496,7 +512,7 @@ export class View3D {
   }
 
   private onPointerDown(e: PointerEvent): void {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || this.dragItemId) return;
     this.downPos.set(e.clientX, e.clientY);
     this.dragMoved = false;
 
@@ -537,12 +553,25 @@ export class View3D {
 
   private onPointerUp(e: PointerEvent): void {
     if (this.dragItemId) {
-      this.controls.enabled = true;
-      if (this.dragMoved) this.store.commit();
-      this.dragItemId = null;
+      this.endDrag();
     } else if (e.button === 0 && this.downPos.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) < 4) {
       if (!this.pickItem(e)) this.store.select({ kind: 'none' });
     }
+  }
+
+  /** Shared teardown for pointerup and pointercancel — commits an in-flight drag. */
+  private endDrag(): void {
+    if (!this.dragItemId) return;
+    this.controls.enabled = true;
+    if (this.dragMoved) this.store.commit();
+    this.dragItemId = null;
+  }
+
+  /** Project a world point to canvas CSS pixels (used by the E2E suite). */
+  worldToScreen(x: number, y: number, z: number): { x: number; y: number } {
+    const v = new THREE.Vector3(x, y, z).project(this.camera);
+    const el = this.renderer.domElement;
+    return { x: ((v.x + 1) / 2) * el.clientWidth, y: ((1 - v.y) / 2) * el.clientHeight };
   }
 
   /* ---------------- export ---------------- */
@@ -561,9 +590,8 @@ export class View3D {
     const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
 
     // clear the selection tint so it does not bake into exported materials
-    const sel = this.store.selection;
-    this.store.select({ kind: 'none' });
-    this.applySelectionTint();
+    const tinted = this.lastTintedId;
+    if (tinted) this.setTint(tinted, false);
 
     const root = new THREE.Group();
     root.name = 'Kitchen';
@@ -582,8 +610,7 @@ export class View3D {
     const exporter = new GLTFExporter();
     const buffer = (await exporter.parseAsync(root, { binary: true })) as ArrayBuffer;
 
-    this.store.select(sel);
-    this.applySelectionTint();
+    if (tinted) this.setTint(tinted, true);
     return new Blob([buffer], { type: 'model/gltf-binary' });
   }
 }

@@ -25,6 +25,7 @@ export class PartStudio {
   private overlay: HTMLElement | null = null;
   private part!: CustomPartDef;
   private isNew = true;
+  private originalJson = '';
 
   private renderer: THREE.WebGLRenderer | null = null;
   private scene: THREE.Scene | null = null;
@@ -44,9 +45,10 @@ export class PartStudio {
   }
 
   open(existing?: CustomPartDef): void {
-    this.close();
+    if (!this.close()) return;
     this.part = existing ? JSON.parse(JSON.stringify(existing)) : newCustomPart();
     this.isNew = !existing;
+    this.originalJson = JSON.stringify(this.part);
 
     const overlay = document.createElement('div');
     overlay.className = 'studio-overlay';
@@ -102,16 +104,20 @@ export class PartStudio {
     const del = overlay.querySelector('.studio-delete') as HTMLButtonElement;
     if (this.isNew || !this.store.customPartById(this.part.id)) del.style.display = 'none';
     del.addEventListener('click', () => {
-      const removed = this.store.deleteCustomPart(this.part.id);
+      const used = this.store.design.items.filter((i) => i.defId === this.part.id).length;
+      const msg = used
+        ? `Delete this part and its ${used} placed ${used === 1 ? 'copy' : 'copies'}?`
+        : 'Delete this part?';
+      if (!confirm(msg)) return;
+      this.store.deleteCustomPart(this.part.id);
       this.store.commit();
-      void removed;
-      this.close();
+      this.close(true);
     });
 
     (overlay.querySelector('.studio-save') as HTMLElement).addEventListener('click', () => {
       this.store.upsertCustomPart(JSON.parse(JSON.stringify(this.part)));
       this.store.commit();
-      this.close();
+      this.close(true);
     });
 
     this.formEl = overlay.querySelector('.studio-form') as HTMLElement;
@@ -119,7 +125,11 @@ export class PartStudio {
     this.initPreview(overlay.querySelector('canvas') as HTMLCanvasElement);
   }
 
-  close(): void {
+  /** Close the studio. Unsaved edits ask for confirmation unless `force`. Returns false if kept open. */
+  close(force = false): boolean {
+    if (this.overlay && !force && JSON.stringify(this.part) !== this.originalJson) {
+      if (!confirm('Discard your changes to this part?')) return false;
+    }
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
     this.controls?.dispose();
@@ -129,6 +139,7 @@ export class PartStudio {
     this.overlay?.remove();
     this.overlay = null;
     this.onClose();
+    return true;
   }
 
   /* ---------------- form ---------------- */

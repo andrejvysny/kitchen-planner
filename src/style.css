@@ -129,7 +129,7 @@ html, body {
   border: 1px solid var(--panel-border);
   border-radius: var(--radius);
   background: #fbfaf9;
-  cursor: grab;
+  cursor: pointer;
   transition: border-color 0.12s ease, background 0.12s ease, transform 0.08s ease;
   user-select: none;
   text-align: center;
@@ -138,6 +138,11 @@ html, body {
 .cat-item:hover {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+.cat-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .cat-item.armed {
@@ -352,6 +357,17 @@ html, body {
 
 .btn:hover { background: #f0efec; }
 
+.btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .btn.danger {
   color: var(--danger);
   border-color: #ecd5d3;
@@ -410,16 +426,6 @@ html, body {
   margin-top: 14px;
 }
 
-kbd {
-  background: #edecea;
-  border: 1px solid #dcdad5;
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  padding: 0 5px;
-  font-size: 11px;
-  font-family: inherit;
-}
-
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -458,6 +464,16 @@ kbd {
   text-align: center;
   font-size: 13px;
   font-weight: 600;
+}
+
+.stepper input[type='number'] {
+  width: 44px;
+  border: none;
+  background: none;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
 }
 
 /* ---------- Part Studio modal ---------- */
@@ -639,3 +655,37 @@ kbd {
 ::-webkit-scrollbar { width: 10px; }
 ::-webkit-scrollbar-thumb { background: #d6d4cf; border-radius: 5px; border: 2px solid var(--panel); }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- Narrow screens ---------- */
+
+#btn-catalog { display: none; }
+
+@media (max-width: 900px) {
+  #btn-catalog { display: block; }
+  #topbar { flex-wrap: wrap; row-gap: 4px; }
+  .brand-name { display: none; }
+
+  #workspace { flex-direction: column; }
+
+  #catalog {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 250px;
+    z-index: 30;
+    transform: translateX(-105%);
+    transition: transform 0.2s ease;
+    box-shadow: var(--shadow);
+  }
+  #catalog.open { transform: none; }
+
+  #canvases { min-height: 0; }
+
+  #props {
+    width: auto;
+    max-height: 38%;
+    border-left: none;
+    border-top: 1px solid var(--panel-border);
+  }
+}

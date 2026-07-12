@@ -13,6 +13,9 @@ export interface SymbolStyle {
   pxPerM: number;
   /** override the dashed "mounted above counter" style (used for custom wall parts) */
   overhead?: boolean;
+  /** doors only */
+  doorHinge?: 'left' | 'right';
+  doorSwing?: 'in' | 'out';
 }
 
 const INK = '#3a3934';
@@ -210,7 +213,10 @@ export function drawPlanSymbol(
       break;
     }
     case 'door': {
-      // swing arc: hinge at (-hw, 0), leaf opening inward (+y)
+      // swing arc: hinge at (-hw, 0), leaf opening inward (+y);
+      // mirrored for right hinges / outward swings
+      ctx.save();
+      ctx.scale(style.doorHinge === 'right' ? -1 : 1, style.doorSwing === 'out' ? -1 : 1);
       ctx.setLineDash([hair * 4, hair * 3]);
       ctx.beginPath();
       ctx.arc(-hw, 0, w, 0, Math.PI / 2);
@@ -218,6 +224,7 @@ export function drawPlanSymbol(
       ctx.setLineDash([]);
       ctx.lineWidth = hair * 2;
       line(ctx, -hw, 0, -hw, w);
+      ctx.restore();
       break;
     }
     case 'window': {

@@ -1,7 +1,5 @@
 import type { Corner, Point, WallRef } from './types';
 
-export const TAU = Math.PI * 2;
-
 export function dist(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -23,18 +21,6 @@ export function signedArea(pts: Point[]): number {
     s += a.x * b.y - b.x * a.y;
   }
   return s / 2;
-}
-
-export function polygonContains(pts: Point[], p: Point): boolean {
-  let inside = false;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const a = pts[i];
-    const b = pts[j];
-    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
-      inside = !inside;
-    }
-  }
-  return inside;
 }
 
 export function polygonCentroid(pts: Point[]): Point {
@@ -97,31 +83,6 @@ export function rot(p: Point, angle: number): Point {
   return { x: p.x * c - p.y * s, y: p.x * s + p.y * c };
 }
 
-/**
- * Corners of a rotated rectangle centered at (cx, cy).
- * Local +y is the item's facing (front) direction.
- */
-export function rectCorners(
-  cx: number,
-  cy: number,
-  w: number,
-  d: number,
-  rotation: number
-): Point[] {
-  const hw = w / 2;
-  const hd = d / 2;
-  const local: Point[] = [
-    { x: -hw, y: -hd },
-    { x: hw, y: -hd },
-    { x: hw, y: hd },
-    { x: -hw, y: hd },
-  ];
-  return local.map((p) => {
-    const r = rot(p, rotation);
-    return { x: r.x + cx, y: r.y + cy };
-  });
-}
-
 export function pointInRect(
   p: Point,
   cx: number,
@@ -132,13 +93,6 @@ export function pointInRect(
 ): boolean {
   const local = rot({ x: p.x - cx, y: p.y - cy }, -rotation);
   return Math.abs(local.x) <= w / 2 && Math.abs(local.y) <= d / 2;
-}
-
-export function normalizeAngle(a: number): number {
-  a = a % TAU;
-  if (a > Math.PI) a -= TAU;
-  if (a < -Math.PI) a += TAU;
-  return a;
 }
 
 export function fmtLen(m: number): string {

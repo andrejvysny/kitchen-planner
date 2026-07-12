@@ -1,6 +1,10 @@
 import { chromium } from 'playwright';
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
+const executablePath = process.env.KP_CHROMIUM_PATH || undefined;
+const browser = await chromium.launch({
+  ...(executablePath ? { executablePath } : {}),
+  args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'],
+});
 const page = await browser.newPage({ viewport: { width: 1600, height: 950 } });
 
 const errors = [];

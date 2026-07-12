@@ -1,5 +1,5 @@
 import { snapsToWall, type CatalogDef } from './catalog';
-import { clamp, projectOnWall, wallPoint, type WallGeom } from './geometry';
+import { clamp, fmtCm, projectOnWall, wallPoint, type WallGeom } from './geometry';
 import type { Store } from './store';
 import type { Item, Point } from './types';
 
@@ -98,8 +98,8 @@ export function snapItem(
         x: g.a.x + g.dir.x * tp + g.inward.x * off,
         y: g.a.y + g.dir.y * tp + g.inward.y * off,
       });
-      if (edgeL > 0.015) guides.push({ a: gp(0), b: gp(tt - w / 2), label: `${Math.round(edgeL * 100)}` });
-      if (edgeR > 0.015) guides.push({ a: gp(tt + w / 2), b: gp(g.len), label: `${Math.round(edgeR * 100)}` });
+      if (edgeL > 0.015) guides.push({ a: gp(0), b: gp(tt - w / 2), label: fmtCm(edgeL) });
+      if (edgeR > 0.015) guides.push({ a: gp(tt + w / 2), b: gp(g.len), label: fmtCm(edgeR) });
     }
   }
 
@@ -140,6 +140,18 @@ export function snapItem(
     const delta = s - (x * ux + y * uy);
     x += ux * delta;
     y += uy * delta;
+    // an edge snap must not push a wall-snapped item past the wall ends
+    if (wallId) {
+      const g = store.wallById(wallId);
+      if (g) {
+        const pr = projectOnWall(g, { x, y });
+        const halfSpan = Math.min(w / 2, g.len / 2);
+        const tt = clamp(pr.t, halfSpan, g.len - halfSpan);
+        const foot = wallPoint(g, tt);
+        x = foot.x + g.inward.x * (t / 2 + d / 2);
+        y = foot.y + g.inward.y * (t / 2 + d / 2);
+      }
+    }
   }
 
   // ---- center alignment for free-standing items ----

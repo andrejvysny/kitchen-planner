@@ -1,9 +1,8 @@
 import { isWallMounted, snapsToWall, type CatalogDef } from '../model/catalog';
 import {
   clamp,
-  dist,
   distToSegment,
-  fmtLen,
+  fmtCm,
   pointInRect,
   polygonCentroid,
   projectOnWall,
@@ -32,7 +31,9 @@ type Drag =
   | { type: 'none' }
   | { type: 'maybe-pan'; sx: number; sy: number; panX0: number; panY0: number; moved: boolean }
   | { type: 'pan'; sx: number; sy: number; panX0: number; panY0: number }
-  | { type: 'item'; id: string; ox: number; oy: number; moved: boolean }
+  | { type: 'maybe-split'; wallId: string; sx: number; sy: number }
+  | { type: 'pinch'; lastDist: number; lastMid: Point }
+  | { type: 'item'; id: string; ox: number; oy: number; moved: boolean; cycleTo?: string | null }
   | { type: 'corner'; id: string }
   | { type: 'opening'; id: string }
   | { type: 'rotate'; id: string };
@@ -55,6 +56,7 @@ export class Plan2D {
   private ghost: { x: number; y: number; rotation: number; valid: boolean } | null = null;
   private ghostOpening: { wallId: string; t: number; valid: boolean } | null = null;
   private drag: Drag = { type: 'none' };
+  private pointers = new Map<number, Point>(); // active pointers, for touch pinch/pan
   private guides: Guide[] = [];
   private pointerWorld: Point = { x: 0, y: 0 };
   private raf = 0;
@@ -79,6 +81,10 @@ export class Plan2D {
     canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     canvas.addEventListener('pointermove', (e) => this.onPointerMove(e));
     canvas.addEventListener('pointerup', (e) => this.onPointerUp(e));
+    canvas.addEventListener('pointercancel', (e) => {
+      this.pointers.delete(e.pointerId);
+      this.endGesture();
+    });
     canvas.addEventListener('pointerleave', () => {
       if (this.drag.type === 'none') {
         this.ghost = null;
@@ -170,7 +176,7 @@ export class Plan2D {
     const sel = this.store.selection;
     switch (sel.kind) {
       case 'item':
-        this.onHint('Drag to move · R rotates · arrows nudge · Ctrl+D duplicates · Delete removes');
+        this.onHint('Drag to move · click again for the item underneath · R rotates · arrows nudge · Ctrl+D duplicates · Delete removes');
         break;
       case 'corner':
         this.onHint('Drag the corner to reshape the room · Delete removes it');
@@ -236,16 +242,20 @@ export class Plan2D {
     return null;
   }
 
-  /** items ordered top-most first for hit-testing (reverse of draw order) */
-  private hitItem(w: Point): Item | null {
-    const items = this.sortedItems().reverse();
-    for (const it of items) {
+  /** all items under the point, top-most first (reverse of draw order) */
+  private hitItems(w: Point): Item[] {
+    const out: Item[] = [];
+    for (const it of [...this.sortedItems()].reverse()) {
       const pad = ['water', 'outlet', 'spot', 'strip'].includes(this.store.defOf(it.defId).kind)
         ? 0.08
         : 0.01;
-      if (pointInRect(w, it.x, it.y, it.w + pad * 2, it.d + pad * 2, it.rotation)) return it;
+      if (pointInRect(w, it.x, it.y, it.w + pad * 2, it.d + pad * 2, it.rotation)) out.push(it);
     }
-    return null;
+    return out;
+  }
+
+  private hitItem(w: Point): Item | null {
+    return this.hitItems(w)[0] ?? null;
   }
 
   private hitWall(w: Point): string | null {
@@ -257,8 +267,26 @@ export class Plan2D {
   }
 
   private onPointerDown(e: PointerEvent): void {
-    this.canvas.setPointerCapture(e.pointerId);
     const s = { x: e.offsetX, y: e.offsetY };
+    if (e.pointerType === 'touch') {
+      this.pointers.set(e.pointerId, s);
+      if (this.pointers.size === 2) {
+        // second finger: abandon the single-finger gesture, start pinch zoom/pan
+        if (['corner', 'opening', 'item', 'rotate'].includes(this.drag.type)) this.store.commit();
+        const [p1, p2] = [...this.pointers.values()];
+        this.drag = {
+          type: 'pinch',
+          lastDist: Math.hypot(p1.x - p2.x, p1.y - p2.y),
+          lastMid: { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 },
+        };
+        this.guides = [];
+        this.canvas.setPointerCapture(e.pointerId);
+        return;
+      }
+      if (this.pointers.size > 2) return; // ignore extra fingers
+    }
+    if (this.drag.type !== 'none') return; // one gesture at a time
+    this.canvas.setPointerCapture(e.pointerId);
     const w = this.toWorld(s.x, s.y);
 
     if (e.button === 1 || e.button === 2) {
@@ -287,12 +315,8 @@ export class Plan2D {
     }
     const midWallId = this.hitMidpoint(s);
     if (midWallId) {
-      const g = this.store.wallById(midWallId)!;
-      const nc = this.store.splitWall(midWallId, g.len / 2);
-      if (nc) {
-        this.store.select({ kind: 'corner', id: nc.id });
-        this.drag = { type: 'corner', id: nc.id };
-      }
+      // only an actual drag bends the wall — a bare click selects it (see onPointerMove)
+      this.drag = { type: 'maybe-split', wallId: midWallId, sx: s.x, sy: s.y };
       return;
     }
     const opening = this.hitOpening(w);
@@ -301,10 +325,21 @@ export class Plan2D {
       this.drag = { type: 'opening', id: opening.id };
       return;
     }
-    const item = this.hitItem(w);
-    if (item) {
+    const stack = this.hitItems(w);
+    if (stack.length) {
+      // drag whatever is already selected in the stack; a plain click cycles to the item below
+      const sel = this.store.selection;
+      const selIdx = sel.kind === 'item' ? stack.findIndex((it) => it.id === sel.id) : -1;
+      const item = selIdx >= 0 ? stack[selIdx] : stack[0];
       this.store.select({ kind: 'item', id: item.id });
-      this.drag = { type: 'item', id: item.id, ox: w.x - item.x, oy: w.y - item.y, moved: false };
+      this.drag = {
+        type: 'item',
+        id: item.id,
+        ox: w.x - item.x,
+        oy: w.y - item.y,
+        moved: false,
+        cycleTo: selIdx >= 0 ? stack[(selIdx + 1) % stack.length].id : null,
+      };
       return;
     }
     const wallId = this.hitWall(w);
@@ -341,8 +376,41 @@ export class Plan2D {
     const s = { x: e.offsetX, y: e.offsetY };
     const w = this.toWorld(s.x, s.y);
     this.pointerWorld = w;
+    if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, s);
 
     switch (this.drag.type) {
+      case 'pinch': {
+        const d = this.drag;
+        const pts = [...this.pointers.values()];
+        if (pts.length < 2) return;
+        const [p1, p2] = pts;
+        const distNow = Math.max(1, Math.hypot(p1.x - p2.x, p1.y - p2.y));
+        const m = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+        const newZoom = clamp(this.zoom * (distNow / d.lastDist), 15, 400);
+        const applied = newZoom / this.zoom;
+        // keep the world point under the previous midpoint anchored, then follow the midpoint
+        this.panX = m.x - (d.lastMid.x - this.panX) * applied;
+        this.panY = m.y - (d.lastMid.y - this.panY) * applied;
+        this.zoom = newZoom;
+        d.lastDist = distNow;
+        d.lastMid = m;
+        this.requestDraw();
+        return;
+      }
+      case 'maybe-split': {
+        const d = this.drag;
+        if (Math.hypot(s.x - d.sx, s.y - d.sy) <= 4) return;
+        const g = this.store.wallById(d.wallId);
+        if (!g) return;
+        const nc = this.store.splitWall(d.wallId, g.len / 2);
+        if (nc) {
+          this.store.select({ kind: 'corner', id: nc.id });
+          this.drag = { type: 'corner', id: nc.id };
+        } else {
+          this.drag = { type: 'none' };
+        }
+        return;
+      }
       case 'pan':
       case 'maybe-pan': {
         const d = this.drag;
@@ -446,24 +514,42 @@ export class Plan2D {
         ? 'pointer'
         : this.hitOpening(w) || this.hitItem(w)
           ? 'move'
-          : 'default';
+          : this.hitWall(w)
+            ? 'pointer'
+            : 'default';
     this.canvas.style.cursor = hover;
   }
 
   private onPointerUp(e: PointerEvent): void {
+    this.pointers.delete(e.pointerId);
+    const wasDrag = this.drag;
+    if (wasDrag.type === 'pinch') {
+      // pinch ends when either finger lifts; the remaining finger starts nothing new
+      this.drag = { type: 'none' };
+      return;
+    }
+    if (wasDrag.type === 'maybe-pan' && !wasDrag.moved) {
+      this.store.select({ kind: 'none' });
+    }
+    if (wasDrag.type === 'maybe-split') {
+      this.store.select({ kind: 'wall', id: wasDrag.wallId });
+    }
+    if (wasDrag.type === 'item' && !wasDrag.moved && wasDrag.cycleTo && wasDrag.cycleTo !== wasDrag.id) {
+      this.store.select({ kind: 'item', id: wasDrag.cycleTo });
+    }
+    this.endGesture();
+  }
+
+  /** Shared teardown for pointerup and pointercancel — commits any in-flight edit. */
+  private endGesture(): void {
     const wasDrag = this.drag;
     this.drag = { type: 'none' };
     this.guides = [];
     this.canvas.style.cursor = this.armedDef ? 'crosshair' : 'default';
-
-    if (wasDrag.type === 'maybe-pan' && !wasDrag.moved) {
-      this.store.select({ kind: 'none' });
-    }
     if (['corner', 'opening', 'item', 'rotate'].includes(wasDrag.type)) {
       this.store.commit();
     }
     this.requestDraw();
-    void e;
   }
 
   private onWheel(e: WheelEvent): void {
@@ -686,7 +772,7 @@ export class Plan2D {
       labels.push({
         x: mid.x - g.inward.x * off,
         y: mid.y - g.inward.y * off,
-        text: fmtLen(g.len),
+        text: fmtCm(g.len),
         angle: ang,
         color: selectedWall ? ACCENT : '#8a877f',
         size: 12,
@@ -710,6 +796,8 @@ export class Plan2D {
         color: '#fff',
         selected: selectedO,
         pxPerM: this.zoom,
+        doorHinge: o.hinge,
+        doorSwing: o.swing,
       });
       ctx.restore();
 
@@ -738,7 +826,7 @@ export class Plan2D {
           labels.push({
             x: (a.x + b.x) / 2,
             y: (a.y + b.y) / 2,
-            text: `${Math.round(val * 100)}`,
+            text: fmtCm(val),
             color: ACCENT,
             size: 11,
             bold: true,

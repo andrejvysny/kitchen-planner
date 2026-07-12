@@ -28,6 +28,10 @@ export interface Opening {
   height: number;
   /** bottom of the opening above the floor (0 for doors, ~0.9 for windows) */
   sill: number;
+  /** doors only: jamb carrying the hinge, seen from inside the room (default 'left') */
+  hinge?: 'left' | 'right';
+  /** doors only: leaf swings into the room or out of it (default 'in') */
+  swing?: 'in' | 'out';
 }
 
 export interface LightProps {

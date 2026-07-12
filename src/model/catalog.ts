@@ -431,7 +431,3 @@ export function snapsToWall(def: CatalogDef): boolean {
 export function isWallMounted(def: CatalogDef): boolean {
   return def.marker || def.kind === 'backsplash';
 }
-
-export function isCeilingMounted(def: CatalogDef): boolean {
-  return def.kind === 'spot';
-}

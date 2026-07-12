@@ -1,7 +1,7 @@
 import { catalogDef, defaultParams, type CatalogDef } from './catalog';
-import { clamp, dist, signedArea, wallGeom, type WallGeom } from './geometry';
+import { clamp, dist, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
 import { samplePart, toCatalogDef } from './parts';
-import type { ChangeInfo, Corner, CustomPartDef, Design, Item, Opening, Selection } from './types';
+import type { ChangeInfo, Corner, CustomPartDef, Design, Item, Opening, Point, Selection } from './types';
 import { uid } from './types';
 
 type EventMap = {
@@ -81,6 +81,8 @@ export class Store {
   }
 
   undo(): void {
+    // an uncommitted gesture first becomes its own undo step, so nothing is skipped
+    this.commit();
     if (!this.undoStack.length) return;
     this.redoStack.push(JSON.stringify(this.design));
     this.restore(this.undoStack.pop()!);
@@ -93,7 +95,7 @@ export class Store {
   }
 
   private restore(json: string): void {
-    this.design = JSON.parse(json);
+    this.design = normalizeDesign(JSON.parse(json));
     this.lastCommitted = json;
     this.select({ kind: 'none' });
     this.autosave();
@@ -125,10 +127,7 @@ export class Store {
   static loadAutosaved(): Design | null {
     try {
       const raw = localStorage.getItem(AUTOSAVE_KEY);
-      if (!raw) return null;
-      const d = JSON.parse(raw) as Design;
-      if (d?.version !== 1 || !Array.isArray(d.corners) || d.corners.length < 3) return null;
-      return normalizeDesign(d);
+      return raw ? sanitizeDesign(JSON.parse(raw)) : null;
     } catch {
       return null;
     }
@@ -201,12 +200,18 @@ export class Store {
 
   /* ---------------- room mutations ---------------- */
 
+  /** Re-establish the CCW invariant + opening bounds after any corner mutation. */
+  private renormalize(): void {
+    normalizeDesign(this.design);
+    this.clampAllOpenings();
+  }
+
   moveCorner(id: string, x: number, y: number, transient = true): void {
     const c = this.cornerById(id);
     if (!c) return;
     c.x = x;
     c.y = y;
-    this.clampAllOpenings();
+    this.renormalize();
     this.notify({ structural: true, transient });
   }
 
@@ -226,6 +231,7 @@ export class Store {
         o.offset -= t;
       }
     }
+    this.renormalize();
     this.notify({ structural: true });
     return nc;
   }
@@ -236,16 +242,21 @@ export class Store {
     const idx = c.findIndex((k) => k.id === id);
     if (idx < 0) return;
     const prev = c[(idx - 1 + c.length) % c.length];
-    const prevLen = dist(prev, c[idx]);
-    // openings on the wall starting at the deleted corner move to the previous wall
+    // openings on the two merging walls keep their world position, not their old offset
+    const affected: { o: Opening; p: Point }[] = [];
     for (const o of this.design.openings) {
-      if (o.wallId === id) {
-        o.wallId = prev.id;
-        o.offset += prevLen;
+      if (o.wallId === id || o.wallId === prev.id) {
+        const g = this.wallById(o.wallId);
+        if (g) affected.push({ o, p: wallPoint(g, o.offset) });
       }
     }
     c.splice(idx, 1);
-    this.clampAllOpenings();
+    const merged = this.wallById(prev.id);
+    for (const { o, p } of affected) {
+      o.wallId = prev.id;
+      if (merged) o.offset = projectOnWall(merged, p).t;
+    }
+    this.renormalize();
     if (this.selection.kind === 'corner' && this.selection.id === id) this.select({ kind: 'none' });
     this.notify({ structural: true });
   }
@@ -282,7 +293,7 @@ export class Store {
       if (dot > 0.05) break; // next edge not perpendicular — stop propagating
       i = ni;
     }
-    this.clampAllOpenings();
+    this.renormalize();
     this.notify({ structural: true });
   }
 
@@ -296,7 +307,7 @@ export class Store {
       p.x = minX + (p.x - minX > 1e-3 ? w : 0);
       p.y = minY + (p.y - minY > 1e-3 ? d : 0);
     }
-    this.clampAllOpenings();
+    this.renormalize();
     this.notify({ structural: true });
   }
 
@@ -312,7 +323,6 @@ export class Store {
     this.design.openings = [];
     this.select({ kind: 'none' });
     this.notify({ structural: true });
-    this.commit();
   }
 
   /* ---------------- opening mutations ---------------- */
@@ -351,7 +361,9 @@ export class Store {
     const g = this.wallById(o.wallId);
     if (!g) return;
     o.width = clamp(o.width, 0.3, Math.max(0.3, g.len - 0.2));
-    o.offset = clamp(o.offset, o.width / 2 + 0.05, g.len - o.width / 2 - 0.05);
+    const lo = o.width / 2 + 0.05;
+    const hi = g.len - o.width / 2 - 0.05;
+    o.offset = hi < lo ? g.len / 2 : clamp(o.offset, lo, hi);
     const maxH = this.design.room.wallHeight - 0.05;
     o.height = clamp(o.height, 0.3, maxH);
     o.sill = clamp(o.sill, 0, maxH - o.height);
@@ -478,7 +490,6 @@ export class Store {
   setNight(night: boolean): void {
     this.design.scene.night = night;
     this.notify({ structural: false });
-    this.commit();
   }
 
   setRoomStyle(patch: Partial<Design['room']>): void {
@@ -490,9 +501,46 @@ export class Store {
 
 /** Ensure corner order is counter-clockwise so inward normals point into the room. */
 export function normalizeDesign(d: Design): Design {
-  if (signedArea(d.corners) < 0) d.corners.reverse();
   if (!Array.isArray(d.customParts)) d.customParts = [];
+  if (signedArea(d.corners) < 0) {
+    // reversing flips every wall a→b (keyed by a.id) into b→a (keyed by b.id),
+    // so openings must switch wall id and mirror their offset
+    const walls = new Map<string, { endId: string; len: number }>();
+    const c = d.corners;
+    for (let i = 0; i < c.length; i++) {
+      const a = c[i];
+      const b = c[(i + 1) % c.length];
+      walls.set(a.id, { endId: b.id, len: dist(a, b) });
+    }
+    c.reverse();
+    for (const o of d.openings ?? []) {
+      const w = walls.get(o.wallId);
+      if (w) {
+        o.wallId = w.endId;
+        o.offset = w.len - o.offset;
+      }
+    }
+  }
   return d;
+}
+
+export const DESIGN_VERSION = 1;
+
+/** Validate + repair a design parsed from storage or a file. Returns null when unusable. */
+export function sanitizeDesign(raw: unknown): Design | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const d = raw as Record<string, unknown>;
+  if (typeof d.version !== 'number' || d.version > DESIGN_VERSION) return null;
+  if (!Array.isArray(d.corners) || d.corners.length < 3) return null;
+  // schema migrations land here: upgrade payloads with version < DESIGN_VERSION step by step
+  const base = emptyDesign();
+  if (!Array.isArray(d.openings)) d.openings = [];
+  if (!Array.isArray(d.items)) d.items = [];
+  if (!Array.isArray(d.customParts)) d.customParts = [];
+  d.room = { ...base.room, ...(d.room && typeof d.room === 'object' ? d.room : {}) };
+  d.scene = { ...base.scene, ...(d.scene && typeof d.scene === 'object' ? d.scene : {}) };
+  d.version = DESIGN_VERSION;
+  return normalizeDesign(d as unknown as Design);
 }
 
 /* ---------------- factory designs ---------------- */

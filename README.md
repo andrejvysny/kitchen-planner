@@ -139,12 +139,14 @@ Decisions worth knowing:
 
 ## Tests
 
-End-to-end tests run against the production build with Playwright:
+Unit tests (Vitest) cover the model layer and instantiate every mesh builder
+headless; end-to-end tests run against the production build with Playwright:
 
 ```bash
+npm run test:unit           # geometry / store / snapping + builder smoke tests
 npm run build
 npx vite preview &          # serves dist on :4173
-node test/interact.mjs      # 14 interaction checks (place, snap, drag, undo,
-                            # wall edits, part studio, GLB export)
+node test/interact.mjs      # 28 interaction checks (place, snap, drag, undo,
+                            # wall edits, doors, keyboard, 3D picking, exports)
 node test/screenshot.mjs    # renders UI screenshots for visual review
 ```
