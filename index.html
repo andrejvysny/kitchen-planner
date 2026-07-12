@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='5' fill='%232f6f5e'/%3E%3Crect x='8' y='14' width='16' height='10' rx='1.5' fill='%23f2f1ec'/%3E%3Crect x='8' y='8' width='16' height='3' rx='1.5' fill='%23c9a87c'/%3E%3C/svg%3E" />
+    <title>Kitchen Planner</title>
+  </head>
+  <body>
+    <div id="app">
+      <header id="topbar">
+        <div class="brand">
+          <span class="brand-mark">▦</span>
+          <span class="brand-name">Kitchen Planner</span>
+        </div>
+        <div class="topbar-group" id="view-toggle">
+          <button data-view="2d" title="2D floor plan only">2D</button>
+          <button data-view="split" class="active" title="2D + 3D side by side">Split</button>
+          <button data-view="3d" title="3D view only">3D</button>
+        </div>
+        <div class="topbar-group">
+          <button id="btn-undo" title="Undo (Ctrl+Z)">↩</button>
+          <button id="btn-redo" title="Redo (Ctrl+Y)">↪</button>
+        </div>
+        <div class="topbar-group">
+          <button id="btn-daynight" title="Toggle day / night">☀ Day</button>
+        </div>
+        <div class="topbar-spacer"></div>
+        <div class="topbar-group">
+          <button id="btn-new" title="Start a new empty design">New</button>
+          <button id="btn-save" title="Download design as JSON">Save</button>
+          <button id="btn-load" title="Load design from JSON">Load</button>
+          <button id="btn-png" title="Export 3D snapshot as PNG">Snapshot</button>
+          <button id="btn-glb" title="Export the modelled kitchen as .glb for Blender">Blender</button>
+          <input type="file" id="file-input" accept=".json,application/json" hidden />
+        </div>
+      </header>
+
+      <main id="workspace">
+        <aside id="catalog">
+          <div id="catalog-inner"></div>
+        </aside>
+
+        <section id="canvases">
+          <div id="pane2d" class="pane">
+            <canvas id="canvas2d"></canvas>
+            <div class="pane-badge">Floor plan</div>
+            <div id="zoom-controls">
+              <button id="btn-zoom-in" title="Zoom in">+</button>
+              <button id="btn-zoom-fit" title="Zoom to fit">⛶</button>
+              <button id="btn-zoom-out" title="Zoom out">−</button>
+            </div>
+          </div>
+          <div id="pane3d" class="pane">
+            <canvas id="canvas3d"></canvas>
+            <div class="pane-badge">3D view</div>
+            <div id="cam-controls">
+              <button data-cam="corner" class="active" title="Perspective view">Corner</button>
+              <button data-cam="top" title="View from above">Top</button>
+              <button data-cam="front" title="Front elevation">Front</button>
+              <button data-cam="inside" title="Eye-level view inside the room">Inside</button>
+            </div>
+          </div>
+        </section>
+
+        <aside id="props">
+          <div id="props-inner"></div>
+        </aside>
+      </main>
+
+      <footer id="statusbar">
+        <span id="status-hint"></span>
+        <span class="statusbar-spacer"></span>
+        <span id="status-info"></span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
