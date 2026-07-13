@@ -59,6 +59,25 @@ describe('sanitizeDesign', () => {
     expect(signedArea(d!.corners)).toBeGreaterThan(0);
   });
 
+  it('remaps wall visibility overrides when the polygon is reversed', () => {
+    const d = emptyDesign();
+    d.corners = [c('a', 0, 0), c('b', 0, 3), c('e', 4, 3), c('f', 4, 0)];
+    d.wallVisibility = { a: 'hide' };
+    normalizeDesign(d);
+    // wall a→b (keyed by a) flips to b→a (keyed by b); override follows
+    expect(d.wallVisibility).toEqual({ b: 'hide' });
+  });
+
+  it('keeps only valid non-auto wall visibility overrides', () => {
+    const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
+    const d = sanitizeDesign({
+      version: 2,
+      corners: base,
+      wallVisibility: { a: 'hide', b: 'auto', d: 'bogus' },
+    });
+    expect(d!.wallVisibility).toEqual({ a: 'hide' });
+  });
+
   it('migrates a legacy { night } scene to a time-of-day', () => {
     const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
     const day = sanitizeDesign({ version: 2, corners: base, scene: { night: false } });
@@ -84,6 +103,21 @@ describe('Store mutations', () => {
       expect(o.offset).toBeGreaterThanOrEqual(0);
       expect(o.offset).toBeLessThanOrEqual(g.len);
     }
+  });
+
+  it('sets per-wall and bulk wall visibility overrides', () => {
+    const store = new Store(rectDesign());
+    const ids = store.walls().map((w) => w.id);
+    expect(store.wallVisibility(ids[0])).toBe('auto');
+    store.setWallVisibility(ids[0], 'hide');
+    expect(store.wallVisibility(ids[0])).toBe('hide');
+    // 'auto' clears the override rather than storing it
+    store.setWallVisibility(ids[0], 'auto');
+    expect(store.design.wallVisibility?.[ids[0]]).toBeUndefined();
+    store.setAllWallVisibility('hide');
+    for (const id of ids) expect(store.wallVisibility(id)).toBe('hide');
+    store.setAllWallVisibility('auto');
+    expect(store.design.wallVisibility).toEqual({});
   });
 
   it('clamps opening offsets sanely on very short walls', () => {

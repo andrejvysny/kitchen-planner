@@ -21,6 +21,7 @@ interface ItemEntry {
 }
 
 interface WallEntry {
+  id: string; // wall id = start corner id; keys wallVisibility overrides
   group: THREE.Group;
   inward: THREE.Vector3;
   mid: THREE.Vector3;
@@ -180,7 +181,13 @@ export class View3D {
 
   private updateWallVisibility(): void {
     const camPos = this.camera.position;
+    const modes = this.store.design.wallVisibility;
     for (const w of this.walls) {
+      const mode = modes?.[w.id] ?? 'auto';
+      if (mode === 'show' || mode === 'hide') {
+        w.group.visible = mode === 'show';
+        continue;
+      }
       const toCam = this.scratchToCam.subVectors(camPos, w.mid);
       toCam.y = 0;
       toCam.normalize();
@@ -329,6 +336,7 @@ export class View3D {
       this.roomGroup.add(group);
       const mid = wallPoint(g, g.len / 2);
       this.walls.push({
+        id: g.id,
         group,
         inward: new THREE.Vector3(g.inward.x, 0, g.inward.y),
         mid: new THREE.Vector3(mid.x, H / 2, mid.y),

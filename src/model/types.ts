@@ -71,6 +71,9 @@ export interface RoomStyle {
 
 export type EnvPreset = 'studio' | 'soft' | 'dusk';
 
+/** Per-wall 3D visibility override. 'auto' = camera-based hide (default). */
+export type WallVisMode = 'auto' | 'show' | 'hide';
+
 /**
  * Global lighting / environment. `timeOfDay` is the master: it alone drives sun
  * direction, base colour/intensity and the sky — all recomputed live (see
@@ -202,6 +205,8 @@ export interface Design {
   customParts: CustomPartDef[];
   room: RoomStyle;
   scene: Scene;
+  /** per-wall visibility override, keyed by wall id (start corner id); missing = 'auto' */
+  wallVisibility?: Record<string, WallVisMode>;
 }
 
 export type Selection =

@@ -10,7 +10,7 @@ import {
 import { footprintPolygon, toCatalogDef } from '../model/parts';
 import { skyState } from '../model/sky';
 import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
-import type { EnvPreset, Item } from '../model/types';
+import type { EnvPreset, Item, WallVisMode } from '../model/types';
 import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
 import type { View3D, CamPreset } from '../view3d/view3d';
@@ -353,6 +353,17 @@ export class UI {
     const colors = this.section(root, 'Walls');
     this.swatchRow(colors, WALL_COLORS, this.store.design.room.wallColor, (c) =>
       this.store.setRoomStyle({ wallColor: c }));
+    const visRow = this.el(`<div class="btn-row">
+      <button class="btn" data-m="auto">Auto all</button>
+      <button class="btn" data-m="show">Show all</button>
+      <button class="btn" data-m="hide">Hide all</button></div>`);
+    visRow.querySelectorAll('button').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.store.setAllWallVisibility(b.getAttribute('data-m') as WallVisMode);
+        this.store.commit();
+      }));
+    colors.appendChild(visRow);
+    colors.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Or select a single wall to override it</p>`));
     const floor = this.section(root, 'Floor');
     this.swatchRow(floor, FLOOR_COLORS, this.store.design.room.floorColor, (c) =>
       this.store.setRoomStyle({ floorColor: c }));
@@ -557,6 +568,12 @@ export class UI {
       this.store.setWallLength(wallId, Math.max(30, v) / 100), { min: 30, max: 3000 });
     this.numberRow(s, 'Thickness', Math.round(this.store.design.room.wallThickness * 100), 'cm', (v) =>
       this.store.setRoomStyle({ wallThickness: Math.min(0.4, Math.max(0.05, v / 100)) }), { min: 5, max: 40 });
+    const vis = this.section(root, 'Visibility');
+    this.choiceRow(vis, [['auto', 'Auto'], ['show', 'Show'], ['hide', 'Hide']],
+      this.store.wallVisibility(wallId), (v) =>
+        this.store.setWallVisibility(wallId, v as WallVisMode));
+    vis.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Auto hides this wall when the camera looks past it</p>`));
+
     const a = this.section(root, 'Shape');
     const btn = this.el(`<div class="btn-row"><button class="btn">Add corner in the middle</button></div>`);
     btn.querySelector('button')!.addEventListener('click', () => {

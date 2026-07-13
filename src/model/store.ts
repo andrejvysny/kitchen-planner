@@ -2,7 +2,7 @@ import { catalogDef, defaultParams, hasCatalogDef, type CatalogDef } from './cat
 import { clamp, dist, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
 import { samplePart, sanitizePart, toCatalogDef } from './parts';
 import { migrateDesignV1, migratePartV1 } from './partsMigrate';
-import type { ChangeInfo, Corner, CustomPartDef, Design, Item, Opening, Point, Selection } from './types';
+import type { ChangeInfo, Corner, CustomPartDef, Design, Item, Opening, Point, Selection, WallVisMode } from './types';
 import { uid } from './types';
 
 type EventMap = {
@@ -510,6 +510,31 @@ export class Store {
     this.clampAllOpenings();
     this.notify({ structural: true });
   }
+
+  /* ---------------- wall visibility ---------------- */
+
+  wallVisibility(wallId: string): WallVisMode {
+    return this.design.wallVisibility?.[wallId] ?? 'auto';
+  }
+
+  setWallVisibility(wallId: string, mode: WallVisMode): void {
+    const map = (this.design.wallVisibility ??= {});
+    if (mode === 'auto') delete map[wallId];
+    else map[wallId] = mode;
+    // applied live in the render loop — no geometry rebuild needed
+    this.notify({ structural: false });
+  }
+
+  setAllWallVisibility(mode: WallVisMode): void {
+    if (mode === 'auto') {
+      this.design.wallVisibility = {};
+    } else {
+      const map: Record<string, WallVisMode> = {};
+      for (const w of this.walls()) map[w.id] = mode;
+      this.design.wallVisibility = map;
+    }
+    this.notify({ structural: false });
+  }
 }
 
 /** Ensure corner order is counter-clockwise so inward normals point into the room. */
@@ -532,6 +557,14 @@ export function normalizeDesign(d: Design): Design {
         o.wallId = w.endId;
         o.offset = w.len - o.offset;
       }
+    }
+    // wall a→b (keyed by a.id) becomes b→a (keyed by b.id), so remap overrides too
+    if (d.wallVisibility) {
+      const remapped: Record<string, WallVisMode> = {};
+      for (const [id, mode] of Object.entries(d.wallVisibility)) {
+        remapped[walls.get(id)?.endId ?? id] = mode;
+      }
+      d.wallVisibility = remapped;
     }
   }
   return d;
@@ -562,8 +595,20 @@ export function sanitizeDesign(raw: unknown): Design | null {
   if (typeof rawScene.timeOfDay !== 'number') rawScene.timeOfDay = rawScene.night ? 22 : 13;
   delete rawScene.night;
   d.scene = { ...base.scene, ...rawScene };
+  d.wallVisibility = sanitizeWallVisibility(d.wallVisibility);
   d.version = DESIGN_VERSION;
   return normalizeDesign(d as unknown as Design);
+}
+
+/** Keep only valid non-'auto' overrides; 'auto' is the implicit default. */
+function sanitizeWallVisibility(raw: unknown): Record<string, WallVisMode> {
+  const out: Record<string, WallVisMode> = {};
+  if (raw && typeof raw === 'object') {
+    for (const [id, mode] of Object.entries(raw as Record<string, unknown>)) {
+      if (mode === 'show' || mode === 'hide') out[id] = mode;
+    }
+  }
+  return out;
 }
 
 /* ---------------- factory designs ---------------- */

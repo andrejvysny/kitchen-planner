@@ -603,6 +603,27 @@ const repaired = await page.evaluate(() => {
 });
 results.push(['corrupt autosave repaired on load', repaired]);
 
+// 22. per-wall visibility override forces wall groups shown/hidden in 3D
+const wallVis = async (mode) => {
+  await page.evaluate((m) => window.__kp.store.setAllWallVisibility(m), mode);
+  await page.waitForTimeout(120); // let the render loop apply it
+  return page.evaluate(() => {
+    const groups = [];
+    window.__kp.view['scene'].traverse((o) => {
+      if (typeof o.name === 'string' && o.name.startsWith('Wall_')) groups.push(o.visible);
+    });
+    return groups;
+  });
+};
+const shown = await wallVis('show');
+const hidden = await wallVis('hide');
+results.push([
+  'wall visibility override show/hide',
+  shown.length >= 3 && shown.every((v) => v === true) && hidden.every((v) => v === false),
+]);
+// back to auto so nothing leaks into later runs
+await page.evaluate(() => window.__kp.store.setAllWallVisibility('auto'));
+
 let pass = 0;
 for (const [name, ok] of results) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`);
