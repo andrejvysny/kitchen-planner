@@ -535,6 +535,19 @@ export class Store {
     }
     this.notify({ structural: false });
   }
+
+  /* ---------------- ceiling visibility ---------------- */
+
+  ceilingVisibility(): WallVisMode {
+    return this.design.ceilingVisibility ?? 'auto';
+  }
+
+  setCeilingVisibility(mode: WallVisMode): void {
+    if (mode === 'auto') delete this.design.ceilingVisibility;
+    else this.design.ceilingVisibility = mode;
+    // applied live in the render loop — no geometry rebuild needed
+    this.notify({ structural: false });
+  }
 }
 
 /** Ensure corner order is counter-clockwise so inward normals point into the room. */
@@ -596,6 +609,7 @@ export function sanitizeDesign(raw: unknown): Design | null {
   delete rawScene.night;
   d.scene = { ...base.scene, ...rawScene };
   d.wallVisibility = sanitizeWallVisibility(d.wallVisibility);
+  if (d.ceilingVisibility !== 'show' && d.ceilingVisibility !== 'hide') delete d.ceilingVisibility;
   d.version = DESIGN_VERSION;
   return normalizeDesign(d as unknown as Design);
 }

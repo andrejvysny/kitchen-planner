@@ -207,6 +207,8 @@ export interface Design {
   scene: Scene;
   /** per-wall visibility override, keyed by wall id (start corner id); missing = 'auto' */
   wallVisibility?: Record<string, WallVisMode>;
+  /** ceiling visibility override; missing = 'auto' (camera-based, visible from below) */
+  ceilingVisibility?: WallVisMode;
 }
 
 export type Selection =

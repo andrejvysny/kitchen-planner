@@ -350,6 +350,12 @@ export class UI {
     shape.appendChild(btns);
     shape.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Drag ■ corners to reshape · drag ◆ to bend a wall</p>`));
 
+    const ceiling = this.section(root, 'Ceiling');
+    this.choiceRow(ceiling, [['auto', 'Auto'], ['show', 'Show'], ['hide', 'Hide']],
+      this.store.ceilingVisibility(), (v) =>
+        this.store.setCeilingVisibility(v as WallVisMode));
+    ceiling.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Auto shows the ceiling only when the camera is below it</p>`));
+
     const colors = this.section(root, 'Walls');
     this.swatchRow(colors, WALL_COLORS, this.store.design.room.wallColor, (c) =>
       this.store.setRoomStyle({ wallColor: c }));

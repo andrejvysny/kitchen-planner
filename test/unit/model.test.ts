@@ -78,6 +78,16 @@ describe('sanitizeDesign', () => {
     expect(d!.wallVisibility).toEqual({ a: 'hide' });
   });
 
+  it('keeps only a valid non-auto ceiling visibility override', () => {
+    const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
+    const hide = sanitizeDesign({ version: 2, corners: base, ceilingVisibility: 'hide' });
+    expect(hide!.ceilingVisibility).toBe('hide');
+    const auto = sanitizeDesign({ version: 2, corners: base, ceilingVisibility: 'auto' });
+    expect(auto!.ceilingVisibility).toBeUndefined();
+    const bogus = sanitizeDesign({ version: 2, corners: base, ceilingVisibility: 'bogus' });
+    expect(bogus!.ceilingVisibility).toBeUndefined();
+  });
+
   it('migrates a legacy { night } scene to a time-of-day', () => {
     const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
     const day = sanitizeDesign({ version: 2, corners: base, scene: { night: false } });
@@ -118,6 +128,16 @@ describe('Store mutations', () => {
     for (const id of ids) expect(store.wallVisibility(id)).toBe('hide');
     store.setAllWallVisibility('auto');
     expect(store.design.wallVisibility).toEqual({});
+  });
+
+  it('sets and clears the ceiling visibility override', () => {
+    const store = new Store(rectDesign());
+    expect(store.ceilingVisibility()).toBe('auto');
+    store.setCeilingVisibility('show');
+    expect(store.ceilingVisibility()).toBe('show');
+    // 'auto' clears the override rather than storing it
+    store.setCeilingVisibility('auto');
+    expect(store.design.ceilingVisibility).toBeUndefined();
   });
 
   it('clamps opening offsets sanely on very short walls', () => {

@@ -624,6 +624,23 @@ results.push([
 // back to auto so nothing leaks into later runs
 await page.evaluate(() => window.__kp.store.setAllWallVisibility('auto'));
 
+// 23. ceiling visibility override forces the ceiling shown/hidden in 3D
+const ceilVis = async (mode) => {
+  await page.evaluate((m) => window.__kp.store.setCeilingVisibility(m), mode);
+  await page.waitForTimeout(120); // let the render loop apply it
+  return page.evaluate(() => {
+    let v = null;
+    window.__kp.view['scene'].traverse((o) => {
+      if (o.name === 'Ceiling') v = o.visible;
+    });
+    return v;
+  });
+};
+const ceilShown = await ceilVis('show');
+const ceilHidden = await ceilVis('hide');
+results.push(['ceiling visibility override show/hide', ceilShown === true && ceilHidden === false]);
+await page.evaluate(() => window.__kp.store.setCeilingVisibility('auto'));
+
 let pass = 0;
 for (const [name, ok] of results) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`);

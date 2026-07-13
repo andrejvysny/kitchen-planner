@@ -213,8 +213,11 @@ export class View3D {
       toCam.normalize();
       w.group.visible = w.inward.dot(toCam) > -0.25;
     }
-    const H = this.store.design.room.wallHeight;
-    if (this.ceiling) this.ceiling.visible = camPos.y < H - 0.05;
+    if (this.ceiling) {
+      const cMode = this.store.design.ceilingVisibility ?? 'auto';
+      const H = this.store.design.room.wallHeight;
+      this.ceiling.visible = cMode === 'auto' ? camPos.y < H - 0.05 : cMode === 'show';
+    }
   }
 
   /* ---------------- camera presets ---------------- */
