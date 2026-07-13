@@ -3,14 +3,17 @@ import {
   clamp,
   distToSegment,
   fmtCm,
+  pointInPolygon,
   pointInRect,
   polygonCentroid,
   projectOnWall,
+  rot,
   wallPoint,
 } from '../model/geometry';
+import { footprintPolygon } from '../model/parts';
 import { nearestWall, snapItem, type Guide } from '../model/snapping';
 import type { Store } from '../model/store';
-import type { Item, Opening, Point } from '../model/types';
+import type { CustomPartDef, Item, Opening, Point } from '../model/types';
 import { drawPlanSymbol, isOverhead } from './symbols';
 
 const INK = '#3a3934';
@@ -242,10 +245,26 @@ export class Plan2D {
     return null;
   }
 
+  /** The item's true plan outline (custom parts only), in item-local coords. */
+  private footprintOf(it: Item): Point[] | null {
+    const part = this.store.customPartById(it.defId);
+    return part ? footprintPolygon(part, it.w, it.d) : null;
+  }
+
+  private partOf(it: Item): CustomPartDef | undefined {
+    return this.store.customPartById(it.defId);
+  }
+
   /** all items under the point, top-most first (reverse of draw order) */
   private hitItems(w: Point): Item[] {
     const out: Item[] = [];
     for (const it of [...this.sortedItems()].reverse()) {
+      const fp = this.footprintOf(it);
+      if (fp) {
+        const local = rot({ x: w.x - it.x, y: w.y - it.y }, -it.rotation);
+        if (pointInPolygon(local, fp)) out.push(it);
+        continue;
+      }
       const pad = ['water', 'outlet', 'spot', 'strip'].includes(this.store.defOf(it.defId).kind)
         ? 0.08
         : 0.01;
@@ -593,7 +612,11 @@ export class Plan2D {
       const def = this.store.defOf(it.defId);
       if (def.kind === 'backsplash') return 0;
       if (def.marker) return 3;
-      if (def.kind === 'custom') return it.elevation > 0.5 ? 4 : 1;
+      if (def.kind === 'custom') {
+        // worktop boards sit above base units but below overhead items
+        if (this.partOf(it)?.type === 'board') return 2;
+        return it.elevation > 0.5 ? 4 : 1;
+      }
       if (isOverhead(def.kind)) return def.light ? 5 : 4;
       return 1;
     };
@@ -700,11 +723,15 @@ export class Plan2D {
         ctx.lineWidth = hair * 2;
         ctx.strokeRect(-it.w / 2 - 0.04, -it.d / 2 - 0.04, it.w + 0.08, it.d + 0.08);
       }
+      const part = this.partOf(it);
       drawPlanSymbol(ctx, def.kind, it.w, it.d, {
         color: it.color,
         selected,
         pxPerM: this.zoom,
-        overhead: def.kind === 'custom' ? it.elevation > 0.5 : undefined,
+        overhead:
+          def.kind === 'custom' ? (part?.type === 'board' ? false : it.elevation > 0.5) : undefined,
+        bodyAlpha: part?.type === 'board' ? 0.5 : undefined,
+        footprint: this.footprintOf(it) ?? undefined,
       });
       ctx.restore();
 
@@ -742,10 +769,14 @@ export class Plan2D {
       ctx.globalAlpha = this.ghost.valid ? 0.55 : 0.3;
       ctx.translate(this.ghost.x, this.ghost.y);
       ctx.rotate(this.ghost.rotation);
+      const armedPart = this.store.customPartById(this.armedDef.id);
       drawPlanSymbol(ctx, this.armedDef.kind, this.armedDef.w, this.armedDef.d, {
         color: this.ghost.valid ? this.armedDef.color : '#d66',
         selected: false,
         pxPerM: this.zoom,
+        footprint: armedPart
+          ? (footprintPolygon(armedPart, this.armedDef.w, this.armedDef.d) ?? undefined)
+          : undefined,
       });
       ctx.restore();
       ctx.globalAlpha = 1;

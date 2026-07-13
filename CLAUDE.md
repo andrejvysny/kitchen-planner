@@ -40,6 +40,55 @@ subscribe and never talk to each other directly.
   `CatalogDef` by src/model/parts.ts). Never call `catalogDef()` directly for
   an item's defId.
 
+Custom parts (Part Studio, src/ui/partstudio/) are a discriminated union on
+`part.type`:
+
+- `cabinet` — carcass + plinth/worktop + a **zone tree** (`part.face`) on the
+  front face: n-ary weighted splits (`{dir, weights, children}`) with leaves
+  `door | doorPair | drawers | open | panel | glass`. All zone math lives in
+  src/model/zones.ts; `walkZones` is shared by the mesh builder AND the
+  studio's zone canvas, so the editor is WYSIWYG by construction. Caps:
+  MAX_LEAVES 12, MAX_DEPTH 4, MIN_FRAC 0.08. `part.footprint` supports
+  `rect | chamfer (diagonal/angled-end) | cornerL` — the zone tree always
+  applies to exactly ONE planar face; other fronts get a single panel/door.
+- `board` — a horizontal slab extruded from a free CCW polygon `outline`
+  (+ rectangular `holes`); worktops, floating shelves. Rendered via `prism()`
+  (ExtrudeGeometry) in src/view3d/meshKit.ts.
+- `freeform` — a list of `Board`s (box/cyl, front/accent slot, optional
+  groove style) composing arbitrary furniture; meshes tagged
+  `userData.boardId` for preview picking.
+
+Custom parts render through a **panel-list IR**: `partPanels(part, dims)`
+(src/model/panels.ts) emits every physical board as a `Panel` (box/cyl/prism
+shape, position, role, colour slot, finish) — pure model code, no three.js.
+src/view3d/partMeshes.ts only maps panels to meshes and adds the decoration
+layer (routed grooves, glass material); meshes carry `name = panel.id` and
+`userData.role`. A future manufacturing export (cut lists, CNC outlines)
+serializes the SAME panel list — never derive board dimensions from meshes.
+Anything geometric belongs in the panel generator, anything cosmetic in the
+mesh layer.
+
+Zone trees live on the part def only — placed instances override just
+w/d/h/color/elevation ("Duplicate part" in the studio covers variants).
+v1 templates (`{template, options}`) migrate via src/model/partsMigrate.ts;
+per-instance v1 params become cloned "(variant)" parts.
+
+## Extending custom parts
+
+- **New zone fill** (e.g. wine rack): add to `ZoneFill` (types.ts), `FILLS` +
+  count clamps in zones.ts `normalizeZones`, a case in panels.ts
+  `facePanels`, the fill button + caption in
+  src/ui/partstudio/zoneCanvas.ts. Builder smoke + panels tests catch misses.
+- **New footprint**: extend the `Footprint` union, `footprintPolygon`
+  (parts.ts), the `faces` list in panels.ts `cabinetPanels`, `faceSize` in
+  zoneCanvas.ts, and the picker in cabinetPanel.ts.
+- **New part type**: extend the `CustomPartDef` union + `sanitizePart` +
+  factory (parts.ts), add a `partPanels` branch (panels.ts), a picker card
+  (typePicker.ts) and a rail panel module; migration untouched.
+- **Manufacturing export**: iterate `design.items` → `partPanels(part,
+  itemDims)` → rows from `Panel.shape` dims + `role` + resolved slot colour;
+  prism outlines are CNC-ready polygons. Panel ids are stable per part.
+
 Room model: `design.corners` is a polygon, normalized counter-clockwise
 (`normalizeDesign`). Walls are edges identified by their **start corner id**;
 openings reference `wallId` + offset along the wall. The CCW invariant gives
@@ -71,8 +120,18 @@ Coordinate conventions (easy to get wrong):
 ## Gotchas
 
 - Lights: emissive "bulb" meshes are tagged `userData.bulb = true`; View3D
-  collects them for on/off/warmth updates without rebuild. Shadow-casting
-  fixtures are capped by `SHADOW_LIGHT_BUDGET` (4).
+  collects them for on/off/warmth/colour updates without rebuild. Shadow-casting
+  fixtures are capped by `SHADOW_LIGHT_BUDGET` (4). The LED strip (`bar`) is a
+  `RectAreaLight` (even wash along its length, never casts shadows); pendant/spot
+  are Point/Spot lights. `LightProps.color` (optional) overrides warmth.
+- Global lighting lives in `design.scene` and is applied in `View3D.relight()`
+  (non-structural, runs live). `timeOfDay` (0–24) is the ONLY driver of sun
+  direction/colour/intensity + sky/background via `src/model/sky.ts` `skyState()`
+  (pure, tested); `sunStrength/ambientStrength/sunColor/ambientColor/exposure`
+  layer on top so the time slider never desyncs. `envPreset` builds a PROCEDURAL
+  PMREM env (RoomEnvironment or a gradient dome — no HDR assets), regenerated
+  only on preset change; its intensity fades with daylight so night goes dark.
+  Legacy `{night}` scenes migrate to `timeOfDay` in `sanitizeDesign`.
 - `setWallLength` propagates movement through perpendicular neighbor walls
   using ORIGINAL edge directions (rectangles stay rectangles) — don't
   "simplify" it to post-move checks; test 'wall length edit' catches this.
@@ -80,8 +139,15 @@ Coordinate conventions (easy to get wrong):
   temporarily clears the selection tint so it doesn't bake into materials.
 - `window.__kp = {store, plan, view}` is exposed for tests/debugging — keep it.
 - Autosave key `kitchen-planner-design-v1`, parts library
-  `kitchen-planner-parts-v1`. Bump `DESIGN_VERSION` + migrate in
+  `kitchen-planner-parts-v1`. `DESIGN_VERSION` is 2; bump + migrate in
   `sanitizeDesign()` (store.ts) on schema changes — it is the single
-  validation/repair gate for autosave and file import.
+  validation/repair gate for autosave and file import, and it also drops
+  items whose defId resolves nowhere. The parts library migrates per element
+  on read (`Store.sharedLibrary()`): `type` marks v2 entries, `template`
+  marks v1.
+- Items with non-rect footprints hit-test against the true polygon in the
+  plan (`footprintPolygon` + `pointInPolygon`) but SNAP by bounding box —
+  intentional simplification; a diagonal corner unit's square back still
+  hugs both walls correctly.
 - Date/format: all lengths meters internally; UI shows cm (ints) everywhere,
   including wall lengths and canvas dimension labels.

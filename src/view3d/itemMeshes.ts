@@ -1,6 +1,26 @@
 import * as THREE from 'three';
-import { APPLIANCE_BLACK, type CatalogDef } from '../model/catalog';
+import type { CatalogDef } from '../model/catalog';
 import type { CustomPartDef, Item, RoomStyle } from '../model/types';
+import {
+  applianceGlass,
+  box,
+  CARCASS_DARKEN,
+  carcass,
+  COUNTER_T,
+  counterSlab,
+  cyl,
+  FRONT_T,
+  frontSlab,
+  GAP,
+  matte,
+  plinth,
+  PLINTH_H,
+  shade,
+  splitFronts,
+  steelMat,
+  wood,
+} from './meshKit';
+import { buildCustomPart } from './partMeshes';
 
 /**
  * Procedural, parametric meshes for every catalog kind.
@@ -11,112 +31,7 @@ import type { CustomPartDef, Item, RoomStyle } from '../model/types';
  * routed dark groove, dark recessed plinth, oak worktops.
  */
 
-const PLINTH_H = 0.1;
-const COUNTER_T = 0.04;
-const FRONT_T = 0.018;
-const GAP = 0.004;
-const PLINTH_COLOR = '#26251f';
-const GROOVE = '#1f1e1b';
-const CARCASS_DARKEN = 0.92;
-
-export function shade(hex: string, f: number): string {
-  const c = new THREE.Color(hex);
-  c.r = Math.min(1, c.r * f);
-  c.g = Math.min(1, c.g * f);
-  c.b = Math.min(1, c.b * f);
-  return `#${c.getHexString()}`;
-}
-
-function matte(color: string): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0.03 });
-}
-
-function wood(color: string): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.62, metalness: 0.02 });
-}
-
-function steelMat(): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color: '#b6babd', roughness: 0.38, metalness: 0.65 });
-}
-
-function applianceGlass(): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color: APPLIANCE_BLACK, roughness: 0.25, metalness: 0.4 });
-}
-
-function box(
-  g: THREE.Group,
-  w: number,
-  h: number,
-  d: number,
-  mat: THREE.Material,
-  x = 0,
-  y = 0,
-  z = 0
-): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  m.position.set(x, y + h / 2, z);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  g.add(m);
-  return m;
-}
-
-function cyl(
-  g: THREE.Group,
-  r: number,
-  h: number,
-  mat: THREE.Material,
-  x = 0,
-  y = 0,
-  z = 0,
-  rTop = r
-): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, r, h, 20), mat);
-  m.position.set(x, y + h / 2, z);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  g.add(m);
-  return m;
-}
-
-/** A handleless front slab with a routed groove along its top (or bottom) edge. */
-function frontSlab(
-  g: THREE.Group,
-  w: number,
-  h: number,
-  color: string,
-  x: number,
-  y: number,
-  zFront: number,
-  grooveAt: 'top' | 'bottom' | 'none' = 'top'
-): void {
-  box(g, w, h, FRONT_T, matte(color), x, y, zFront - FRONT_T / 2);
-  if (grooveAt !== 'none') {
-    const gy = grooveAt === 'top' ? y + h - 0.012 : y;
-    box(g, w, 0.012, FRONT_T + 0.002, matte(GROOVE), x, gy, zFront - FRONT_T / 2 - 0.002);
-  }
-}
-
-/** Split a width into n fronts with small gaps; calls fn(centerX, frontW). */
-function splitFronts(w: number, n: number, fn: (x: number, fw: number) => void): void {
-  const fw = (w - GAP * (n + 1)) / n;
-  for (let i = 0; i < n; i++) {
-    const x = -w / 2 + GAP + fw / 2 + i * (fw + GAP);
-    fn(x, fw);
-  }
-}
-
-function plinth(g: THREE.Group, w: number, d: number): void {
-  box(g, w - 0.06, PLINTH_H, d - 0.05, matte(PLINTH_COLOR), 0, 0, -0.02);
-}
-
-function carcass(g: THREE.Group, w: number, h: number, d: number, color: string, y0: number): void {
-  box(g, w, h, d - FRONT_T, matte(shade(color, CARCASS_DARKEN)), 0, y0, -FRONT_T / 2);
-}
-
-function counterSlab(g: THREE.Group, w: number, d: number, y: number, room: RoomStyle): void {
-  box(g, w, COUNTER_T, d + 0.02, wood(room.counterColor), 0, y, 0.01);
-}
+export { shade } from './meshKit';
 
 interface Ctx {
   item: Item;
@@ -429,93 +344,9 @@ const outlet: Builder = (g, { item }) => {
 
 /* ---------------- custom parts (Part Studio) ---------------- */
 
-const custom: Builder = (g, c) => {
-  const { item, part, room } = c;
-  const template = part?.template ?? 'cabinet';
-  const accent = part?.accentColor ?? '#c9a87c';
-  const p = item.params ?? part?.options ?? {};
-  const { w, d, h } = item;
-
-  if (template === 'desk') {
-    box(g, w, 0.035, d, wood(accent), 0, h - 0.035, 0);
-    const drawers = p.drawers ?? 0;
-    if (p.panelLegs) {
-      box(g, 0.03, h - 0.035, d - 0.05, matte(item.color), -w / 2 + 0.05, 0, 0);
-      box(g, 0.03, h - 0.035, d - 0.05, matte(item.color), w / 2 - 0.05, 0, 0);
-    } else {
-      const leg = matte(shade(item.color, 0.8));
-      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-        cyl(g, 0.022, h - 0.035, leg, sx * (w / 2 - 0.06), 0, sz * (d / 2 - 0.06));
-      }
-    }
-    if (drawers > 0) {
-      const pw = Math.min(0.42, w * 0.35);
-      const px = w / 2 - pw / 2 - 0.04;
-      const ph = h - 0.035 - 0.12;
-      box(g, pw, ph, d - 0.06, matte(shade(item.color, CARCASS_DARKEN)), px, 0.12, -FRONT_T / 2);
-      const fh = (ph - GAP * (drawers + 1)) / drawers;
-      for (let i = 0; i < drawers; i++) {
-        frontSlab(g, pw - GAP * 2, fh, item.color, px, 0.12 + GAP + i * (fh + GAP), d / 2 - 0.03);
-      }
-    }
-    return;
-  }
-
-  // ---- cabinet template ----
-  const wallMounted = item.elevation > 0.3;
-  const hasPlinth = !wallMounted && (p.plinth ?? 1) > 0;
-  const hasTop = (p.worktop ?? 0) > 0;
-  const topT = hasTop ? 0.035 : 0;
-  const y0 = hasPlinth ? PLINTH_H : 0;
-  const bodyH = h - y0 - topT;
-  if (bodyH <= 0.05) return;
-  if (hasPlinth) plinth(g, w, d);
-  carcass(g, w, bodyH, d, item.color, y0);
-
-  const drawers = Math.max(0, p.drawers ?? 0);
-  const doors = Math.max(0, p.doors ?? 0);
-  const shelves = Math.max(0, p.shelves ?? 0);
-
-  // vertical split: drawers at the bottom, doors in the middle, open shelves on top
-  const zones: Array<{ type: 'drawers' | 'doors' | 'open'; h: number }> = [];
-  const weights = [
-    drawers > 0 ? Math.min(0.6, drawers * 0.2) : 0,
-    doors > 0 ? 0.45 + doors * 0.05 : 0,
-    shelves > 0 ? 0.35 + shelves * 0.08 : 0,
-  ];
-  const total = weights[0] + weights[1] + weights[2] || 1;
-  if (drawers > 0) zones.push({ type: 'drawers', h: (bodyH * weights[0]) / total });
-  if (doors > 0) zones.push({ type: 'doors', h: (bodyH * weights[1]) / total });
-  if (shelves > 0) zones.push({ type: 'open', h: (bodyH * weights[2]) / total });
-  if (!zones.length) zones.push({ type: 'doors', h: bodyH });
-
-  let y = y0;
-  for (const zone of zones) {
-    if (zone.type === 'drawers') {
-      const n = Math.max(1, drawers);
-      const fh = (zone.h - GAP * (n + 1)) / n;
-      for (let i = 0; i < n; i++) {
-        frontSlab(g, w - GAP * 2, fh, item.color, 0, y + GAP + i * (fh + GAP), d / 2);
-      }
-    } else if (zone.type === 'doors') {
-      splitFronts(w, Math.max(1, doors || 1), (x, fw) =>
-        frontSlab(g, fw, zone.h - GAP, item.color, x, y + GAP / 2, d / 2, wallMounted ? 'bottom' : 'top')
-      );
-    } else {
-      // open niche with accent interior — like the oak niches in the references
-      const inner = wood(accent);
-      box(g, w - 0.03, zone.h - 0.03, 0.012, inner, 0, y + 0.015, -d / 2 + 0.02);
-      box(g, 0.015, zone.h - 0.03, d - 0.04, inner, -w / 2 + 0.025, y + 0.015, 0);
-      box(g, 0.015, zone.h - 0.03, d - 0.04, inner, w / 2 - 0.025, y + 0.015, 0);
-      const n = Math.max(1, shelves);
-      for (let i = 0; i < n; i++) {
-        const sy = y + ((i + 1) * zone.h) / (n + 1);
-        box(g, w - 0.04, 0.02, d - 0.05, inner, 0, sy - 0.01, 0);
-      }
-    }
-    y += zone.h;
-  }
-  if (hasTop) box(g, w + 0.02, topT, d + 0.02, wood(accent), 0, h - topT, 0.005);
+const custom: Builder = (g, { item, part, room }) => {
+  if (part) buildCustomPart(g, item, part, room);
+  else box(g, item.w, item.h, item.d, matte(item.color), 0, 0, 0);
 };
 
 /* ---------------- registry ---------------- */

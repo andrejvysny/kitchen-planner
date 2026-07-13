@@ -1,0 +1,150 @@
+import * as THREE from 'three';
+import { APPLIANCE_BLACK } from '../model/catalog';
+import { signedArea } from '../model/geometry';
+import type { Point, RoomStyle } from '../model/types';
+
+/**
+ * Shared procedural-mesh vocabulary. Local space: x = width, y = up (0 at
+ * item bottom), z = depth (back at -d/2 — the wall side; front at +d/2).
+ *
+ * Style follows the reference kitchens: matte handleless slab fronts with a
+ * routed dark groove, dark recessed plinth, oak worktops.
+ */
+
+// geometry tokens live with the panel model so cut lists and meshes agree
+export { FRONT_T, GAP, PLINTH_H } from '../model/panels';
+import { FRONT_T, GAP, PLINTH_H } from '../model/panels';
+
+export const COUNTER_T = 0.04;
+export const PLINTH_COLOR = '#26251f';
+export const GROOVE = '#1f1e1b';
+export const CARCASS_DARKEN = 0.92;
+
+export function shade(hex: string, f: number): string {
+  const c = new THREE.Color(hex);
+  c.r = Math.min(1, c.r * f);
+  c.g = Math.min(1, c.g * f);
+  c.b = Math.min(1, c.b * f);
+  return `#${c.getHexString()}`;
+}
+
+export function matte(color: string): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0.03 });
+}
+
+export function wood(color: string): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.62, metalness: 0.02 });
+}
+
+export function steelMat(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color: '#b6babd', roughness: 0.38, metalness: 0.65 });
+}
+
+export function applianceGlass(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color: APPLIANCE_BLACK, roughness: 0.25, metalness: 0.4 });
+}
+
+export function box(
+  g: THREE.Group,
+  w: number,
+  h: number,
+  d: number,
+  mat: THREE.Material,
+  x = 0,
+  y = 0,
+  z = 0
+): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y + h / 2, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  g.add(m);
+  return m;
+}
+
+export function cyl(
+  g: THREE.Group,
+  r: number,
+  h: number,
+  mat: THREE.Material,
+  x = 0,
+  y = 0,
+  z = 0,
+  rTop = r
+): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, r, h, 20), mat);
+  m.position.set(x, y + h / 2, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  g.add(m);
+  return m;
+}
+
+/** A handleless front slab with a routed groove along its top (or bottom) edge. */
+export function frontSlab(
+  g: THREE.Group,
+  w: number,
+  h: number,
+  color: string,
+  x: number,
+  y: number,
+  zFront: number,
+  grooveAt: 'top' | 'bottom' | 'none' = 'top'
+): void {
+  box(g, w, h, FRONT_T, matte(color), x, y, zFront - FRONT_T / 2);
+  if (grooveAt !== 'none') {
+    const gy = grooveAt === 'top' ? y + h - 0.012 : y;
+    box(g, w, 0.012, FRONT_T + 0.002, matte(GROOVE), x, gy, zFront - FRONT_T / 2 - 0.002);
+  }
+}
+
+/** Split a width into n fronts with small gaps; calls fn(centerX, frontW). */
+export function splitFronts(w: number, n: number, fn: (x: number, fw: number) => void): void {
+  const fw = (w - GAP * (n + 1)) / n;
+  for (let i = 0; i < n; i++) {
+    const x = -w / 2 + GAP + fw / 2 + i * (fw + GAP);
+    fn(x, fw);
+  }
+}
+
+export function plinth(g: THREE.Group, w: number, d: number): void {
+  box(g, w - 0.06, PLINTH_H, d - 0.05, matte(PLINTH_COLOR), 0, 0, -0.02);
+}
+
+export function carcass(g: THREE.Group, w: number, h: number, d: number, color: string, y0: number): void {
+  box(g, w, h, d - FRONT_T, matte(shade(color, CARCASS_DARKEN)), 0, y0, -FRONT_T / 2);
+}
+
+export function counterSlab(g: THREE.Group, w: number, d: number, y: number, room: RoomStyle): void {
+  box(g, w, COUNTER_T, d + 0.02, wood(room.counterColor), 0, y, 0.01);
+}
+
+/**
+ * Vertical prism extruded from a plan-local polygon (+y = front). The mesh
+ * spans y0..y0+h and plan (x, y) lands on world (x, z) — front toward +z.
+ * `holes` are cut through the slab (winding is normalized here).
+ */
+export function prism(
+  g: THREE.Group,
+  poly: Point[],
+  h: number,
+  mat: THREE.Material,
+  y0: number,
+  holes?: Point[][]
+): THREE.Mesh {
+  const outline = signedArea(poly) < 0 ? [...poly].reverse() : poly;
+  const shape = new THREE.Shape(outline.map((p) => new THREE.Vector2(p.x, p.y)));
+  for (const hpts of holes ?? []) {
+    const hole = signedArea(hpts) > 0 ? [...hpts].reverse() : hpts;
+    shape.holes.push(new THREE.Path(hole.map((p) => new THREE.Vector2(p.x, p.y))));
+  }
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
+  const m = new THREE.Mesh(geo, mat);
+  // shape (x, y) → world (x, z); extrusion +z → world -y, so lift by h
+  m.rotation.x = Math.PI / 2;
+  m.position.y = y0 + h;
+  m.castShadow = true;
+  m.receiveShadow = true;
+  g.add(m);
+  return m;
+}

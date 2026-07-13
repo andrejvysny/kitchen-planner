@@ -42,7 +42,7 @@ describe('sanitizeDesign', () => {
     expect(sanitizeDesign(null)).toBeNull();
     expect(sanitizeDesign('x')).toBeNull();
     expect(sanitizeDesign({})).toBeNull();
-    expect(sanitizeDesign({ version: 2, corners: rectDesign().corners })).toBeNull();
+    expect(sanitizeDesign({ version: 3, corners: rectDesign().corners })).toBeNull();
     expect(sanitizeDesign({ version: 1, corners: [c('a', 0, 0), c('b', 1, 0)] })).toBeNull();
   });
 
@@ -53,8 +53,20 @@ describe('sanitizeDesign', () => {
     expect(Array.isArray(d!.openings)).toBe(true);
     expect(Array.isArray(d!.customParts)).toBe(true);
     expect(d!.room.wallThickness).toBeGreaterThan(0);
-    expect(d!.scene.night).toBe(false);
+    expect(d!.scene.timeOfDay).toBe(13); // no legacy night → midday default
+    expect(d!.scene.envPreset).toBe('studio');
+    expect(d!.scene.exposure).toBeGreaterThan(0);
     expect(signedArea(d!.corners)).toBeGreaterThan(0);
+  });
+
+  it('migrates a legacy { night } scene to a time-of-day', () => {
+    const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
+    const day = sanitizeDesign({ version: 2, corners: base, scene: { night: false } });
+    const night = sanitizeDesign({ version: 2, corners: base, scene: { night: true } });
+    expect(day!.scene.timeOfDay).toBe(13);
+    expect(night!.scene.timeOfDay).toBe(22);
+    // the dead flag is dropped, not carried forward
+    expect('night' in (night!.scene as object)).toBe(false);
   });
 });
 

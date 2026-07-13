@@ -40,6 +40,8 @@ export interface LightProps {
   intensity: number;
   /** 0 = cool white, 1 = warm candle */
   warmth: number;
+  /** explicit hex; when set, wins over the warmth-derived colour */
+  color?: string;
 }
 
 export interface Item {
@@ -67,28 +69,133 @@ export interface RoomStyle {
   wallThickness: number;
 }
 
+export type EnvPreset = 'studio' | 'soft' | 'dusk';
+
+/**
+ * Global lighting / environment. `timeOfDay` is the master: it alone drives sun
+ * direction, base colour/intensity and the sky — all recomputed live (see
+ * src/model/sky.ts). The rest are manual adjustments layered on top, so moving
+ * the time slider never clobbers a tweak.
+ */
 export interface Scene {
-  night: boolean;
+  /** 0..24 hours — sun arc, colour temperature, sky */
+  timeOfDay: number;
+  /** tone-mapping exposure, 0.4..2 */
+  exposure: number;
+  /** multiplier on the time-derived sun intensity, 0..2 */
+  sunStrength: number;
+  /** multiplier on the time-derived ambient intensity, 0..2 */
+  ambientStrength: number;
+  /** optional hex override of the time-derived sun colour */
+  sunColor?: string;
+  /** optional hex override of the time-derived sky/ambient colour */
+  ambientColor?: string;
+  /** procedural environment map used for reflections + fill */
+  envPreset: EnvPreset;
+  /** reflection / IBL strength, 0..2 */
+  envIntensity: number;
 }
 
-/** A user-created parametric part, built in the Part Studio. */
-export interface CustomPartDef {
+/* ---------------- custom parts (Part Studio) ---------------- */
+
+export interface PartBase {
   id: string;
   name: string;
-  template: 'cabinet' | 'desk';
+  /** natural size (m); placed instances resize within bounds and geometry scales */
   w: number;
   d: number;
   h: number;
+  /** bottom above floor */
   elevation: number;
+  /** colour slot 'front' */
   color: string;
-  /** wood tone used for worktops, open niches, table tops */
+  /** colour slot 'accent' — wood tone for tops, niches, wood boards */
   accentColor: string;
-  /** template-specific options, e.g. { drawers: 2, doors: 2, shelves: 0, plinth: 1, worktop: 1 } */
-  options: Record<string, number>;
 }
 
+export type ZoneFill = 'door' | 'doorPair' | 'drawers' | 'open' | 'panel' | 'glass';
+
+export interface LeafZone {
+  kind: 'leaf';
+  fill: ZoneFill;
+  /** fill 'drawers': stacked fronts, 1..5 */
+  drawers?: number;
+  /** fill 'open': interior shelves, 0..4 */
+  shelves?: number;
+}
+
+export interface SplitZone {
+  kind: 'split';
+  /** 'h' = horizontal cuts (children stacked bottom→top); 'v' = vertical cuts (left→right) */
+  dir: 'h' | 'v';
+  /** one weight per child, > 0, normalized to sum 1 */
+  weights: number[];
+  children: Zone[];
+}
+
+export type Zone = LeafZone | SplitZone;
+
+export type Footprint =
+  | { kind: 'rect' }
+  /** front corner chamfered; face 'angled' puts the zones on the diagonal plane */
+  | { kind: 'chamfer'; corner: 'left' | 'right'; cx: number; cz: number; face: 'front' | 'angled' }
+  /** L footprint (blind corner); the notched return front gets a single face2 slab */
+  | { kind: 'cornerL'; notch: 'left' | 'right'; nw: number; nd: number; face2: 'panel' | 'door' };
+
+export interface CabinetPartDef extends PartBase {
+  type: 'cabinet';
+  footprint: Footprint;
+  plinth: boolean;
+  worktop: boolean;
+  face: Zone;
+}
+
+/** Rectangular cutout in a board top, local plan coords (center + size). */
+export interface BoardHole {
+  x: number;
+  y: number;
+  w: number;
+  d: number;
+}
+
+export interface BoardPartDef extends PartBase {
+  type: 'board';
+  /** simple CCW polygon, local plan coords (x right, +y = front), bbox-centered; h = thickness */
+  outline: Point[];
+  holes: BoardHole[];
+  material: 'wood' | 'matte';
+}
+
+export interface Board {
+  id: string;
+  /** x/z = center, y = bottom; local space: x width, y up, z depth (+z = front) */
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+  h: number;
+  d: number;
+  /** yaw about y, radians */
+  rotY: number;
+  /** 'cyl': w = diameter, d ignored */
+  shape: 'box' | 'cyl';
+  slot: 'front' | 'accent';
+  /** 'front' = handleless slab with routed groove */
+  style: 'plain' | 'front';
+  /** optional shade factor on the slot colour (carcass darkening, leg tint) */
+  tint?: number;
+}
+
+export interface FreeformPartDef extends PartBase {
+  type: 'freeform';
+  boards: Board[];
+}
+
+/** A user-created part, built in the Part Studio. */
+export type CustomPartDef = CabinetPartDef | BoardPartDef | FreeformPartDef;
+
 export interface Design {
-  version: 1;
+  version: 2;
   corners: Corner[];
   openings: Opening[];
   items: Item[];

@@ -3,12 +3,14 @@ import {
   COUNTER_COLORS,
   FLOOR_COLORS,
   FRONT_COLORS,
+  LIGHT_COLORS,
   WALL_COLORS,
   type CatalogDef,
 } from '../model/catalog';
-import { toCatalogDef } from '../model/parts';
+import { footprintPolygon, toCatalogDef } from '../model/parts';
+import { skyState } from '../model/sky';
 import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
-import type { Item } from '../model/types';
+import type { EnvPreset, Item } from '../model/types';
 import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
 import type { View3D, CamPreset } from '../view3d/view3d';
@@ -91,7 +93,15 @@ export class UI {
       tile.tabIndex = 0;
       tile.title = `Click, then click in the plan to place — ${def.label.toLowerCase()}`;
       const canvas = document.createElement('canvas');
-      renderThumbnail(canvas, def.kind, def.w, def.d, def.color);
+      const tilePart = this.store.customPartById(def.id);
+      renderThumbnail(
+        canvas,
+        def.kind,
+        def.w,
+        def.d,
+        def.color,
+        tilePart ? (footprintPolygon(tilePart, def.w, def.d) ?? undefined) : undefined
+      );
       tile.appendChild(canvas);
       const label = document.createElement('span');
       label.textContent = def.label;
@@ -145,7 +155,10 @@ export class UI {
           }
         });
         grid2.appendChild(newTile);
-        for (const part of this.store.design.customParts) {
+        // group tiles by part type: cabinets, then boards, then freeform
+        const order = { cabinet: 0, board: 1, freeform: 2 };
+        const parts = [...this.store.design.customParts].sort((a, b) => order[a.type] - order[b.type]);
+        for (const part of parts) {
           addTile(grid2, toCatalogDef(part), true);
         }
       }
@@ -283,12 +296,23 @@ export class UI {
     parent: HTMLElement,
     label: string,
     value: number,
-    onInput: (v: number) => void
+    onInput: (v: number) => void,
+    opts: { min?: number; max?: number; step?: number; fmt?: (v: number) => string } = {}
   ): void {
+    const min = opts.min ?? 0;
+    const max = opts.max ?? 1;
+    const step = opts.step ?? 0.01;
+    const { fmt } = opts;
     const row = this.el(`<div class="prop-row"><label>${label}</label>
-      <input type="range" min="0" max="1" step="0.01" value="${value}"></div>`);
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${value}">
+      ${fmt ? `<span class="unit slider-val">${fmt(value)}</span>` : ''}</div>`);
     const r = row.querySelector('input') as HTMLInputElement;
-    r.addEventListener('input', () => onInput(Number(r.value)));
+    const val = row.querySelector('.slider-val');
+    r.addEventListener('input', () => {
+      const v = Number(r.value);
+      if (val && fmt) val.textContent = fmt(v);
+      onInput(v);
+    });
     r.addEventListener('change', () => this.store.commit());
     parent.appendChild(row);
   }
@@ -336,15 +360,50 @@ export class UI {
     this.swatchRow(counter, COUNTER_COLORS, this.store.design.room.counterColor, (c) =>
       this.store.setRoomStyle({ counterColor: c }));
 
+    this.renderLightingProps(root);
+
     root.appendChild(
       this.el(`<div class="props-empty-tip">
         <b>How to design your kitchen</b><br>
         1 · Sketch the room — size, corners, then place <b>doors, windows, water & outlets</b><br>
         2 · Add base units along the walls (they snap into runs)<br>
         3 · Stack wall cabinets & shelves above<br>
-        4 · Place lights and try <b>☾ Night</b> to tune the mood<br>
+        4 · Place lights, then set the mood in <b>Lighting</b> (time of day, sun, environment)<br>
         Create your own parametric furniture with <b>＋ New part</b></div>`)
     );
+  }
+
+  /** Global lighting / environment controls (shown in the no-selection panel). */
+  private renderLightingProps(root: HTMLElement): void {
+    const scene = this.store.design.scene;
+    const sky = skyState(scene.timeOfDay);
+    const hhmm = (v: number) => `${Math.floor(v)}:${String(Math.round((v % 1) * 60)).padStart(2, '0')}`;
+    const pct = (v: number) => `${Math.round(v * 100)}%`;
+
+    const light = this.section(root, 'Lighting');
+    this.sliderRow(light, 'Time of day', scene.timeOfDay, (v) => this.store.setScene({ timeOfDay: v }), {
+      min: 0, max: 24, step: 0.5, fmt: hhmm,
+    });
+    this.sliderRow(light, 'Sun', scene.sunStrength, (v) => this.store.setScene({ sunStrength: v }), {
+      min: 0, max: 2, step: 0.05, fmt: pct,
+    });
+    this.swatchRow(light, LIGHT_COLORS, scene.sunColor ?? sky.sunColor, (c) =>
+      this.store.setScene({ sunColor: c }));
+    this.sliderRow(light, 'Ambient', scene.ambientStrength, (v) => this.store.setScene({ ambientStrength: v }), {
+      min: 0, max: 2, step: 0.05, fmt: pct,
+    });
+    this.swatchRow(light, LIGHT_COLORS, scene.ambientColor ?? sky.ambientColor, (c) =>
+      this.store.setScene({ ambientColor: c }));
+
+    const env = this.section(root, 'Environment');
+    this.choiceRow(env, [['studio', 'Studio'], ['soft', 'Soft'], ['dusk', 'Dusk']], scene.envPreset, (v) =>
+      this.store.setScene({ envPreset: v as EnvPreset }));
+    this.sliderRow(env, 'Reflections', scene.envIntensity, (v) => this.store.setScene({ envIntensity: v }), {
+      min: 0, max: 2, step: 0.05, fmt: pct,
+    });
+    this.sliderRow(env, 'Exposure', scene.exposure, (v) => this.store.setScene({ exposure: v }), {
+      min: 0.4, max: 2, step: 0.05, fmt: (x) => x.toFixed(2),
+    });
   }
 
   /* ---------- item ---------- */
@@ -433,6 +492,9 @@ export class UI {
         this.store.updateItemLight(item.id, { intensity: v }));
       this.sliderRow(light, 'Warmth', item.light.warmth, (v) =>
         this.store.updateItemLight(item.id, { warmth: v }));
+      // explicit colour wins over warmth when set
+      this.swatchRow(light, LIGHT_COLORS, item.light.color ?? '#fff4e0', (c) =>
+        this.store.updateItemLight(item.id, { color: c }));
     }
 
     // actions
@@ -595,11 +657,15 @@ export class UI {
     $('#btn-redo').addEventListener('click', () => this.store.redo());
 
     const dayBtn = $('#btn-daynight');
+    const isNight = () => {
+      const t = this.store.design.scene.timeOfDay;
+      return t < 6 || t > 19;
+    };
     const refreshDay = () => {
-      dayBtn.textContent = this.store.design.scene.night ? '☾ Night' : '☀ Day';
+      dayBtn.textContent = isNight() ? '☾ Night' : '☀ Day';
     };
     dayBtn.addEventListener('click', () => {
-      this.store.setNight(!this.store.design.scene.night);
+      this.store.setNight(!isNight()); // quick jump midday ⇄ night; fine-tune in the Lighting panel
       this.store.commit();
       refreshDay();
     });
@@ -689,7 +755,7 @@ export class UI {
         target.isContentEditable;
 
       if (e.key === 'Escape') {
-        if (this.studio.isOpen()) this.studio.close();
+        if (this.studio.isOpen()) this.studio.handleEscape();
         else if (this.plan.armedDef) this.plan.setArmed(null);
         else this.store.select({ kind: 'none' });
         return;

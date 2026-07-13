@@ -1,6 +1,7 @@
-import { catalogDef, defaultParams, type CatalogDef } from './catalog';
+import { catalogDef, defaultParams, hasCatalogDef, type CatalogDef } from './catalog';
 import { clamp, dist, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
-import { samplePart, toCatalogDef } from './parts';
+import { samplePart, sanitizePart, toCatalogDef } from './parts';
+import { migrateDesignV1, migratePartV1 } from './partsMigrate';
 import type { ChangeInfo, Corner, CustomPartDef, Design, Item, Opening, Point, Selection } from './types';
 import { uid } from './types';
 
@@ -390,12 +391,9 @@ export class Store {
       light: def.light ? { on: def.light.on, intensity: def.light.intensity, warmth: def.light.warmth } : undefined,
       params: defaultParams(def),
     };
-    // instances of user parts start from the part's configured options
+    // instances of user parts start at the part's configured elevation
     const part = this.customPartById(def.id);
-    if (part) {
-      item.params = { ...part.options };
-      item.elevation = part.elevation;
-    }
+    if (part) item.elevation = part.elevation;
     this.design.items.push(item);
     this.notify({ structural: true });
     return item;
@@ -437,8 +435,17 @@ export class Store {
     try {
       const raw = localStorage.getItem('kitchen-planner-parts-v1');
       if (!raw) return [samplePart()];
-      const parts = JSON.parse(raw) as CustomPartDef[];
-      return Array.isArray(parts) ? parts : [samplePart()];
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [samplePart()];
+      // v1 entries carry `template`, v2 carry `type` — migrate per element
+      const parts = parsed
+        .map((p) => {
+          const rec = p as Record<string, unknown> | null;
+          if (rec && typeof rec.template === 'string') return migratePartV1(rec);
+          return sanitizePart(p);
+        })
+        .filter((p): p is CustomPartDef => !!p);
+      return parts.length ? parts : [samplePart()];
     } catch {
       return [samplePart()];
     }
@@ -487,9 +494,15 @@ export class Store {
 
   /* ---------------- scene / room style ---------------- */
 
+  /** Patch global lighting/environment. Non-structural — relight applies it live. */
+  setScene(patch: Partial<Design['scene']>, info: ChangeInfo = { structural: false }): void {
+    Object.assign(this.design.scene, patch);
+    this.notify(info);
+  }
+
+  /** Back-compat quick toggle: jump the time-of-day between midday and night. */
   setNight(night: boolean): void {
-    this.design.scene.night = night;
-    this.notify({ structural: false });
+    this.setScene({ timeOfDay: night ? 22 : 13 });
   }
 
   setRoomStyle(patch: Partial<Design['room']>): void {
@@ -524,7 +537,7 @@ export function normalizeDesign(d: Design): Design {
   return d;
 }
 
-export const DESIGN_VERSION = 1;
+export const DESIGN_VERSION = 2;
 
 /** Validate + repair a design parsed from storage or a file. Returns null when unusable. */
 export function sanitizeDesign(raw: unknown): Design | null {
@@ -532,23 +545,45 @@ export function sanitizeDesign(raw: unknown): Design | null {
   const d = raw as Record<string, unknown>;
   if (typeof d.version !== 'number' || d.version > DESIGN_VERSION) return null;
   if (!Array.isArray(d.corners) || d.corners.length < 3) return null;
-  // schema migrations land here: upgrade payloads with version < DESIGN_VERSION step by step
   const base = emptyDesign();
   if (!Array.isArray(d.openings)) d.openings = [];
   if (!Array.isArray(d.items)) d.items = [];
   if (!Array.isArray(d.customParts)) d.customParts = [];
+  if (d.version < 2) migrateDesignV1(d);
+  d.customParts = (d.customParts as unknown[]).map(sanitizePart).filter(Boolean);
+  // items whose defId resolves nowhere would crash the render loop
+  const partIds = new Set((d.customParts as CustomPartDef[]).map((p) => p.id));
+  d.items = (d.items as Item[]).filter(
+    (i) => i && typeof i.defId === 'string' && (partIds.has(i.defId) || hasCatalogDef(i.defId))
+  );
   d.room = { ...base.room, ...(d.room && typeof d.room === 'object' ? d.room : {}) };
-  d.scene = { ...base.scene, ...(d.scene && typeof d.scene === 'object' ? d.scene : {}) };
+  const rawScene = (d.scene && typeof d.scene === 'object' ? d.scene : {}) as Record<string, unknown>;
+  // v1/v2-early scenes only had { night }; expand to a time-of-day before merging
+  if (typeof rawScene.timeOfDay !== 'number') rawScene.timeOfDay = rawScene.night ? 22 : 13;
+  delete rawScene.night;
+  d.scene = { ...base.scene, ...rawScene };
   d.version = DESIGN_VERSION;
   return normalizeDesign(d as unknown as Design);
 }
 
 /* ---------------- factory designs ---------------- */
 
+/** Default global lighting: midday, neutral studio environment. */
+export function defaultScene(): Design['scene'] {
+  return {
+    timeOfDay: 13,
+    exposure: 1.05,
+    sunStrength: 1,
+    ambientStrength: 1,
+    envPreset: 'studio',
+    envIntensity: 1,
+  };
+}
+
 export function emptyDesign(): Design {
   const c = (x: number, y: number): Corner => ({ id: uid('c'), x, y });
   return normalizeDesign({
-    version: 1,
+    version: 2,
     corners: [c(0, 0), c(4, 0), c(4, 3), c(0, 3)],
     openings: [],
     items: [],
@@ -560,7 +595,7 @@ export function emptyDesign(): Design {
       wallHeight: 2.6,
       wallThickness: 0.1,
     },
-    scene: { night: false },
+    scene: defaultScene(),
   });
 }
 
@@ -645,7 +680,7 @@ export function demoDesign(): Design {
   ];
 
   return normalizeDesign({
-    version: 1,
+    version: 2,
     corners: [c1, c2, c3, c4],
     openings,
     items,
@@ -657,6 +692,6 @@ export function demoDesign(): Design {
       wallHeight: 2.6,
       wallThickness: t,
     },
-    scene: { night: false },
+    scene: defaultScene(),
   });
 }

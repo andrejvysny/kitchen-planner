@@ -54,17 +54,27 @@ Select a fixture to adjust brightness and warmth. Toggle **☀ Day / ☾ Night**
 to judge the mood.
 
 **5 · Create your own parts (Part Studio).**
-*＋ New part* opens a modal editor with a live, orbitable 3D preview. Two
-templates cover most furniture:
+*＋ New part* opens a full editor with a live, orbitable 3D preview. Three
+part types cover essentially any furniture:
 
-- **Cabinet / shelving** — drawers + doors + open oak niches, optional plinth
-  and worktop, optional wall-mounting. Covers cupboards, drawer units, wall
-  cabinets, pantries, sideboards, bookshelves.
-- **Desk / table** — top, legs or panel sides, optional drawer pedestal.
+- **Cabinet** — a carcass whose front you split into **zones**, Mozaik-style:
+  click a zone, split it horizontally or vertically, drag the dividers to
+  resize (cm-snapped, double-click to equalize), and fill each zone with a
+  door, door pair, drawer stack, open oak niche, panel or glass door.
+  Footprints go beyond rectangles: angled ends, diagonal corner units and
+  L-shaped blind corners. Plinth, worktop and wall-mounting are toggles.
+- **Worktop / board** — draw any outline (L/U presets included) with the same
+  corner-and-midpoint editing as the room, add rectangular cutouts for sinks
+  and hobs, set thickness and height off the floor. Great for continuous
+  worktops, bar tops and floating shelves.
+- **Free boards** — compose arbitrary furniture from individual boards and
+  cylinders: pick a board in the preview, nudge it with the arrow keys or
+  type exact positions, choose front/accent colour, grooved-front style or
+  cylinder shape. Covers tables, benches, wardrobes, room dividers.
 
-Saved parts appear under *My parts*, can be edited later (✎ on the tile), and
-are kept in a shared library so new designs start with them. Each placed
-instance can still be configured independently.
+Saved parts appear under *My parts*, can be edited later (✎ on the tile) or
+duplicated as variants, and are kept in a shared library so new designs start
+with them. Designs saved by older versions migrate automatically.
 
 ## Export
 
@@ -105,9 +115,13 @@ responsible for materials and lighting:
 ```
 src/
   model/            pure data + logic, no rendering
-    types.ts          Design, Item, Opening, Corner, CustomPartDef
+    types.ts          Design, Item, Opening, Corner, CustomPartDef (3 types)
     catalog.ts        built-in parametric catalog + color palettes
-    parts.ts          Part Studio templates → CatalogDef adapter
+    parts.ts          part factories, CatalogDef adapter, footprints, sanitize
+    zones.ts          cabinet zone-tree math (split/merge/walk/normalize)
+    panels.ts         part → panel list IR (every physical board; the basis
+                      for rendering today and manufacturing export tomorrow)
+    partsMigrate.ts   v1 template parts → v2 model migration
     store.ts          state, events, undo/redo, autosave, all mutations
     snapping.ts       wall / edge-to-edge / alignment snapping (shared 2D+3D)
     geometry.ts       polygon & vector math
@@ -117,9 +131,12 @@ src/
   view3d/
     view3d.ts         Three.js scene, room shell, lighting, picking, GLB export
     itemMeshes.ts     procedural mesh builders for every catalog kind
+    meshKit.ts        shared mesh vocabulary (slabs, plinths, prisms…)
+    partMeshes.ts     custom-part builders (zone cabinets, boards, freeform)
   ui/
     ui.ts             catalog, properties panel, toolbar, shortcuts
-    partstudio.ts     Part Studio modal with live preview
+    partstudio/       Part Studio: type picker, zone canvas, polygon canvas,
+                      freeform board editor, live 3D preview
   main.ts           bootstrapping
 ```
 
@@ -146,7 +163,8 @@ headless; end-to-end tests run against the production build with Playwright:
 npm run test:unit           # geometry / store / snapping + builder smoke tests
 npm run build
 npx vite preview &          # serves dist on :4173
-node test/interact.mjs      # 28 interaction checks (place, snap, drag, undo,
-                            # wall edits, doors, keyboard, 3D picking, exports)
+node test/interact.mjs      # 32 interaction checks (place, snap, drag, undo,
+                            # wall edits, doors, part studio, keyboard,
+                            # 3D picking, exports)
 node test/screenshot.mjs    # renders UI screenshots for visual review
 ```

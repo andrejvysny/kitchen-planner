@@ -13,6 +13,8 @@ export const APPLIANCE_BLACK = '#1d1f22';
 export const FLOOR_COLORS = ['#cfccc6', '#d9c4a0', '#b7b4ad', '#8f8b83', '#e3e0da'];
 export const WALL_COLORS = ['#f4f1ea', '#e9e4d8', '#dfe4de', '#d8dee3', '#efe2d2'];
 export const COUNTER_COLORS = ['#c9a87c', '#e8e5de', '#3a3835', '#8b6748', '#f2f1ec'];
+/** fixture light colours: warm white → neutral → cool → amber / tints */
+export const LIGHT_COLORS = ['#ffb46b', '#ffd9a0', '#fff4e0', '#ffffff', '#dfeaff', '#ff7a3c', '#7ec8ff'];
 
 export type ItemKind =
   | 'baseCabinet'
@@ -413,6 +415,10 @@ export function catalogDef(id: string): CatalogDef {
   const d = byId.get(id);
   if (!d) throw new Error(`Unknown catalog id: ${id}`);
   return d;
+}
+
+export function hasCatalogDef(id: string): boolean {
+  return byId.has(id);
 }
 
 export function defaultParams(def: CatalogDef): Record<string, number> | undefined {

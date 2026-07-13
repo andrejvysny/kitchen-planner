@@ -112,13 +112,16 @@ await page.waitForTimeout(300);
 const rect = await page.evaluate(() => window.__kp.store.rectangleSize());
 results.push(['room resize', rect && Math.abs(rect.w - 5) < 0.01 && Math.abs(rect.d - 3.5) < 0.01]);
 
-// 8. create a custom part via studio
+// 8. create a custom part via studio (type picker → cabinet editor → save)
 await page.click('.cat-new');
-await page.waitForTimeout(800);
+await page.waitForTimeout(600);
+const pickerCards = await page.locator('.studio-card').count();
+await page.click('.studio-card[data-type="cabinet"]');
+await page.waitForTimeout(600);
 await page.click('.studio-save');
 await page.waitForTimeout(400);
 const parts = await page.evaluate(() => window.__kp.store.design.customParts.length);
-results.push(['save custom part', parts === 2]); // sample + new
+results.push(['save custom part', pickerCards >= 2 && parts === 2]); // sample + new
 
 // 9. place the custom part
 const partId = await page.evaluate(() => window.__kp.store.design.customParts[1].id);
@@ -131,6 +134,219 @@ const lastDef = await page.evaluate(() => {
   return items[items.length - 1]?.defId;
 });
 results.push(['place custom part', lastDef === partId]);
+
+// 9b. freeform part: picker card, board list gates save, boards render + place
+await page.keyboard.press('Escape');
+await page.click('.cat-new');
+await page.waitForTimeout(500);
+await page.click('.studio-card[data-type="freeform"]');
+await page.waitForTimeout(500);
+const saveGated = await page.locator('.studio-save').isDisabled();
+await page.click('.board-add');
+await page.click('.board-add');
+await page.waitForTimeout(300);
+const saveOpen = await page.locator('.studio-save').isEnabled();
+await page.click('.studio-save');
+await page.waitForTimeout(400);
+const ffState = await page.evaluate(() => {
+  const parts = window.__kp.store.design.customParts;
+  const p = parts[parts.length - 1];
+  return { count: parts.length, type: p.type, boards: p.type === 'freeform' ? p.boards.length : 0 };
+});
+const ffId = await page.evaluate(() => {
+  const parts = window.__kp.store.design.customParts;
+  return parts[parts.length - 1].id;
+});
+await page.click(`.cat-item[data-def-id="${ffId}"]`);
+const ffAt = await worldToScreen(3.6, 1.6);
+await page.mouse.click(bb.x + ffAt.x, bb.y + ffAt.y);
+await page.waitForTimeout(300);
+const ffPlaced = await page.evaluate(() => {
+  const items = window.__kp.store.design.items;
+  return items[items.length - 1]?.defId;
+});
+results.push([
+  'freeform part: gated save, boards, place',
+  saveGated && saveOpen && ffState.count === 3 && ffState.type === 'freeform' && ffState.boards === 2 && ffPlaced === ffId,
+]);
+await page.evaluate(() => {
+  const items = window.__kp.store.design.items;
+  window.__kp.store.deleteItem(items[items.length - 1].id);
+  window.__kp.store.commit();
+});
+
+// 9c. worktop board: L preset, midpoint-drag adds a corner, cutout, polygon hit-test
+await page.click('.cat-new');
+await page.waitForTimeout(500);
+await page.click('.studio-card[data-type="board"]');
+await page.waitForTimeout(500);
+await page.click('.studio-form .choice-btn:has-text("L-shape")');
+await page.waitForTimeout(300);
+// drag the midpoint of the bottom edge of the L (world (-0.31, -0.13)) downward
+const pcBox = await page.locator('.poly-canvas').boundingBox();
+const pcView = await page.evaluate(() => {
+  const c = document.querySelector('.poly-canvas');
+  return { w: c.clientWidth, h: c.clientHeight };
+});
+const pScale = Math.min((pcView.w * 0.78) / 2.4, (pcView.h * 0.78) / 1.5);
+const pmx = pcBox.x + pcView.w / 2 + -0.31 * pScale;
+const pmy = pcBox.y + pcView.h / 2 + -0.13 * pScale;
+await page.mouse.move(pmx, pmy);
+await page.mouse.down();
+await page.mouse.move(pmx, pmy + 25, { steps: 4 });
+await page.mouse.up();
+await page.waitForTimeout(200);
+// cutout in the bottom band of the L
+await page.click('.studio-form .board-add');
+await page.waitForTimeout(200);
+const yInput = page.locator('.studio-form .prop-section', { hasText: 'Selected cutout' }).locator('input').nth(1);
+await yInput.fill('-44');
+await yInput.press('Enter');
+await page.waitForTimeout(200);
+const saveOk = await page.locator('.studio-save').isEnabled();
+await page.click('.studio-save');
+await page.waitForTimeout(400);
+const boardPart = await page.evaluate(() => {
+  const parts = window.__kp.store.design.customParts;
+  const p = parts[parts.length - 1];
+  return { id: p.id, type: p.type, corners: p.outline?.length, holes: p.holes?.length };
+});
+await page.click(`.cat-item[data-def-id="${boardPart.id}"]`);
+const bAt = await worldToScreen(2.5, 1.6);
+await page.mouse.click(bb.x + bAt.x, bb.y + bAt.y);
+await page.waitForTimeout(250);
+const boardItemId = await page.evaluate(() => {
+  const items = window.__kp.store.design.items;
+  const it = items[items.length - 1];
+  window.__kp.store.updateItem(it.id, { x: 2.5, y: 1.6, rotation: 0 });
+  window.__kp.store.commit();
+  window.__kp.store.select({ kind: 'none' });
+  return it.id;
+});
+// click inside the L's notch: bbox hit but polygon miss → must NOT select the board
+const notch = await worldToScreen(2.5 - 0.6, 1.6 + 0.4);
+await page.mouse.click(bb.x + notch.x, bb.y + notch.y);
+await page.waitForTimeout(200);
+const notchSel = await page.evaluate(() => {
+  const s = window.__kp.store.selection;
+  return s.kind === 'item' ? s.id : null;
+});
+// click inside the L's arm → selects the board
+const arm = await worldToScreen(2.5 + 0.9, 1.6 + 0.3);
+await page.mouse.click(bb.x + arm.x, bb.y + arm.y);
+await page.waitForTimeout(200);
+const armSel = await page.evaluate(() => {
+  const s = window.__kp.store.selection;
+  return s.kind === 'item' ? s.id : null;
+});
+results.push([
+  'worktop board: preset+vertex+cutout, polygon hit-test',
+  saveOk &&
+    boardPart.type === 'board' &&
+    boardPart.corners === 7 &&
+    boardPart.holes === 1 &&
+    notchSel !== boardItemId &&
+    armSel === boardItemId,
+]);
+await page.evaluate((id) => {
+  window.__kp.store.deleteItem(id);
+  window.__kp.store.commit();
+  window.__kp.store.select({ kind: 'none' });
+}, boardItemId);
+await page.keyboard.press('Escape');
+
+// 9d. zone editor: select the default zone, split vertically, set fill, save
+await page.click('.cat-new');
+await page.waitForTimeout(500);
+await page.click('.studio-card[data-type="cabinet"]');
+await page.waitForTimeout(500);
+const zcBox = await page.locator('.zone-canvas').boundingBox();
+await page.mouse.click(zcBox.x + zcBox.width / 2, zcBox.y + zcBox.height / 2);
+await page.waitForTimeout(200);
+const splitEnabled = await page.locator('.zone-toolbar button:has-text("⬌ Split")').isEnabled();
+await page.click('.zone-toolbar button:has-text("⬌ Split")');
+await page.waitForTimeout(200);
+await page.click('.zone-toolbar button:text-is("Door")');
+await page.waitForTimeout(200);
+await page.click('.studio-save');
+await page.waitForTimeout(400);
+const zonePart = await page.evaluate(() => {
+  const parts = window.__kp.store.design.customParts;
+  const p = parts[parts.length - 1];
+  return p.type === 'cabinet' ? p.face : null;
+});
+results.push([
+  'zone editor: split + fill + save',
+  splitEnabled &&
+    zonePart &&
+    zonePart.kind === 'split' &&
+    zonePart.dir === 'v' &&
+    zonePart.children.length === 2 &&
+    zonePart.children[0].fill === 'door' &&
+    zonePart.children[1].fill === 'drawers',
+]);
+
+// 9e. diagonal corner cabinet: footprint preset, corner placement, polygon hit-test
+await page.click('.cat-new');
+await page.waitForTimeout(500);
+await page.click('.studio-card[data-type="cabinet"]');
+await page.waitForTimeout(500);
+await page.click('.foot-choice button:has-text("Diagonal corner")');
+await page.waitForTimeout(300);
+await page.click('.studio-save');
+await page.waitForTimeout(400);
+const cornerPart = await page.evaluate(() => {
+  const parts = window.__kp.store.design.customParts;
+  const p = parts[parts.length - 1];
+  return { id: p.id, fp: p.type === 'cabinet' ? p.footprint : null };
+});
+await page.click(`.cat-item[data-def-id="${cornerPart.id}"]`);
+const cAt = await worldToScreen(0.5, 0.45);
+await page.mouse.click(bb.x + cAt.x, bb.y + cAt.y);
+await page.waitForTimeout(250);
+const cornerItem = await page.evaluate(() => {
+  const items = window.__kp.store.design.items;
+  const it = items[items.length - 1];
+  window.__kp.store.select({ kind: 'none' });
+  return { id: it.id, x: it.x, y: it.y, rot: it.rotation };
+});
+// click the cut-off corner region (inside bbox, outside footprint) → not selected
+const cutHit = await page.evaluate((ci) => {
+  const local = { x: 0.37, y: 0.2 };
+  return {
+    x: ci.x + local.x * Math.cos(ci.rot) - local.y * Math.sin(ci.rot),
+    y: ci.y + local.x * Math.sin(ci.rot) + local.y * Math.cos(ci.rot),
+  };
+}, cornerItem);
+const cutPt = await worldToScreen(cutHit.x, cutHit.y);
+await page.mouse.click(bb.x + cutPt.x, bb.y + cutPt.y);
+await page.waitForTimeout(200);
+const cutSel = await page.evaluate(() => {
+  const s = window.__kp.store.selection;
+  return s.kind === 'item' ? s.id : null;
+});
+const bodyPt = await worldToScreen(cornerItem.x, cornerItem.y);
+await page.mouse.click(bb.x + bodyPt.x, bb.y + bodyPt.y);
+await page.waitForTimeout(200);
+const bodySel = await page.evaluate(() => {
+  const s = window.__kp.store.selection;
+  return s.kind === 'item' ? s.id : null;
+});
+const poseOk = Math.abs(Math.sin(cornerItem.rot * 2)) < 0.01; // snapped to a right-angle pose
+results.push([
+  'diagonal corner: preset + pose + polygon hit',
+  cornerPart.fp?.kind === 'chamfer' &&
+    cornerPart.fp.face === 'angled' &&
+    poseOk &&
+    cutSel !== cornerItem.id &&
+    bodySel === cornerItem.id,
+]);
+await page.evaluate((id) => {
+  window.__kp.store.deleteItem(id);
+  window.__kp.store.commit();
+  window.__kp.store.select({ kind: 'none' });
+}, cornerItem.id);
+await page.keyboard.press('Escape');
 
 // 10. wall midpoint: click selects the wall, only a drag adds a corner
 await page.keyboard.press('Escape');
@@ -296,14 +512,18 @@ await page.evaluate((id) => {
   st.commit();
 }, doorId);
 
-// 16. night toggle round-trips
+// 16. day/night toggle round-trips via time-of-day
+await page.evaluate(() => {
+  window.__kp.store.setScene({ timeOfDay: 13 });
+  window.__kp.store.commit();
+});
 await page.click('#btn-daynight');
 await page.waitForTimeout(120);
-const night1 = await page.evaluate(() => window.__kp.store.design.scene.night);
+const t1 = await page.evaluate(() => window.__kp.store.design.scene.timeOfDay);
 await page.click('#btn-daynight');
 await page.waitForTimeout(120);
-const night2 = await page.evaluate(() => window.__kp.store.design.scene.night);
-results.push(['night toggle', night1 === true && night2 === false]);
+const t2 = await page.evaluate(() => window.__kp.store.design.scene.timeOfDay);
+results.push(['day/night toggle', t1 === 22 && t2 === 13]);
 
 // 17. clicking an item in the 3D pane selects it
 await page.keyboard.press('Escape');

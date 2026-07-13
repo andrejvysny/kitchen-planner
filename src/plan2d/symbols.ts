@@ -1,4 +1,5 @@
 import type { ItemKind } from '../model/catalog';
+import type { Point } from '../model/types';
 
 /**
  * Architectural plan symbols, drawn in meter-space centered on the item.
@@ -13,6 +14,10 @@ export interface SymbolStyle {
   pxPerM: number;
   /** override the dashed "mounted above counter" style (used for custom wall parts) */
   overhead?: boolean;
+  /** body fill opacity override (worktop boards stay see-through) */
+  bodyAlpha?: number;
+  /** custom parts with a non-rectangular footprint: local polygon, +y = front */
+  footprint?: Point[];
   /** doors only */
   doorHinge?: 'left' | 'right';
   doorSwing?: 'in' | 'out';
@@ -72,7 +77,22 @@ export function drawPlanSymbol(
   ctx.setLineDash(overhead ? [hair * 5, hair * 3] : []);
 
   // body
-  const bodyAlpha = overhead ? 0.25 : 0.85;
+  const bodyAlpha = style.bodyAlpha ?? (overhead ? 0.25 : 0.85);
+  if (style.footprint && style.footprint.length >= 3) {
+    // true outline for polygon-footprint parts (worktops, corner cabinets)
+    ctx.beginPath();
+    ctx.moveTo(style.footprint[0].x, style.footprint[0].y);
+    for (let i = 1; i < style.footprint.length; i++) {
+      ctx.lineTo(style.footprint[i].x, style.footprint[i].y);
+    }
+    ctx.closePath();
+    ctx.globalAlpha = bodyAlpha;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    return;
+  }
   if (!['pendant', 'spot', 'water', 'outlet', 'stool', 'door', 'window'].includes(kind)) {
     ctx.globalAlpha = bodyAlpha;
     ctx.fillRect(-hw, -hd, w, d);
@@ -258,7 +278,8 @@ export function renderThumbnail(
   kind: ItemKind,
   w: number,
   d: number,
-  color: string
+  color: string,
+  footprint?: Point[]
 ): void {
   const px = 54;
   const dpr = window.devicePixelRatio || 1;
@@ -274,5 +295,5 @@ export function renderThumbnail(
   ctx.translate(px / 2, px / 2);
   ctx.scale(scale, scale);
   if (kind === 'door') ctx.translate(0, -w * 0.35);
-  drawPlanSymbol(ctx, kind, w, d, { color, selected: false, pxPerM: scale });
+  drawPlanSymbol(ctx, kind, w, d, { color, selected: false, pxPerM: scale, footprint });
 }
