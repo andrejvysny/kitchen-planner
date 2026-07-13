@@ -159,6 +159,80 @@ html, body {
   color: var(--ink);
 }
 
+/* ---------- Components outline ---------- */
+
+#outline {
+  padding: 10px 10px 6px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.ol-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  padding: 2px 4px 6px;
+}
+
+.ol-total {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--accent-soft);
+  border-radius: 10px;
+  padding: 0 6px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.ol-empty {
+  font-size: 12px;
+  color: var(--ink-soft);
+  padding: 2px 4px 4px;
+}
+
+.ol-group { margin-bottom: 2px; }
+
+.ol-group-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  padding: 6px 4px 2px;
+}
+
+.ol-count { font-variant-numeric: tabular-nums; }
+
+.ol-row {
+  font-size: 12px;
+  color: var(--ink);
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+.ol-row:hover { background: var(--accent-soft); }
+
+.ol-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ol-row.active {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* ---------- Canvas panes ---------- */
 
 #canvases {

@@ -10,7 +10,7 @@ import {
 import { footprintPolygon, toCatalogDef } from '../model/parts';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../model/sky';
 import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
-import type { Item, WallVisMode } from '../model/types';
+import type { Item, Selection, WallVisMode } from '../model/types';
 import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
 import type { View3D, CamPreset } from '../view3d/view3d';
@@ -18,6 +18,13 @@ import { PartStudio } from './partstudio';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
   document.querySelector(sel) as T;
+
+/** defId → catalog section title, so placed items list under the same type group they were placed from. */
+const CATALOG_GROUP = new Map<string, string>();
+for (const s of CATALOG) for (const d of s.items) CATALOG_GROUP.set(d.id, s.title);
+
+/** Display order of the components-outline groups. */
+const OUTLINE_ORDER = ['Doors & windows', ...CATALOG.map((s) => s.title), 'My parts'];
 
 /** radians → whole degrees in [0, 360) for display; the model keeps radians unbounded */
 function displayDeg(rad: number): number {
@@ -37,17 +44,22 @@ export class UI {
     this.studio = new PartStudio(store, () => this.renderCatalogIfPartsChanged());
 
     this.renderCatalog();
+    this.renderOutline();
     this.renderProps();
     this.wireTopbar();
     this.wireKeyboard();
 
-    store.on('selection', () => this.renderProps());
+    store.on('selection', () => {
+      this.renderProps();
+      this.renderOutline();
+    });
     store.on('history', () => {
       // skip the full panel rebuild while the user is interacting inside it —
       // steppers, choice rows and inputs keep themselves current
       const active = document.activeElement;
       if (!active || !$('#props').contains(active)) this.renderProps();
       this.renderCatalogIfPartsChanged();
+      this.renderOutline();
       this.updateUndoButtons();
       this.updateInfo();
     });
@@ -171,6 +183,77 @@ export class UI {
     document.querySelectorAll<HTMLElement>('.cat-item').forEach((el) => {
       el.classList.toggle('armed', !!armedId && el.dataset.defId === armedId);
     });
+  }
+
+  /* ================= components outline ================= */
+
+  /** Left-sidebar list of every placed object/opening, grouped by type; rows select. */
+  private renderOutline(): void {
+    const root = $('#outline');
+    root.innerHTML = '';
+
+    type Row = { label: string; sel: Selection; active: boolean };
+    const groups = new Map<string, Row[]>();
+    const add = (group: string, row: Row) => {
+      const list = groups.get(group) ?? (groups.set(group, []).get(group) as Row[]);
+      list.push(row);
+    };
+    const sel = this.store.selection;
+
+    for (const o of this.store.design.openings) {
+      add('Doors & windows', {
+        label: o.type === 'door' ? 'Door' : 'Window',
+        sel: { kind: 'opening', id: o.id },
+        active: sel.kind === 'opening' && sel.id === o.id,
+      });
+    }
+    for (const it of this.store.design.items) {
+      const def = this.store.defOf(it.defId);
+      const group = def.kind === 'custom' ? 'My parts' : (CATALOG_GROUP.get(it.defId) ?? 'Other');
+      add(group, {
+        label: def.label,
+        sel: { kind: 'item', id: it.id },
+        active: sel.kind === 'item' && sel.id === it.id,
+      });
+    }
+
+    const total = this.store.design.items.length + this.store.design.openings.length;
+    const head = this.el(`<div class="ol-head">Components<span class="ol-total">${total}</span></div>`);
+    root.appendChild(head);
+
+    if (total === 0) {
+      root.appendChild(this.el(`<div class="ol-empty">Nothing placed yet</div>`));
+      return;
+    }
+
+    // known groups in catalog order, then any leftover ('Other') alphabetically
+    const known = OUTLINE_ORDER.filter((g) => groups.has(g));
+    const extra = [...groups.keys()].filter((g) => !OUTLINE_ORDER.includes(g)).sort();
+    for (const group of [...known, ...extra]) {
+      const rows = groups.get(group);
+      if (!rows?.length) continue;
+      const section = this.el(
+        `<div class="ol-group"><div class="ol-group-title"><span class="ol-label"></span><span class="ol-count">${rows.length}</span></div></div>`
+      );
+      (section.querySelector('.ol-label') as HTMLElement).textContent = group;
+      for (const r of rows) {
+        const row = document.createElement('div');
+        row.className = `ol-row${r.active ? ' active' : ''}`;
+        row.role = 'button';
+        row.tabIndex = 0;
+        row.textContent = r.label;
+        const pick = () => this.store.select(r.sel);
+        row.addEventListener('click', pick);
+        row.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            pick();
+          }
+        });
+        section.appendChild(row);
+      }
+      root.appendChild(section);
+    }
   }
 
   /* ================= properties panel ================= */

@@ -55,6 +55,31 @@ results.push(['wall snap rotation', Math.abs(Math.abs(placed.rot) - Math.PI) < 0
 const title = await page.textContent('.props-title');
 results.push(['props shows item', title === 'Base cabinet']);
 
+// 2b. components outline lists the placed item under its type group + row selects it
+const outline = await page.evaluate(() =>
+  [...document.querySelectorAll('#outline .ol-group')].map((g) => ({
+    title: g.querySelector('.ol-label')?.textContent?.trim(),
+    rows: [...g.querySelectorAll('.ol-row')].map((r) => r.textContent.trim()),
+  }))
+);
+const baseGroup = outline.find((g) => g.title === 'Base units');
+results.push([
+  'outline lists item under type group',
+  !!baseGroup && baseGroup.rows.includes('Base cabinet'),
+]);
+await page.evaluate(() => window.__kp.store.select({ kind: 'none' }));
+await page.waitForTimeout(80);
+await page.click('#outline .ol-row');
+await page.waitForTimeout(120);
+const outlineSel = await page.evaluate(() => window.__kp.store.selection);
+results.push([
+  'outline row selects item',
+  outlineSel.kind === 'item' && outlineSel.id === (await page.evaluate(() => {
+    const items = window.__kp.store.design.items;
+    return items[items.length - 1].id;
+  })),
+]);
+
 // 3. drag the item along the wall
 const from = await worldToScreen(placed.x, placed.y);
 await page.mouse.move(bb.x + from.x, bb.y + from.y);
