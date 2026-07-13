@@ -6,8 +6,8 @@ import type { CatalogDef } from '../model/catalog';
 import { polygonCentroid, wallPoint } from '../model/geometry';
 import { snapItem } from '../model/snapping';
 import type { Store } from '../model/store';
-import type { EnvPreset, Item, Opening } from '../model/types';
-import { skyState } from '../model/sky';
+import type { Item, Opening } from '../model/types';
+import { AMBIENT_DAY, skyState } from '../model/sky';
 import { buildItemGroup, lightLocalY, shade } from './itemMeshes';
 import { isMac, wheelGesture, type WheelLike } from './wheelInput';
 
@@ -31,6 +31,10 @@ interface WallEntry {
 const SHADOW_LIGHT_BUDGET = 4;
 /** how far from the room centroid the directional "sun" sits */
 const SUN_RADIUS = 10;
+/** fixed ACES tone-mapping exposure — no user control */
+const EXPOSURE = 1.05;
+/** IBL fill level at full day — low, so the flat env glow can't wash out the sun */
+const ENV_FILL = 0.45;
 
 const LIGHT_COOL = new THREE.Color('#dfeaff');
 const LIGHT_WARM = new THREE.Color('#ffb46b');
@@ -51,32 +55,6 @@ function lightColor(warmth: number): THREE.Color {
   return scratchColor.copy(LIGHT_COOL).lerp(LIGHT_WARM, warmth);
 }
 
-/**
- * Procedural environment scenes for image-based lighting — no external HDR
- * assets (keeps the project's "all procedural" rule). `studio` reuses three's
- * neutral RoomEnvironment; the others are simple vertical gradient domes.
- */
-function makeEnvScene(preset: EnvPreset): THREE.Scene {
-  if (preset === 'studio') return new RoomEnvironment();
-  const [top, bottom] = preset === 'dusk' ? ['#6a4a63', '#c98a5a'] : ['#eef1f5', '#d6d4cd'];
-  const scene = new THREE.Scene();
-  const geo = new THREE.SphereGeometry(10, 24, 16);
-  const topC = new THREE.Color(top);
-  const botC = new THREE.Color(bottom);
-  const pos = geo.attributes.position;
-  const colors = new Float32Array(pos.count * 3);
-  const c = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const t = (pos.getY(i) / 10 + 1) / 2; // -radius..+radius → 0..1
-    c.copy(botC).lerp(topC, t);
-    colors.set([c.r, c.g, c.b], i * 3);
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const mat = new THREE.MeshBasicMaterial({ side: THREE.BackSide, vertexColors: true });
-  scene.add(new THREE.Mesh(geo, mat));
-  return scene;
-}
-
 export class View3D {
   private store: Store;
   private renderer: THREE.WebGLRenderer;
@@ -94,8 +72,6 @@ export class View3D {
   private hemi: THREE.HemisphereLight;
   private sun: THREE.DirectionalLight;
   private pmrem: THREE.PMREMGenerator;
-  private envTarget: THREE.WebGLRenderTarget | null = null;
-  private envKey: EnvPreset | null = null;
   private bg = new THREE.Color();
   private sunDir = new THREE.Vector3();
 
@@ -123,13 +99,14 @@ export class View3D {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05; // overridden per-frame by relight()
+    this.renderer.toneMappingExposure = EXPOSURE;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     // area lights (LED strip) need their LTC lookup tables initialised once
     RectAreaLightUniformsLib.init();
     // procedural image-based environment for reflections + soft fill (no asset files)
     this.pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.initEnvironment();
 
     this.camera = new THREE.PerspectiveCamera(52, 1, 0.05, 120);
     this.controls = new OrbitControls(this.camera, canvas);
@@ -485,22 +462,20 @@ export class View3D {
 
   private relight(): void {
     const scene = this.store.design.scene;
-    const sky = skyState(scene.timeOfDay);
-    // daylight level (1 at day → ~0.14 at night); nightness lifts lamp glow after dark
-    const daylight = Math.min(1, sky.ambientIntensity / 0.72);
+    const sky = skyState(scene.sunAzimuth, scene.sunElevation, scene.night);
+    // daylight level (1 at day → 0.2 at night); nightness lifts lamp glow after dark
+    const daylight = Math.min(1, sky.ambientIntensity / AMBIENT_DAY);
     const nightness = 1 - daylight;
 
-    this.renderer.toneMappingExposure = scene.exposure;
     this.scene.background = this.bg.set(sky.background);
-    // fade the environment fill with daylight so night actually goes dark
-    this.scene.environmentIntensity = scene.envIntensity * daylight;
-    if (scene.envPreset !== this.envKey) this.updateEnvironment(scene.envPreset);
+    // brightness is the one master level (sun + ambient + reflections);
+    // the daylight fade still sends reflections dark at night
+    this.scene.environmentIntensity = scene.brightness * daylight * ENV_FILL;
 
-    // sun (key light): time drives direction + base colour/intensity; manual adjusts layer on top
-    this.sun.color.set(scene.sunColor ?? sky.sunColor);
-    this.sun.intensity = sky.sunIntensity * scene.sunStrength;
-    this.hemi.color.set(scene.ambientColor ?? sky.ambientColor);
-    this.hemi.intensity = sky.ambientIntensity * scene.ambientStrength;
+    this.sun.color.set(sky.sunColor);
+    this.sun.intensity = sky.sunIntensity * scene.brightness;
+    this.hemi.color.set(sky.ambientColor);
+    this.hemi.intensity = sky.ambientIntensity * scene.brightness;
 
     const c = polygonCentroid(this.store.design.corners);
     this.sunDir.set(
@@ -522,8 +497,10 @@ export class View3D {
     cam.bottom = -span;
     cam.updateProjectionMatrix();
 
-    // fixture lights, shadow budget on the first few point/spot lamps
-    const boost = 0.75 + 0.5 * nightness; // 0.75 day → 1.25 night, as before
+    // fixture lights, shadow budget on the first few point/spot lamps.
+    // Interior lights are OFF under full daylight (they'd only wash out the
+    // sun), fade in through dusk and carry the room at night.
+    const boost = 1.44 * nightness; // 0 day → 1.15 night
     let shadows = 0;
     for (const item of this.store.design.items) {
       const entry = this.items.get(item.id);
@@ -557,21 +534,19 @@ export class View3D {
         for (const b of entry.bulbs) {
           const m = b.material as THREE.MeshStandardMaterial;
           m.emissive.copy(color);
-          m.emissiveIntensity = on ? (1.5 + 1.1 * nightness) * (0.4 + lp.intensity) : 0.04;
+          // subtle at day (on-state feedback only), bright at night
+          m.emissiveIntensity = on ? (0.6 + 2.0 * nightness) * (0.4 + lp.intensity) : 0.04;
         }
       }
     }
   }
 
-  /** (Re)build the procedural PMREM environment map. Cheap and rare — only on preset change. */
-  private updateEnvironment(preset: EnvPreset): void {
-    const envScene = makeEnvScene(preset);
+  /** One-time procedural PMREM environment (neutral RoomEnvironment) for reflections + fill. */
+  private initEnvironment(): void {
+    const envScene = new RoomEnvironment();
     const target = this.pmrem.fromScene(envScene, 0.04);
-    this.envTarget?.dispose();
-    this.envTarget = target;
     this.scene.environment = target.texture;
     this.disposeGroup(envScene); // frees the throwaway env geometry/materials
-    this.envKey = preset;
   }
 
   private setTint(id: string, on: boolean): void {

@@ -69,34 +69,25 @@ export interface RoomStyle {
   wallThickness: number;
 }
 
-export type EnvPreset = 'studio' | 'soft' | 'dusk';
-
 /** Per-wall 3D visibility override. 'auto' = camera-based hide (default). */
 export type WallVisMode = 'auto' | 'show' | 'hide';
 
 /**
- * Global lighting / environment. `timeOfDay` is the master: it alone drives sun
- * direction, base colour/intensity and the sky — all recomputed live (see
- * src/model/sky.ts). The rest are manual adjustments layered on top, so moving
- * the time slider never clobbers a tweak.
+ * Global lighting. The sun angles + night flag drive everything derived —
+ * colour temperature, ambient, sky background — via src/model/sky.ts;
+ * `brightness` is the single master level for sun + ambient + reflections.
+ * Angles are DEGREES here (the one exception to the radians convention):
+ * they are user-facing slider values and read naturally in saved files.
  */
 export interface Scene {
-  /** 0..24 hours — sun arc, colour temperature, sky */
-  timeOfDay: number;
-  /** tone-mapping exposure, 0.4..2 */
-  exposure: number;
-  /** multiplier on the time-derived sun intensity, 0..2 */
-  sunStrength: number;
-  /** multiplier on the time-derived ambient intensity, 0..2 */
-  ambientStrength: number;
-  /** optional hex override of the time-derived sun colour */
-  sunColor?: string;
-  /** optional hex override of the time-derived sky/ambient colour */
-  ambientColor?: string;
-  /** procedural environment map used for reflections + fill */
-  envPreset: EnvPreset;
-  /** reflection / IBL strength, 0..2 */
-  envIntensity: number;
+  /** sun compass direction in plan, degrees 0..360; 0 = +z, increasing toward +x */
+  sunAzimuth: number;
+  /** sun height above the horizon ("skew"), degrees 5..85 */
+  sunElevation: number;
+  /** master light level 0..2 (1 = tuned default); 0 = fixture lamps only */
+  brightness: number;
+  /** night preset: parks the sun below the horizon so fixture lamps carry the room */
+  night: boolean;
 }
 
 /* ---------------- custom parts (Part Studio) ---------------- */
@@ -198,7 +189,7 @@ export interface FreeformPartDef extends PartBase {
 export type CustomPartDef = CabinetPartDef | BoardPartDef | FreeformPartDef;
 
 export interface Design {
-  version: 2;
+  version: 3;
   corners: Corner[];
   openings: Opening[];
   items: Item[];

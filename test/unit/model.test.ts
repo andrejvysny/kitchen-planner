@@ -42,7 +42,7 @@ describe('sanitizeDesign', () => {
     expect(sanitizeDesign(null)).toBeNull();
     expect(sanitizeDesign('x')).toBeNull();
     expect(sanitizeDesign({})).toBeNull();
-    expect(sanitizeDesign({ version: 3, corners: rectDesign().corners })).toBeNull();
+    expect(sanitizeDesign({ version: 4, corners: rectDesign().corners })).toBeNull();
     expect(sanitizeDesign({ version: 1, corners: [c('a', 0, 0), c('b', 1, 0)] })).toBeNull();
   });
 
@@ -53,9 +53,8 @@ describe('sanitizeDesign', () => {
     expect(Array.isArray(d!.openings)).toBe(true);
     expect(Array.isArray(d!.customParts)).toBe(true);
     expect(d!.room.wallThickness).toBeGreaterThan(0);
-    expect(d!.scene.timeOfDay).toBe(13); // no legacy night → midday default
-    expect(d!.scene.envPreset).toBe('studio');
-    expect(d!.scene.exposure).toBeGreaterThan(0);
+    // no scene at all → the new defaults
+    expect(d!.scene).toEqual({ sunAzimuth: 215, sunElevation: 35, brightness: 1, night: false });
     expect(signedArea(d!.corners)).toBeGreaterThan(0);
   });
 
@@ -88,14 +87,38 @@ describe('sanitizeDesign', () => {
     expect(bogus!.ceilingVisibility).toBeUndefined();
   });
 
-  it('migrates a legacy { night } scene to a time-of-day', () => {
+  it('migrates a legacy v1 { night } scene to sun angles', () => {
     const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
     const day = sanitizeDesign({ version: 2, corners: base, scene: { night: false } });
     const night = sanitizeDesign({ version: 2, corners: base, scene: { night: true } });
-    expect(day!.scene.timeOfDay).toBe(13);
-    expect(night!.scene.timeOfDay).toBe(22);
-    // the dead flag is dropped, not carried forward
-    expect('night' in (night!.scene as object)).toBe(false);
+    // night:false → old t=13 look (noon-ish); night:true → old t=22 (sun setting west)
+    expect(day!.scene).toEqual({ sunAzimuth: 180, sunElevation: 60, brightness: 1, night: false });
+    expect(night!.scene).toEqual({ sunAzimuth: 265, sunElevation: 35, brightness: 1, night: true });
+  });
+
+  it('migrates a full v2 { timeOfDay, … } scene, dropping retired fields', () => {
+    const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
+    const d = sanitizeDesign({
+      version: 2,
+      corners: base,
+      scene: {
+        timeOfDay: 7.5, exposure: 1.3, sunStrength: 1.4, ambientStrength: 0.8,
+        sunColor: '#ff0000', ambientColor: '#00ff00', envPreset: 'dusk', envIntensity: 0.5,
+      },
+    });
+    // t=7.5 → p≈0.107 → azimuth 113, elevation 20; whole-object equality
+    // doubles as the "no old fields linger" assertion
+    expect(d!.scene).toEqual({ sunAzimuth: 113, sunElevation: 20, brightness: 1, night: false });
+  });
+
+  it('clamps out-of-range scene values', () => {
+    const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
+    const d = sanitizeDesign({
+      version: 3,
+      corners: base,
+      scene: { sunAzimuth: 725, sunElevation: 200, brightness: -1, night: 'x' },
+    });
+    expect(d!.scene).toEqual({ sunAzimuth: 5, sunElevation: 85, brightness: 0, night: false });
   });
 });
 

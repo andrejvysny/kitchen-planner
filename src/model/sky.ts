@@ -1,11 +1,11 @@
 /**
- * Time-of-day sky model — pure, no three.js, unit-testable.
+ * Sun/sky model — pure, no three.js, unit-testable.
  *
- * `timeOfDay` (0..24h) is the single master driver of the outdoor light: sun
- * direction, colour temperature, intensity and the sky/background. View3D reads
- * this every relight; manual scene adjustments (sunStrength, sunColor, …) layer
- * on top. Endpoints reproduce the app's original hardcoded look at t=13 (day)
- * and t=22 (night).
+ * Driven directly by the user's sun angles: colour temperature, intensity,
+ * ambient and the sky/background all derive from elevation (low sun = warm
+ * golden, high = neutral). `night` overrides everything with the fixed
+ * moonlight look. View3D reads this every relight and scales the result by
+ * `scene.brightness`.
  */
 
 export interface SkyState {
@@ -20,8 +20,17 @@ export interface SkyState {
 }
 
 const DEG = Math.PI / 180;
-const SUNRISE = 6;
-const SUNSET = 20;
+
+/** UI/sanitize range for the sun-height slider (degrees above horizon). */
+export const SUN_ELEV_MIN = 5;
+export const SUN_ELEV_MAX = 85;
+
+/**
+ * Full-day ambient ceiling. Kept LOW relative to the sun so daylight models
+ * the room instead of washing it out; view3d normalizes its daylight factor
+ * by this value.
+ */
+export const AMBIENT_DAY = 0.5;
 
 // palette endpoints (match the original day/night constants)
 const SUN_WARM = '#ff9a52'; // low sun, golden hour
@@ -62,30 +71,48 @@ export function mixHex(a: string, b: string, t: number): string {
   return rgbToHex(lerp(ar, br, t), lerp(ag, bg, t), lerp(ab, bb, t));
 }
 
-export function skyState(timeOfDay: number): SkyState {
-  const t = ((timeOfDay % 24) + 24) % 24; // wrap into [0,24)
-  const up = t >= SUNRISE && t <= SUNSET;
-  const p = (t - SUNRISE) / (SUNSET - SUNRISE); // 0..1 across daytime (outside range when night)
+export function skyState(azimuthDeg: number, elevationDeg: number, night: boolean): SkyState {
+  const azimuth = (((azimuthDeg % 360) + 360) % 360) * DEG; // wrap into [0,360)
 
-  // direction: sine arc peaking at solar noon; parked just below horizon at night
-  const elevation = up ? Math.sin(p * Math.PI) * (60 * DEG) : -8 * DEG;
-  const azimuth = lerp(95, 265, clamp01(p)) * DEG; // east→west sweep
+  // moonlight: azimuth passes through so the (shadowless) direction stays stable
+  if (night) {
+    return {
+      azimuth,
+      elevation: -8 * DEG, // parked just below the horizon
+      sunColor: SUN_MOON,
+      sunIntensity: 0.04,
+      ambientColor: SKY_NIGHT,
+      ambientIntensity: 0.1,
+      background: BG_NIGHT,
+    };
+  }
 
-  // h = sun-above-horizon strength (0 at rise/set & night, 1 at noon)
-  const h = up ? Math.max(0, Math.sin(p * Math.PI)) : 0;
-  // civil = ambient/twilight light, saturates well before noon so dusk isn't black
-  const civil = clamp01((elevation / DEG + 8) / 24);
+  const elevDeg = Math.min(90, Math.max(0, elevationDeg)); // tolerant beyond the UI range
+  // h = sun strength: 0 at the horizon, saturates at 60°+
+  const h = clamp01(elevDeg / 60);
+  // civil = ambient/twilight light, saturates by ~16° so low sun isn't black
+  const civil = clamp01((elevDeg + 8) / 24);
 
-  const sunColor = up ? mixHex(SUN_WARM, SUN_NOON, smoothstep(0.12, 0.55, h)) : SUN_MOON;
-  const sunIntensity = up ? lerp(0.25, 1.75, h) : 0.04;
+  const sunColor = mixHex(SUN_WARM, SUN_NOON, smoothstep(0.12, 0.55, h));
+  // strong key, restrained fill: the sun carries the modelling, the ambient
+  // only keeps shadows from going black
+  const sunIntensity = lerp(0.3, 2.2, h);
 
   const ambientColor = mixHex(SKY_NIGHT, SKY_DAY, civil);
-  const ambientIntensity = lerp(0.1, 0.72, civil);
+  const ambientIntensity = lerp(0.1, AMBIENT_DAY, civil);
 
   const background =
     civil < 0.5
       ? mixHex(BG_NIGHT, BG_DUSK, civil / 0.5)
       : mixHex(BG_DUSK, BG_DAY, (civil - 0.5) / 0.5);
 
-  return { azimuth, elevation, sunColor, sunIntensity, ambientColor, ambientIntensity, background };
+  return {
+    azimuth,
+    elevation: elevDeg * DEG,
+    sunColor,
+    sunIntensity,
+    ambientColor,
+    ambientIntensity,
+    background,
+  };
 }

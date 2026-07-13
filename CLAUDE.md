@@ -124,14 +124,19 @@ Coordinate conventions (easy to get wrong):
   fixtures are capped by `SHADOW_LIGHT_BUDGET` (4). The LED strip (`bar`) is a
   `RectAreaLight` (even wash along its length, never casts shadows); pendant/spot
   are Point/Spot lights. `LightProps.color` (optional) overrides warmth.
-- Global lighting lives in `design.scene` and is applied in `View3D.relight()`
-  (non-structural, runs live). `timeOfDay` (0–24) is the ONLY driver of sun
-  direction/colour/intensity + sky/background via `src/model/sky.ts` `skyState()`
-  (pure, tested); `sunStrength/ambientStrength/sunColor/ambientColor/exposure`
-  layer on top so the time slider never desyncs. `envPreset` builds a PROCEDURAL
-  PMREM env (RoomEnvironment or a gradient dome — no HDR assets), regenerated
-  only on preset change; its intensity fades with daylight so night goes dark.
-  Legacy `{night}` scenes migrate to `timeOfDay` in `sanitizeDesign`.
+- Global lighting lives in `design.scene = {sunAzimuth, sunElevation,
+  brightness, night}` (angles in DEGREES — the model's only non-radian angles)
+  and is applied in `View3D.relight()` (non-structural, runs live).
+  `skyState(azDeg, elevDeg, night)` in `src/model/sky.ts` (pure, tested)
+  auto-derives sun colour (low sun = golden, high = neutral), ambient and
+  background from elevation; `night` overrides with the fixed moonlight look.
+  `brightness` is the single master scale for sun + ambient + reflections;
+  tone-mapping exposure is a fixed constant (`EXPOSURE` in view3d.ts). The env
+  is a one-time PROCEDURAL RoomEnvironment PMREM (no HDR assets) whose
+  intensity = brightness × daylight × `ENV_FILL` so night goes dark. Fills are
+  deliberately restrained vs the sun (`AMBIENT_DAY`, `ENV_FILL`) — raising
+  them washes the day scene out. Legacy `{night}` and
+  `{timeOfDay,…}` scenes migrate in `sanitizeDesign` (`sanitizeScene`).
 - `setWallLength` propagates movement through perpendicular neighbor walls
   using ORIGINAL edge directions (rectangles stay rectangles) — don't
   "simplify" it to post-move checks; test 'wall length edit' catches this.
@@ -139,7 +144,7 @@ Coordinate conventions (easy to get wrong):
   temporarily clears the selection tint so it doesn't bake into materials.
 - `window.__kp = {store, plan, view}` is exposed for tests/debugging — keep it.
 - Autosave key `kitchen-planner-design-v1`, parts library
-  `kitchen-planner-parts-v1`. `DESIGN_VERSION` is 2; bump + migrate in
+  `kitchen-planner-parts-v1`. `DESIGN_VERSION` is 3; bump + migrate in
   `sanitizeDesign()` (store.ts) on schema changes — it is the single
   validation/repair gate for autosave and file import, and it also drops
   items whose defId resolves nowhere. The parts library migrates per element

@@ -8,9 +8,9 @@ import {
   type CatalogDef,
 } from '../model/catalog';
 import { footprintPolygon, toCatalogDef } from '../model/parts';
-import { skyState } from '../model/sky';
+import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../model/sky';
 import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
-import type { EnvPreset, Item, WallVisMode } from '../model/types';
+import type { Item, WallVisMode } from '../model/types';
 import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
 import type { View3D, CamPreset } from '../view3d/view3d';
@@ -385,41 +385,26 @@ export class UI {
         1 · Sketch the room — size, corners, then place <b>doors, windows, water & outlets</b><br>
         2 · Add base units along the walls (they snap into runs)<br>
         3 · Stack wall cabinets & shelves above<br>
-        4 · Place lights, then set the mood in <b>Lighting</b> (time of day, sun, environment)<br>
+        4 · Place lights, then set the mood in <b>Lighting</b> (sun direction & height, brightness)<br>
         Create your own parametric furniture with <b>＋ New part</b></div>`)
     );
   }
 
-  /** Global lighting / environment controls (shown in the no-selection panel). */
+  /** Global lighting controls (shown in the no-selection panel). */
   private renderLightingProps(root: HTMLElement): void {
     const scene = this.store.design.scene;
-    const sky = skyState(scene.timeOfDay);
-    const hhmm = (v: number) => `${Math.floor(v)}:${String(Math.round((v % 1) * 60)).padStart(2, '0')}`;
+    const deg = (v: number) => `${Math.round(v)}°`;
     const pct = (v: number) => `${Math.round(v * 100)}%`;
 
     const light = this.section(root, 'Lighting');
-    this.sliderRow(light, 'Time of day', scene.timeOfDay, (v) => this.store.setScene({ timeOfDay: v }), {
-      min: 0, max: 24, step: 0.5, fmt: hhmm,
+    this.sliderRow(light, 'Sun direction', scene.sunAzimuth, (v) => this.store.setScene({ sunAzimuth: v }), {
+      min: 0, max: 360, step: 5, fmt: deg,
     });
-    this.sliderRow(light, 'Sun', scene.sunStrength, (v) => this.store.setScene({ sunStrength: v }), {
+    this.sliderRow(light, 'Sun height', scene.sunElevation, (v) => this.store.setScene({ sunElevation: v }), {
+      min: SUN_ELEV_MIN, max: SUN_ELEV_MAX, step: 1, fmt: deg,
+    });
+    this.sliderRow(light, 'Brightness', scene.brightness, (v) => this.store.setScene({ brightness: v }), {
       min: 0, max: 2, step: 0.05, fmt: pct,
-    });
-    this.swatchRow(light, LIGHT_COLORS, scene.sunColor ?? sky.sunColor, (c) =>
-      this.store.setScene({ sunColor: c }));
-    this.sliderRow(light, 'Ambient', scene.ambientStrength, (v) => this.store.setScene({ ambientStrength: v }), {
-      min: 0, max: 2, step: 0.05, fmt: pct,
-    });
-    this.swatchRow(light, LIGHT_COLORS, scene.ambientColor ?? sky.ambientColor, (c) =>
-      this.store.setScene({ ambientColor: c }));
-
-    const env = this.section(root, 'Environment');
-    this.choiceRow(env, [['studio', 'Studio'], ['soft', 'Soft'], ['dusk', 'Dusk']], scene.envPreset, (v) =>
-      this.store.setScene({ envPreset: v as EnvPreset }));
-    this.sliderRow(env, 'Reflections', scene.envIntensity, (v) => this.store.setScene({ envIntensity: v }), {
-      min: 0, max: 2, step: 0.05, fmt: pct,
-    });
-    this.sliderRow(env, 'Exposure', scene.exposure, (v) => this.store.setScene({ exposure: v }), {
-      min: 0.4, max: 2, step: 0.05, fmt: (x) => x.toFixed(2),
     });
   }
 
@@ -680,15 +665,12 @@ export class UI {
     $('#btn-redo').addEventListener('click', () => this.store.redo());
 
     const dayBtn = $('#btn-daynight');
-    const isNight = () => {
-      const t = this.store.design.scene.timeOfDay;
-      return t < 6 || t > 19;
-    };
+    const isNight = () => this.store.design.scene.night;
     const refreshDay = () => {
       dayBtn.textContent = isNight() ? '☾ Night' : '☀ Day';
     };
     dayBtn.addEventListener('click', () => {
-      this.store.setNight(!isNight()); // quick jump midday ⇄ night; fine-tune in the Lighting panel
+      this.store.setNight(!isNight());
       this.store.commit();
       refreshDay();
     });

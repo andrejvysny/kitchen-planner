@@ -1,6 +1,7 @@
 import { catalogDef, defaultParams, hasCatalogDef, type CatalogDef } from './catalog';
 import { clamp, dist, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
 import { samplePart, sanitizePart, toCatalogDef } from './parts';
+import { SUN_ELEV_MAX, SUN_ELEV_MIN } from './sky';
 import { migrateDesignV1, migratePartV1 } from './partsMigrate';
 import type { ChangeInfo, Corner, CustomPartDef, Design, Item, Opening, Point, Selection, WallVisMode } from './types';
 import { uid } from './types';
@@ -494,15 +495,15 @@ export class Store {
 
   /* ---------------- scene / room style ---------------- */
 
-  /** Patch global lighting/environment. Non-structural — relight applies it live. */
+  /** Patch global lighting. Non-structural — relight applies it live. */
   setScene(patch: Partial<Design['scene']>, info: ChangeInfo = { structural: false }): void {
     Object.assign(this.design.scene, patch);
     this.notify(info);
   }
 
-  /** Back-compat quick toggle: jump the time-of-day between midday and night. */
+  /** Topbar quick toggle: night preset dims global light so fixture lamps glow. */
   setNight(night: boolean): void {
-    this.setScene({ timeOfDay: night ? 22 : 13 });
+    this.setScene({ night });
   }
 
   setRoomStyle(patch: Partial<Design['room']>): void {
@@ -583,7 +584,7 @@ export function normalizeDesign(d: Design): Design {
   return d;
 }
 
-export const DESIGN_VERSION = 2;
+export const DESIGN_VERSION = 3;
 
 /** Validate + repair a design parsed from storage or a file. Returns null when unusable. */
 export function sanitizeDesign(raw: unknown): Design | null {
@@ -603,11 +604,7 @@ export function sanitizeDesign(raw: unknown): Design | null {
     (i) => i && typeof i.defId === 'string' && (partIds.has(i.defId) || hasCatalogDef(i.defId))
   );
   d.room = { ...base.room, ...(d.room && typeof d.room === 'object' ? d.room : {}) };
-  const rawScene = (d.scene && typeof d.scene === 'object' ? d.scene : {}) as Record<string, unknown>;
-  // v1/v2-early scenes only had { night }; expand to a time-of-day before merging
-  if (typeof rawScene.timeOfDay !== 'number') rawScene.timeOfDay = rawScene.night ? 22 : 13;
-  delete rawScene.night;
-  d.scene = { ...base.scene, ...rawScene };
+  d.scene = sanitizeScene(d.scene);
   d.wallVisibility = sanitizeWallVisibility(d.wallVisibility);
   if (d.ceilingVisibility !== 'show' && d.ceilingVisibility !== 'hide') delete d.ceilingVisibility;
   d.version = DESIGN_VERSION;
@@ -625,24 +622,50 @@ function sanitizeWallVisibility(raw: unknown): Record<string, WallVisMode> {
   return out;
 }
 
+const wrap360 = (v: number): number => ((v % 360) + 360) % 360;
+const finite = (v: unknown, fb: number): number =>
+  typeof v === 'number' && Number.isFinite(v) ? v : fb;
+
+/**
+ * Coerce/clamp a scene; migrates the v1 {night} and v2 {timeOfDay,…} shapes.
+ * Always builds a fresh object so retired fields never linger in autosave.
+ */
+function sanitizeScene(rawIn: unknown): Design['scene'] {
+  const raw = (rawIn && typeof rawIn === 'object' ? { ...rawIn } : {}) as Record<string, unknown>;
+  // legacy scenes: derive the sun from the old time-of-day arc so the look is preserved
+  if (
+    typeof raw.sunAzimuth !== 'number' &&
+    (typeof raw.timeOfDay === 'number' || typeof raw.night === 'boolean')
+  ) {
+    const t =
+      typeof raw.timeOfDay === 'number' ? ((raw.timeOfDay % 24) + 24) % 24 : raw.night ? 22 : 13;
+    const night = t < 6 || t > 20;
+    const p = Math.min(1, Math.max(0, (t - 6) / 14));
+    raw.sunAzimuth = Math.round(95 + 170 * p); // old east→west sweep
+    raw.sunElevation = night ? defaultScene().sunElevation : Math.round(Math.sin(p * Math.PI) * 60);
+    raw.night = night;
+    // old strength/colour/exposure/env tweaks are intentionally dropped — reset to auto
+  }
+  const base = defaultScene();
+  return {
+    sunAzimuth: wrap360(finite(raw.sunAzimuth, base.sunAzimuth)),
+    sunElevation: clamp(finite(raw.sunElevation, base.sunElevation), SUN_ELEV_MIN, SUN_ELEV_MAX),
+    brightness: clamp(finite(raw.brightness, base.brightness), 0, 2),
+    night: typeof raw.night === 'boolean' ? raw.night : base.night,
+  };
+}
+
 /* ---------------- factory designs ---------------- */
 
-/** Default global lighting: midday, neutral studio environment. */
+/** Default global lighting: mid-afternoon sun from the SW — warm-neutral, oblique readable shadows. */
 export function defaultScene(): Design['scene'] {
-  return {
-    timeOfDay: 13,
-    exposure: 1.05,
-    sunStrength: 1,
-    ambientStrength: 1,
-    envPreset: 'studio',
-    envIntensity: 1,
-  };
+  return { sunAzimuth: 215, sunElevation: 35, brightness: 1, night: false };
 }
 
 export function emptyDesign(): Design {
   const c = (x: number, y: number): Corner => ({ id: uid('c'), x, y });
   return normalizeDesign({
-    version: 2,
+    version: 3,
     corners: [c(0, 0), c(4, 0), c(4, 3), c(0, 3)],
     openings: [],
     items: [],
@@ -739,7 +762,7 @@ export function demoDesign(): Design {
   ];
 
   return normalizeDesign({
-    version: 2,
+    version: 3,
     corners: [c1, c2, c3, c4],
     openings,
     items,

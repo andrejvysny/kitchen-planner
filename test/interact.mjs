@@ -512,18 +512,18 @@ await page.evaluate((id) => {
   st.commit();
 }, doorId);
 
-// 16. day/night toggle round-trips via time-of-day
+// 16. day/night toggle round-trips via scene.night
 await page.evaluate(() => {
-  window.__kp.store.setScene({ timeOfDay: 13 });
+  window.__kp.store.setScene({ night: false });
   window.__kp.store.commit();
 });
 await page.click('#btn-daynight');
 await page.waitForTimeout(120);
-const t1 = await page.evaluate(() => window.__kp.store.design.scene.timeOfDay);
+const night1 = await page.evaluate(() => window.__kp.store.design.scene.night);
 await page.click('#btn-daynight');
 await page.waitForTimeout(120);
-const t2 = await page.evaluate(() => window.__kp.store.design.scene.timeOfDay);
-results.push(['day/night toggle', t1 === 22 && t2 === 13]);
+const night2 = await page.evaluate(() => window.__kp.store.design.scene.night);
+results.push(['day/night toggle', night1 === true && night2 === false]);
 
 // 17. clicking an item in the 3D pane selects it
 await page.keyboard.press('Escape');
