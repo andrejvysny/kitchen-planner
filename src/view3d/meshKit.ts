@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { APPLIANCE_BLACK } from '../model/catalog';
 import { signedArea } from '../model/geometry';
 import type { Point, RoomStyle } from '../model/types';
+import { texturedMaterial } from './textures';
 
 /**
  * Shared procedural-mesh vocabulary. Local space: x = width, y = up (0 at
@@ -36,6 +37,54 @@ export function wood(color: string): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ color, roughness: 0.62, metalness: 0.02 });
 }
 
+/** A paintable surface: user colour + optional built-in PBR material id. */
+export interface Finish {
+  color: string;
+  material?: string;
+}
+
+/**
+ * Material for a colour-carrying surface. With a library material id it
+ * resolves to the textured PBR material (src/view3d/textures.ts); otherwise
+ * the classic flat matte/wood finish. `tint` darkens (carcass, legs).
+ */
+export function surfMat(f: string | Finish, fallback: 'matte' | 'wood' = 'matte', tint = 1): THREE.MeshStandardMaterial {
+  const fin = typeof f === 'string' ? { color: f } : f;
+  const color = tint === 1 ? fin.color : shade(fin.color, tint);
+  if (fin.material) {
+    const m = texturedMaterial(fin.material, color);
+    if (m) {
+      if (tint !== 1) m.color.multiplyScalar(tint);
+      return m;
+    }
+  }
+  return fallback === 'wood' ? wood(color) : matte(color);
+}
+
+/**
+ * Rescale BoxGeometry UVs from 0..1 per face to METERS, so shared textures
+ * (repeat = 1/tile-size) keep constant real-world grain on every panel.
+ * Face order: +x, -x, +y, -y, +z, -z; 4 vertices each.
+ */
+export function scaleBoxUV(geo: THREE.BoxGeometry, w: number, h: number, d: number): void {
+  const uv = geo.attributes.uv as THREE.BufferAttribute;
+  const scales: [number, number][] = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  for (let i = 0; i < uv.count; i++) {
+    const [su, sv] = scales[Math.floor(i / 4)];
+    uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
+  }
+}
+
+/** Same idea for cylinders: torso UVs → circumference × height, caps → diameter. */
+function scaleCylUV(geo: THREE.CylinderGeometry, r: number, h: number): void {
+  const uv = geo.attributes.uv as THREE.BufferAttribute;
+  const torso = (geo.parameters.radialSegments + 1) * 2; // heightSegments = 1
+  for (let i = 0; i < uv.count; i++) {
+    const [su, sv] = i < torso ? [2 * Math.PI * r, h] : [2 * r, 2 * r];
+    uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
+  }
+}
+
 export function steelMat(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ color: '#b6babd', roughness: 0.38, metalness: 0.65 });
 }
@@ -54,7 +103,9 @@ export function box(
   y = 0,
   z = 0
 ): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  const geo = new THREE.BoxGeometry(w, h, d);
+  scaleBoxUV(geo, w, h, d);
+  const m = new THREE.Mesh(geo, mat);
   m.position.set(x, y + h / 2, z);
   m.castShadow = true;
   m.receiveShadow = true;
@@ -72,7 +123,9 @@ export function cyl(
   z = 0,
   rTop = r
 ): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, r, h, 20), mat);
+  const geo = new THREE.CylinderGeometry(rTop, r, h, 20);
+  scaleCylUV(geo, r, h);
+  const m = new THREE.Mesh(geo, mat);
   m.position.set(x, y + h / 2, z);
   m.castShadow = true;
   m.receiveShadow = true;
@@ -85,13 +138,13 @@ export function frontSlab(
   g: THREE.Group,
   w: number,
   h: number,
-  color: string,
+  color: string | Finish,
   x: number,
   y: number,
   zFront: number,
   grooveAt: 'top' | 'bottom' | 'none' = 'top'
 ): void {
-  box(g, w, h, FRONT_T, matte(color), x, y, zFront - FRONT_T / 2);
+  box(g, w, h, FRONT_T, surfMat(color), x, y, zFront - FRONT_T / 2);
   if (grooveAt !== 'none') {
     const gy = grooveAt === 'top' ? y + h - 0.012 : y;
     box(g, w, 0.012, FRONT_T + 0.002, matte(GROOVE), x, gy, zFront - FRONT_T / 2 - 0.002);
@@ -111,12 +164,17 @@ export function plinth(g: THREE.Group, w: number, d: number): void {
   box(g, w - 0.06, PLINTH_H, d - 0.05, matte(PLINTH_COLOR), 0, 0, -0.02);
 }
 
-export function carcass(g: THREE.Group, w: number, h: number, d: number, color: string, y0: number): void {
-  box(g, w, h, d - FRONT_T, matte(shade(color, CARCASS_DARKEN)), 0, y0, -FRONT_T / 2);
+export function carcass(g: THREE.Group, w: number, h: number, d: number, color: string | Finish, y0: number): void {
+  box(g, w, h, d - FRONT_T, surfMat(color, 'matte', CARCASS_DARKEN), 0, y0, -FRONT_T / 2);
+}
+
+/** The room's worktop finish (colour + optional material) as a Finish. */
+export function counterFin(room: RoomStyle): Finish {
+  return { color: room.counterColor, material: room.counterMaterial };
 }
 
 export function counterSlab(g: THREE.Group, w: number, d: number, y: number, room: RoomStyle): void {
-  box(g, w, COUNTER_T, d + 0.02, wood(room.counterColor), 0, y, 0.01);
+  box(g, w, COUNTER_T, d + 0.02, surfMat(counterFin(room), 'wood'), 0, y, 0.01);
 }
 
 /**

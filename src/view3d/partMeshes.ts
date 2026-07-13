@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { partPanels, type Panel } from '../model/panels';
 import type { CustomPartDef, Item, RoomStyle } from '../model/types';
-import { box, cyl, GROOVE, matte, PLINTH_COLOR, prism, shade, wood } from './meshKit';
+import { box, cyl, type Finish, GROOVE, matte, PLINTH_COLOR, prism, surfMat } from './meshKit';
 
 /**
  * Custom parts render from their panel list (src/model/panels.ts) — this file
@@ -9,7 +9,7 @@ import { box, cyl, GROOVE, matte, PLINTH_COLOR, prism, shade, wood } from './mes
  * routed grooves). Anything geometric belongs in the panel generator.
  */
 
-function panelMaterial(p: Panel, frontColor: string, accentColor: string): THREE.Material {
+function panelMaterial(p: Panel, front: Finish, accentColor: string): THREE.Material {
   if (p.slot === 'glass') {
     return new THREE.MeshStandardMaterial({
       color: '#bcd2d8',
@@ -19,9 +19,10 @@ function panelMaterial(p: Panel, frontColor: string, accentColor: string): THREE
       opacity: 0.35,
     });
   }
-  let color = p.slot === 'accent' ? accentColor : p.slot === 'plinth' ? PLINTH_COLOR : frontColor;
-  if (p.tint !== undefined) color = shade(color, p.tint);
-  return p.finish === 'wood' ? wood(color) : matte(color);
+  // the instance's PBR material paints the 'front' slot; accent/plinth stay flat colours
+  const fin: Finish =
+    p.slot === 'accent' ? { color: accentColor } : p.slot === 'plinth' ? { color: PLINTH_COLOR } : front;
+  return surfMat(fin, p.finish === 'wood' ? 'wood' : 'matte', p.tint ?? 1);
 }
 
 function tag(o: THREE.Object3D, p: Panel): void {
@@ -30,8 +31,8 @@ function tag(o: THREE.Object3D, p: Panel): void {
   if (p.boardId) o.userData.boardId = p.boardId;
 }
 
-function panelMesh(g: THREE.Group, p: Panel, frontColor: string, accentColor: string): void {
-  const mat = panelMaterial(p, frontColor, accentColor);
+function panelMesh(g: THREE.Group, p: Panel, front: Finish, accentColor: string): void {
+  const mat = panelMaterial(p, front, accentColor);
   if (p.shape.kind === 'prism') {
     tag(prism(g, p.shape.outline, p.shape.h, mat, p.y, p.shape.holes), p);
     return;
@@ -62,7 +63,8 @@ function panelMesh(g: THREE.Group, p: Panel, frontColor: string, accentColor: st
 
 export function buildCustomPart(g: THREE.Group, item: Item, part: CustomPartDef, _room: RoomStyle): void {
   const dims = { w: item.w, d: item.d, h: item.h, elevation: item.elevation };
+  const front: Finish = { color: item.color, material: item.material };
   for (const p of partPanels(part, dims)) {
-    panelMesh(g, p, item.color, part.accentColor);
+    panelMesh(g, p, front, part.accentColor);
   }
 }

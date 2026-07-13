@@ -9,6 +9,7 @@ import type { Store } from '../model/store';
 import type { Item, Opening } from '../model/types';
 import { AMBIENT_DAY, skyState } from '../model/sky';
 import { buildItemGroup, lightLocalY, shade } from './itemMeshes';
+import { scaleBoxUV, surfMat } from './meshKit';
 import { isMac, wheelGesture, type WheelLike } from './wheelInput';
 
 export type CamPreset = 'corner' | 'top' | 'front' | 'inside';
@@ -275,12 +276,14 @@ export class View3D {
     ground.receiveShadow = true;
     this.roomGroup.add(ground);
 
-    // floor
+    // floor — ShapeGeometry UVs are the plan coords in meters, so shared
+    // material textures (repeat = 1/tile) land at real-world scale directly
     const shape = new THREE.Shape(corners.map((p) => new THREE.Vector2(p.x, p.y)));
-    const floor = new THREE.Mesh(
-      new THREE.ShapeGeometry(shape),
-      new THREE.MeshStandardMaterial({ color: room.floorColor, roughness: 0.88, side: THREE.DoubleSide })
-    );
+    const floorMat = room.floorMaterial
+      ? surfMat({ color: room.floorColor, material: room.floorMaterial })
+      : new THREE.MeshStandardMaterial({ color: room.floorColor, roughness: 0.88 });
+    floorMat.side = THREE.DoubleSide;
+    const floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMat);
     floor.rotation.x = Math.PI / 2;
     floor.receiveShadow = true;
     this.roomGroup.add(floor);
@@ -307,14 +310,22 @@ export class View3D {
       group.position.set(g.a.x, 0, g.a.y);
       group.rotation.y = -g.angle;
 
-      const wallMat = new THREE.MeshStandardMaterial({ color: room.wallColor, roughness: 0.94 });
+      const wallMat = room.wallMaterial
+        ? surfMat({ color: room.wallColor, material: room.wallMaterial })
+        : new THREE.MeshStandardMaterial({ color: room.wallColor, roughness: 0.94 });
       const openings = design.openings
         .filter((o) => o.wallId === g.id)
         .sort((a, b) => a.offset - b.offset);
 
       const addSeg = (x0: number, x1: number, y0: number, y1: number) => {
         if (x1 - x0 < 0.005 || y1 - y0 < 0.005) return;
-        const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, t), wallMat);
+        const geo = new THREE.BoxGeometry(x1 - x0, y1 - y0, t);
+        // meter-scaled UVs, offset so the pattern runs continuously across
+        // the segments around openings (front/back faces are the visible ones)
+        scaleBoxUV(geo, x1 - x0, y1 - y0, t);
+        const uv = geo.attributes.uv as THREE.BufferAttribute;
+        for (let i = 16; i < 24; i++) uv.setXY(i, uv.getX(i) + x0, uv.getY(i) + y0);
+        const m = new THREE.Mesh(geo, wallMat);
         m.position.set((x0 + x1) / 2, (y0 + y1) / 2, 0);
         m.castShadow = true;
         m.receiveShadow = true;

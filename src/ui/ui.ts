@@ -8,12 +8,20 @@ import {
   type CatalogDef,
 } from '../model/catalog';
 import { footprintPolygon, toCatalogDef } from '../model/parts';
+import {
+  COUNTER_MATERIALS,
+  FLOOR_MATERIALS,
+  ITEM_MATERIALS,
+  WALL_MATERIALS,
+  type MaterialDef,
+} from '../model/materials';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../model/sky';
 import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
 import type { Item, Selection, WallVisMode } from '../model/types';
 import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
 import type { ElevationView } from '../plan2d/elevation';
+import { materialSwatch } from '../view3d/textures';
 import type { View3D, CamPreset } from '../view3d/view3d';
 import { PartStudio } from './partstudio';
 
@@ -347,6 +355,34 @@ export class UI {
     parent.appendChild(sw);
   }
 
+  /** Built-in PBR material chips (textured previews) + a "plain colour" chip. */
+  private materialRow(
+    parent: HTMLElement,
+    mats: MaterialDef[],
+    current: string | undefined,
+    onPick: (id?: string) => void
+  ): void {
+    const sw = this.el('<div class="swatches"></div>');
+    const add = (id: string | undefined, title: string, bg: string) => {
+      const b = this.el(
+        `<button class="swatch${current === id ? ' active' : ''}" title="${title}"></button>`
+      );
+      b.style.background = bg;
+      b.style.backgroundSize = 'cover';
+      b.addEventListener('click', () => {
+        onPick(id);
+        this.store.commit();
+      });
+      sw.appendChild(b);
+    };
+    add(undefined, 'Plain colour', 'linear-gradient(135deg,#fff 44%,#b9bdc0 44%,#b9bdc0 56%,#fff 56%)');
+    for (const m of mats) {
+      const cnv = materialSwatch(m.id, 52);
+      add(m.id, m.label, cnv ? `url(${cnv.toDataURL()})` : m.color);
+    }
+    parent.appendChild(sw);
+  }
+
   /** Segmented two-way choice; updates its own active state so no re-render is needed. */
   private choiceRow(
     parent: HTMLElement,
@@ -445,6 +481,8 @@ export class UI {
     const colors = this.section(root, 'Walls');
     this.swatchRow(colors, WALL_COLORS, this.store.design.room.wallColor, (c) =>
       this.store.setRoomStyle({ wallColor: c }));
+    this.materialRow(colors, WALL_MATERIALS, this.store.design.room.wallMaterial, (id) =>
+      this.store.setRoomStyle({ wallMaterial: id }));
     const visRow = this.el(`<div class="btn-row">
       <button class="btn" data-m="auto">Auto all</button>
       <button class="btn" data-m="show">Show all</button>
@@ -459,9 +497,13 @@ export class UI {
     const floor = this.section(root, 'Floor');
     this.swatchRow(floor, FLOOR_COLORS, this.store.design.room.floorColor, (c) =>
       this.store.setRoomStyle({ floorColor: c }));
+    this.materialRow(floor, FLOOR_MATERIALS, this.store.design.room.floorMaterial, (id) =>
+      this.store.setRoomStyle({ floorMaterial: id }));
     const counter = this.section(root, 'Worktops');
     this.swatchRow(counter, COUNTER_COLORS, this.store.design.room.counterColor, (c) =>
       this.store.setRoomStyle({ counterColor: c }));
+    this.materialRow(counter, COUNTER_MATERIALS, this.store.design.room.counterMaterial, (id) =>
+      this.store.setRoomStyle({ counterMaterial: id }));
 
     this.renderLightingProps(root);
 
@@ -565,11 +607,13 @@ export class UI {
       }
     }
 
-    // colour
+    // colour + material
     if (!def.opening && !def.marker) {
-      const colors = this.section(root, 'Colour');
+      const colors = this.section(root, 'Colour & material');
       this.swatchRow(colors, FRONT_COLORS, item.color, (c) =>
         this.store.updateItem(item.id, { color: c }));
+      this.materialRow(colors, ITEM_MATERIALS, item.material, (id) =>
+        this.store.updateItem(item.id, { material: id }));
     }
 
     // light

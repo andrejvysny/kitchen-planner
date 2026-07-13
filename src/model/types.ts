@@ -56,6 +56,8 @@ export interface Item {
   /** bottom of the item above the floor */
   elevation: number;
   color: string;
+  /** built-in PBR material id (src/model/materials.ts); missing = plain colour */
+  material?: string;
   light?: LightProps;
   /** parametric options, e.g. { drawers: 3, doors: 2 } — keys defined per catalog entry */
   params?: Record<string, number>;
@@ -65,6 +67,10 @@ export interface RoomStyle {
   wallColor: string;
   floorColor: string;
   counterColor: string;
+  /** built-in PBR material ids (src/model/materials.ts); missing = plain colour */
+  wallMaterial?: string;
+  floorMaterial?: string;
+  counterMaterial?: string;
   wallHeight: number;
   wallThickness: number;
 }

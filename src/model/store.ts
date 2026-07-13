@@ -1,5 +1,6 @@
 import { catalogDef, defaultParams, hasCatalogDef, type CatalogDef } from './catalog';
 import { clamp, dist, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
+import { hasMaterial } from './materials';
 import { samplePart, sanitizePart, toCatalogDef } from './parts';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from './sky';
 import { migrateDesignV1, migratePartV1 } from './partsMigrate';
@@ -603,7 +604,15 @@ export function sanitizeDesign(raw: unknown): Design | null {
   d.items = (d.items as Item[]).filter(
     (i) => i && typeof i.defId === 'string' && (partIds.has(i.defId) || hasCatalogDef(i.defId))
   );
+  // material ids must resolve in the built-in library — unknown ones are dropped
+  for (const i of d.items as Item[]) {
+    if (i.material !== undefined && !hasMaterial(i.material)) delete i.material;
+  }
   d.room = { ...base.room, ...(d.room && typeof d.room === 'object' ? d.room : {}) };
+  const room = d.room as Record<string, unknown>;
+  for (const key of ['wallMaterial', 'floorMaterial', 'counterMaterial']) {
+    if (room[key] !== undefined && !hasMaterial(room[key])) delete room[key];
+  }
   d.scene = sanitizeScene(d.scene);
   d.wallVisibility = sanitizeWallVisibility(d.wallVisibility);
   if (d.ceilingVisibility !== 'show' && d.ceilingVisibility !== 'hide') delete d.ceilingVisibility;
