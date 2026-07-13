@@ -694,10 +694,11 @@ export class View3D {
         this.zoomCamera(Math.pow(WHEEL_ZOOM_STEP, Math.sign(e.deltaY)));
         break;
       case 'trackpad-pan':
-        this.panCamera(e.deltaX, e.deltaY);
+        // Negate so the scene follows the fingers (two-finger swipe drags content).
+        this.panCamera(-e.deltaX, -e.deltaY);
         break;
       case 'trackpad-orbit':
-        this.orbitCamera(e.deltaX, e.deltaY);
+        this.orbitCamera(-e.deltaX, -e.deltaY);
         break;
     }
   }

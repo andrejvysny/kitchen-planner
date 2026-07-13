@@ -14,6 +14,7 @@ import { footprintPolygon } from '../model/parts';
 import { nearestWall, snapItem, type Guide } from '../model/snapping';
 import type { Store } from '../model/store';
 import type { CustomPartDef, Item, Opening, Point } from '../model/types';
+import { isMac, isTrackpadWheel, type WheelLike } from '../view3d/wheelInput';
 import { drawPlanSymbol, isOverhead } from './symbols';
 
 const INK = '#3a3934';
@@ -64,6 +65,7 @@ export class Plan2D {
   private pointerWorld: Point = { x: 0, y: 0 };
   private raf = 0;
   private fitted = false;
+  private readonly isMac = isMac(navigator.platform, navigator.userAgent);
 
   constructor(canvas: HTMLCanvasElement, store: Store, onHint: (hint: string) => void) {
     this.canvas = canvas;
@@ -573,11 +575,18 @@ export class Plan2D {
 
   private onWheel(e: WheelEvent): void {
     e.preventDefault();
-    const s = { x: e.offsetX, y: e.offsetY };
-    const before = this.toWorld(s.x, s.y);
+    // macOS trackpad: a two-finger swipe pans, a pinch (ctrl+wheel) zooms at the
+    // cursor. Mouse wheel and every non-mac platform keep classic scroll-zoom.
+    if (!e.ctrlKey && this.isMac && isTrackpadWheel(e as unknown as WheelLike)) {
+      this.panX -= e.deltaX; // negate so the plan follows the fingers
+      this.panY -= e.deltaY;
+      this.requestDraw();
+      return;
+    }
+    const before = this.toWorld(e.offsetX, e.offsetY);
     this.zoom = clamp(this.zoom * Math.exp(-e.deltaY * 0.0011), 15, 400);
-    this.panX = s.x - before.x * this.zoom;
-    this.panY = s.y - before.y * this.zoom;
+    this.panX = e.offsetX - before.x * this.zoom;
+    this.panY = e.offsetY - before.y * this.zoom;
     this.requestDraw();
   }
 

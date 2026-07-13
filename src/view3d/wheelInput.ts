@@ -1,6 +1,7 @@
-// Pure classification of wheel/trackpad input for the 3D navigation.
+// Pure classification of wheel/trackpad input for navigation.
 // Kept free of three.js so it can be unit-tested headlessly. View3D wires the
-// resulting gesture to camera pan/orbit/zoom (macOS trackpad support, KITCHENP-4).
+// resulting gesture to camera pan/orbit/zoom; Plan2D reuses isMac/isTrackpadWheel
+// for two-finger pan vs pinch-zoom (macOS trackpad support, KITCHENP-4).
 
 /** Subset of WheelEvent we read. `wheelDeltaY` is a legacy field (absent from
  *  lib.dom types) but still exposed by Chrome/Safari — our best trackpad tell. */
