@@ -9,6 +9,7 @@ import type { Store } from '../model/store';
 import type { EnvPreset, Item, Opening } from '../model/types';
 import { skyState } from '../model/sky';
 import { buildItemGroup, lightLocalY, shade } from './itemMeshes';
+import { isMac, wheelGesture, type WheelLike } from './wheelInput';
 
 export type CamPreset = 'corner' | 'top' | 'front' | 'inside';
 
@@ -34,6 +35,16 @@ const SUN_RADIUS = 10;
 const LIGHT_COOL = new THREE.Color('#dfeaff');
 const LIGHT_WARM = new THREE.Color('#ffb46b');
 const scratchColor = new THREE.Color();
+
+// Trackpad-navigation tuning + scratch (see onWheel / wheelInput.ts).
+const WHEEL_ZOOM_STEP = 1 / 0.95; // radius factor per mouse-wheel notch
+const PINCH_ZOOM_RATE = 0.01; // radius = radius * exp(deltaY * rate) for pinch
+const TRACKPAD_ORBIT_SPEED = 0.6; // damp two-finger orbit vs a mouse drag
+const navOffset = new THREE.Vector3();
+const navMove = new THREE.Vector3();
+const navRight = new THREE.Vector3();
+const navUp = new THREE.Vector3();
+const navSpherical = new THREE.Spherical();
 
 /** Shared scratch — consumers must copy() the result, never keep the reference. */
 function lightColor(warmth: number): THREE.Color {
@@ -94,6 +105,7 @@ export class View3D {
   private downPos = new THREE.Vector2();
   private lastTintedId: string | null = null;
   private scratchToCam = new THREE.Vector3();
+  private readonly isMac = isMac(navigator.platform, navigator.userAgent);
 
   private getArmed: () => CatalogDef | null;
   private clearArmed: () => void;
@@ -154,6 +166,14 @@ export class View3D {
     canvas.addEventListener('pointermove', (e) => this.onPointerMove(e));
     canvas.addEventListener('pointerup', (e) => this.onPointerUp(e));
     canvas.addEventListener('pointercancel', () => this.endDrag());
+
+    // MacBook trackpad navigation: take over the wheel so two-finger swipe pans,
+    // +Shift orbits, and pinch zooms. Mouse (drag + wheel) keeps OrbitControls'
+    // defaults, so this is macOS-only to avoid touching other platforms.
+    if (this.isMac) {
+      this.controls.enableZoom = false; // wheel dolly handled in onWheel()
+      canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+    }
 
     this.rebuild();
     this.setPreset('corner');
@@ -655,6 +675,63 @@ export class View3D {
     this.controls.enabled = true;
     if (this.dragMoved) this.store.commit();
     this.dragItemId = null;
+  }
+
+  /* ---------------- macOS trackpad navigation ---------------- */
+
+  /** Route a wheel event to pan/orbit/zoom (macOS only; see wheelInput.ts). */
+  private onWheel(e: WheelEvent): void {
+    e.preventDefault();
+    if (this.dragItemId) return; // don't fight an in-progress item drag
+    switch (wheelGesture(e as unknown as WheelLike, this.isMac)) {
+      case 'zoom-pinch':
+        this.zoomCamera(Math.exp(e.deltaY * PINCH_ZOOM_RATE));
+        break;
+      case 'mouse-zoom':
+        this.zoomCamera(Math.pow(WHEEL_ZOOM_STEP, Math.sign(e.deltaY)));
+        break;
+      case 'trackpad-pan':
+        this.panCamera(e.deltaX, e.deltaY);
+        break;
+      case 'trackpad-orbit':
+        this.orbitCamera(e.deltaX, e.deltaY);
+        break;
+    }
+  }
+
+  /** Dolly by scaling the camera→target distance; update() clamps to min/max. */
+  private zoomCamera(factor: number): void {
+    navOffset.copy(this.camera.position).sub(this.controls.target).multiplyScalar(factor);
+    this.camera.position.copy(this.controls.target).add(navOffset);
+  }
+
+  /** Screen-space pan of both camera and target (mirrors OrbitControls' pan). */
+  private panCamera(dx: number, dy: number): void {
+    const el = this.renderer.domElement;
+    const dist =
+      this.camera.position.distanceTo(this.controls.target) *
+      Math.tan((this.camera.fov / 2) * (Math.PI / 180));
+    const kx = (2 * dx * dist) / el.clientHeight;
+    const ky = (2 * dy * dist) / el.clientHeight;
+    this.camera.updateMatrix();
+    const m = this.camera.matrix.elements;
+    navRight.set(m[0], m[1], m[2]);
+    navUp.set(m[4], m[5], m[6]);
+    navMove.copy(navRight).multiplyScalar(-kx).addScaledVector(navUp, ky);
+    this.camera.position.add(navMove);
+    this.controls.target.add(navMove);
+  }
+
+  /** Orbit around the target; update() clamps phi to maxPolarAngle. */
+  private orbitCamera(dx: number, dy: number): void {
+    const h = this.renderer.domElement.clientHeight;
+    navOffset.copy(this.camera.position).sub(this.controls.target);
+    navSpherical.setFromVector3(navOffset);
+    navSpherical.theta -= ((2 * Math.PI * dx) / h) * TRACKPAD_ORBIT_SPEED;
+    navSpherical.phi -= ((2 * Math.PI * dy) / h) * TRACKPAD_ORBIT_SPEED;
+    navSpherical.makeSafe();
+    navOffset.setFromSpherical(navSpherical);
+    this.camera.position.copy(this.controls.target).add(navOffset);
   }
 
   /** Project a world point to canvas CSS pixels (used by the E2E suite). */
