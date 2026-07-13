@@ -46,11 +46,22 @@
         <section id="canvases">
           <div id="pane2d" class="pane">
             <canvas id="canvas2d"></canvas>
-            <div class="pane-badge">Floor plan</div>
+            <canvas id="canvas-elev"></canvas>
+            <div class="pane-badge" id="badge-plan">Floor plan</div>
+            <div class="pane-badge" id="badge-elev">Wall elevation</div>
+            <div id="mode2d-toggle" class="pane-modes">
+              <button data-2dmode="plan" class="active" title="Top-down floor plan">Plan</button>
+              <button data-2dmode="elev" title="Front view of one wall">Elevation</button>
+            </div>
             <div id="zoom-controls">
               <button id="btn-zoom-in" title="Zoom in">+</button>
               <button id="btn-zoom-fit" title="Zoom to fit">⛶</button>
               <button id="btn-zoom-out" title="Zoom out">−</button>
+            </div>
+            <div id="wall-nav">
+              <button id="btn-wall-prev" title="Previous wall">‹</button>
+              <span id="wall-label">Wall</span>
+              <button id="btn-wall-next" title="Next wall">›</button>
             </div>
           </div>
           <div id="pane3d" class="pane">

@@ -13,6 +13,7 @@ import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
 import type { Item, Selection, WallVisMode } from '../model/types';
 import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
+import type { ElevationView } from '../plan2d/elevation';
 import type { View3D, CamPreset } from '../view3d/view3d';
 import { PartStudio } from './partstudio';
 
@@ -35,12 +36,14 @@ export class UI {
   private store: Store;
   private plan: Plan2D;
   private view: View3D;
+  private elev: ElevationView;
   private studio: PartStudio;
 
-  constructor(store: Store, plan: Plan2D, view: View3D) {
+  constructor(store: Store, plan: Plan2D, view: View3D, elev: ElevationView) {
     this.store = store;
     this.plan = plan;
     this.view = view;
+    this.elev = elev;
     this.studio = new PartStudio(store, () => this.renderCatalogIfPartsChanged());
 
     this.renderCatalog();
@@ -729,6 +732,19 @@ export class UI {
     };
     document.querySelectorAll<HTMLElement>('#view-toggle button').forEach((b) =>
       b.addEventListener('click', () => setView(b.dataset.view as '2d' | 'split' | '3d')));
+
+    // 2D pane sub-mode: top-down plan vs. front-view wall elevation
+    const setMode2d = (mode: 'plan' | 'elev') => {
+      $('#pane2d').classList.toggle('elev-mode', mode === 'elev');
+      document.querySelectorAll<HTMLElement>('#mode2d-toggle button').forEach((b) =>
+        b.classList.toggle('active', b.dataset['2dmode'] === mode));
+      this.elev.setActive(mode === 'elev');
+      if (mode === 'plan') this.plan.requestDraw();
+    };
+    document.querySelectorAll<HTMLElement>('#mode2d-toggle button').forEach((b) =>
+      b.addEventListener('click', () => setMode2d(b.dataset['2dmode'] as 'plan' | 'elev')));
+    $('#btn-wall-prev').addEventListener('click', () => this.elev.stepWall(-1));
+    $('#btn-wall-next').addEventListener('click', () => this.elev.stepWall(1));
 
     // narrow screens: the catalog is an off-canvas drawer; click-away closes it
     const catalogBtn = $('#btn-catalog');

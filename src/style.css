@@ -308,6 +308,78 @@ html, body {
 #zoom-controls button:hover, #cam-controls button:hover { background: #eceae6; }
 #cam-controls button.active { background: var(--ink); color: #fff; }
 
+/* ---------- 2D pane sub-mode (plan / elevation) ---------- */
+
+#canvas-elev { cursor: default; display: none; }
+#badge-elev, #wall-nav { display: none; }
+
+#pane2d.elev-mode #canvas2d,
+#pane2d.elev-mode #badge-plan,
+#pane2d.elev-mode #zoom-controls { display: none; }
+#pane2d.elev-mode #canvas-elev { display: block; }
+#pane2d.elev-mode #badge-elev,
+#pane2d.elev-mode #wall-nav { display: flex; }
+
+.pane-modes {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 2px;
+  box-shadow: var(--shadow);
+}
+
+.pane-modes button {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.pane-modes button:hover { background: #eceae6; }
+.pane-modes button.active { background: var(--ink); color: #fff; }
+
+#wall-nav {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 3px 6px;
+  box-shadow: var(--shadow);
+}
+
+#wall-nav button {
+  border: none;
+  background: transparent;
+  padding: 3px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+#wall-nav button:hover { background: #eceae6; }
+
+#wall-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  min-width: 120px;
+  text-align: center;
+}
+
 /* ---------- Properties panel ---------- */
 
 #props {

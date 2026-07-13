@@ -666,6 +666,56 @@ const ceilHidden = await ceilVis('hide');
 results.push(['ceiling visibility override show/hide', ceilShown === true && ceilHidden === false]);
 await page.evaluate(() => window.__kp.store.setCeilingVisibility('auto'));
 
+// 24. wall elevation view: front view of one wall shows only wall-attached items
+await page.keyboard.press('Escape');
+await page.click('#btn-new');
+await page.waitForTimeout(400);
+const elevIds = await page.evaluate(() => {
+  const st = window.__kp.store;
+  // top wall of the empty 4x3 room (horizontal, y ~ 0)
+  const g = st.walls().find((w) => Math.abs(w.dir.y) < 1e-6 && w.a.y < 0.01);
+  const def = st.defOf('base-cabinet');
+  const t = st.design.room.wallThickness;
+  const rot = Math.atan2(-g.inward.x, g.inward.y);
+  const foot = { x: g.a.x + g.dir.x * (g.len / 2), y: g.a.y + g.dir.y * (g.len / 2) };
+  const cab = st.addItem(def, foot.x + g.inward.x * (t / 2 + def.d / 2), foot.y + g.inward.y * (t / 2 + def.d / 2), rot);
+  const table = st.addItem(st.defOf('table'), foot.x, 1.5, 0); // free-standing, centre of room
+  st.commit();
+  return { wallId: g.id, cab: cab.id, table: table.id };
+});
+await page.click('#mode2d-toggle button[data-2dmode="elev"]');
+await page.waitForTimeout(200);
+const elevView = await page.evaluate((ids) => {
+  window.__kp.elev.setWall(ids.wallId);
+  const d = window.__kp.elev.data();
+  const elevVisible = getComputedStyle(document.getElementById('canvas-elev')).display !== 'none';
+  const planHidden = getComputedStyle(document.getElementById('canvas2d')).display === 'none';
+  return { ids: d.items.map((i) => i.id), elevVisible, planHidden };
+}, elevIds);
+results.push([
+  'wall elevation shows wall items, hides free-standing',
+  elevView.elevVisible &&
+    elevView.planHidden &&
+    elevView.ids.includes(elevIds.cab) &&
+    !elevView.ids.includes(elevIds.table),
+]);
+// clicking the cabinet in the elevation selects it (edits via the props panel)
+await page.evaluate(() => window.__kp.store.select({ kind: 'none' }));
+const elevPos = await page.evaluate((ids) => {
+  const v = window.__kp.elev;
+  const row = v.data().items.find((i) => i.id === ids.cab);
+  return { x: row.center * v.zoom + v.panX, y: v.panY - ((row.z0 + row.z1) / 2) * v.zoom };
+}, elevIds);
+const bbElev = await page.locator('#canvas-elev').boundingBox();
+await page.mouse.click(bbElev.x + elevPos.x, bbElev.y + elevPos.y);
+await page.waitForTimeout(150);
+const elevSel = await page.evaluate(() => {
+  const s = window.__kp.store.selection;
+  return s.kind === 'item' ? s.id : null;
+});
+results.push(['elevation click selects item', elevSel === elevIds.cab]);
+await page.click('#mode2d-toggle button[data-2dmode="plan"]');
+
 let pass = 0;
 for (const [name, ok] of results) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`);
