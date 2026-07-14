@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { CatalogDef } from '../model/catalog';
@@ -62,6 +63,7 @@ export class View3D {
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
   private controls: OrbitControls;
+  private gizmo!: TransformControls;
   private raycaster = new THREE.Raycaster();
 
   private roomGroup = new THREE.Group();
@@ -152,6 +154,8 @@ export class View3D {
       this.controls.enableZoom = false; // wheel dolly handled in onWheel()
       canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     }
+
+    this.initGizmo(canvas);
 
     this.rebuild();
     this.setPreset('corner');
@@ -578,6 +582,53 @@ export class View3D {
     if (this.lastTintedId && this.lastTintedId !== selectedId) this.setTint(this.lastTintedId, false);
     if (selectedId) this.setTint(selectedId, true);
     this.lastTintedId = selectedId;
+    this.updateGizmo();
+  }
+
+  /* ---------------- CAD move gizmo ---------------- */
+
+  /**
+   * Translate gizmo on the selected item: three world-axis arrows plus the
+   * planar pads between each axis pair, for precise per-axis moves. World axes
+   * map to the model as X→item.x, Z→item.y (plan), Y→item.elevation.
+   */
+  private initGizmo(canvas: HTMLCanvasElement): void {
+    const g = new TransformControls(this.camera, canvas);
+    g.setMode('translate');
+    g.setSpace('world');
+    g.setTranslationSnap(0.01); // 1 cm — matches the UI's cm granularity
+    this.scene.add(g);
+    this.gizmo = g;
+
+    // let OrbitControls (and the body-drag) resume only when no handle is held
+    g.addEventListener('dragging-changed', (e) => {
+      this.controls.enabled = !e.value;
+      if (!e.value) this.store.commit(); // gesture end → one undo step
+    });
+    // handle move → write the group's world position back to the model
+    g.addEventListener('objectChange', () => this.onGizmoChange());
+  }
+
+  private onGizmoChange(): void {
+    const obj = this.gizmo.object;
+    if (!obj) return;
+    if (obj.position.y < 0) obj.position.y = 0; // never below the floor
+    const id = obj.userData.itemId as string | undefined;
+    if (!id) return;
+    this.store.updateItem(
+      id,
+      { x: obj.position.x, y: obj.position.z, elevation: obj.position.y },
+      { structural: false, transient: true }
+    );
+  }
+
+  /** Attach the gizmo to the selected item's group, or detach when nothing is selected. */
+  private updateGizmo(): void {
+    if (!this.gizmo) return; // selection tint runs once before the gizmo exists
+    const sel = this.store.selection;
+    const entry = sel.kind === 'item' ? this.items.get(sel.id) : undefined;
+    if (entry) this.gizmo.attach(entry.group);
+    else this.gizmo.detach();
   }
 
   /* ---------------- picking & dragging ---------------- */
@@ -612,6 +663,8 @@ export class View3D {
 
   private onPointerDown(e: PointerEvent): void {
     if (e.button !== 0 || this.dragItemId) return;
+    // a hovered/held gizmo handle owns this gesture — don't pick or body-drag
+    if (this.gizmo.axis || this.gizmo.dragging) return;
     this.downPos.set(e.clientX, e.clientY);
     this.dragMoved = false;
 
@@ -651,6 +704,8 @@ export class View3D {
   }
 
   private onPointerUp(e: PointerEvent): void {
+    // gizmo drag/click resolves in its own handler — never treat it as a deselect
+    if (this.gizmo.axis || this.gizmo.dragging) return;
     if (this.dragItemId) {
       this.endDrag();
     } else if (e.button === 0 && this.downPos.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) < 4) {
@@ -734,8 +789,12 @@ export class View3D {
   /* ---------------- export ---------------- */
 
   snapshotPNG(): string {
+    const gizmoVisible = this.gizmo.visible;
+    this.gizmo.visible = false; // keep the move handles out of the exported image
     this.renderer.render(this.scene, this.camera);
-    return this.renderer.domElement.toDataURL('image/png');
+    const url = this.renderer.domElement.toDataURL('image/png');
+    this.gizmo.visible = gizmoVisible;
+    return url;
   }
 
   /**
