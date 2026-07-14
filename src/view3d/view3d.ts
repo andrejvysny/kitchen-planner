@@ -78,9 +78,6 @@ export class View3D {
   private bg = new THREE.Color();
   private sunDir = new THREE.Vector3();
 
-  private dragItemId: string | null = null;
-  private dragOffset = new THREE.Vector2();
-  private dragMoved = false;
   private downPos = new THREE.Vector2();
   private lastTintedId: string | null = null;
   private scratchToCam = new THREE.Vector3();
@@ -143,9 +140,7 @@ export class View3D {
     store.on('selection', () => this.applySelectionTint());
 
     canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
-    canvas.addEventListener('pointermove', (e) => this.onPointerMove(e));
     canvas.addEventListener('pointerup', (e) => this.onPointerUp(e));
-    canvas.addEventListener('pointercancel', () => this.endDrag());
 
     // MacBook trackpad navigation: take over the wheel so two-finger swipe pans,
     // +Shift orbits, and pinch zooms. Mouse (drag + wheel) keeps OrbitControls'
@@ -670,11 +665,10 @@ export class View3D {
   }
 
   private onPointerDown(e: PointerEvent): void {
-    if (e.button !== 0 || this.dragItemId) return;
-    // a hovered/held gizmo handle owns this gesture — don't pick or body-drag
+    if (e.button !== 0) return;
+    // a hovered/held gizmo handle owns this gesture — don't pick or place
     if (this.gizmo.axis || this.gizmo.dragging) return;
     this.downPos.set(e.clientX, e.clientY);
-    this.dragMoved = false;
 
     const armed = this.getArmed();
     if (armed && !armed.opening) {
@@ -689,44 +683,19 @@ export class View3D {
       return;
     }
 
+    // Selecting an item only arms the move gizmo; the body itself is not
+    // draggable — a drag on the body falls through to OrbitControls (orbit).
     const item = this.pickItem(e);
-    if (item) {
-      this.store.select({ kind: 'item', id: item.id });
-      const p = this.floorPoint(e);
-      if (p) this.dragOffset.set(p.x - item.x, p.z - item.y);
-      this.dragItemId = item.id;
-      this.controls.enabled = false;
-    }
-  }
-
-  private onPointerMove(e: PointerEvent): void {
-    if (!this.dragItemId) return;
-    if (this.downPos.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) > 3) this.dragMoved = true;
-    if (!this.dragMoved) return;
-    const it = this.store.itemById(this.dragItemId);
-    const p = this.floorPoint(e);
-    if (!it || !p) return;
-    const def = this.store.defOf(it.defId);
-    const res = snapItem(this.store, def, it.id, p.x - this.dragOffset.x, p.z - this.dragOffset.y, it.rotation);
-    this.store.updateItem(it.id, { x: res.x, y: res.y, rotation: res.rotation }, { structural: false, transient: true });
+    if (item) this.store.select({ kind: 'item', id: item.id });
   }
 
   private onPointerUp(e: PointerEvent): void {
     // gizmo drag/click resolves in its own handler — never treat it as a deselect
     if (this.gizmo.axis || this.gizmo.dragging) return;
-    if (this.dragItemId) {
-      this.endDrag();
-    } else if (e.button === 0 && this.downPos.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) < 4) {
+    // a click (not a drag-orbit) on empty space clears the selection
+    if (e.button === 0 && this.downPos.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) < 4) {
       if (!this.pickItem(e)) this.store.select({ kind: 'none' });
     }
-  }
-
-  /** Shared teardown for pointerup and pointercancel — commits an in-flight drag. */
-  private endDrag(): void {
-    if (!this.dragItemId) return;
-    this.controls.enabled = true;
-    if (this.dragMoved) this.store.commit();
-    this.dragItemId = null;
   }
 
   /* ---------------- macOS trackpad navigation ---------------- */
@@ -734,7 +703,6 @@ export class View3D {
   /** Route a wheel event to pan/orbit/zoom (macOS only; see wheelInput.ts). */
   private onWheel(e: WheelEvent): void {
     e.preventDefault();
-    if (this.dragItemId) return; // don't fight an in-progress item drag
     switch (wheelGesture(e as unknown as WheelLike, this.isMac)) {
       case 'zoom-pinch':
         this.zoomCamera(Math.exp(e.deltaY * PINCH_ZOOM_RATE));
