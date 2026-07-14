@@ -59,6 +59,7 @@ export class UI {
 
     this.renderCatalog();
     this.renderOutline();
+    this.renderVariables();
     this.renderProps();
     this.wireTabs();
     this.wireTopbar();
@@ -73,6 +74,9 @@ export class UI {
       // steppers, choice rows and inputs keep themselves current
       const active = document.activeElement;
       if (!active || !$('#props').contains(active)) this.renderProps();
+      // Variables tab lives in the left sidebar; rebuild it too, but don't yank
+      // a variable's name field out from under the user mid-edit.
+      if (!this.isEditingVariableName(active)) this.renderVariables();
       this.renderCatalogIfPartsChanged();
       this.renderOutline();
       this.updateUndoButtons();
@@ -415,6 +419,24 @@ export class UI {
     parent.appendChild(row);
   }
 
+  /** True while the caret sits in a variable's name field — re-rendering then
+   * would drop the user's edit, so the history handler skips the rebuild. */
+  private isEditingVariableName(active: Element | null): boolean {
+    return (
+      !!active &&
+      active instanceof HTMLInputElement &&
+      active.classList.contains('var-name') &&
+      $('#variables-panel').contains(active)
+    );
+  }
+
+  /** Rebuild the left-sidebar Variables tab (self-contained; not part of #props). */
+  private renderVariables(): void {
+    const root = $('#variables-panel');
+    root.innerHTML = '';
+    this.renderVariablesSection(root);
+  }
+
   /** The Variables manager: create / edit / delete design tokens + defaults. */
   private renderVariablesSection(root: HTMLElement): void {
     const design = this.store.design;
@@ -653,7 +675,6 @@ export class UI {
       this.store.design.room.counterMaterialRot === true, (v) =>
         this.store.setRoomStyle({ counterMaterialRot: v || undefined }));
 
-    this.renderVariablesSection(root);
     this.renderLightingProps(root);
 
     root.appendChild(
