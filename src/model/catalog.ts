@@ -437,3 +437,8 @@ export function snapsToWall(def: CatalogDef): boolean {
 export function isWallMounted(def: CatalogDef): boolean {
   return def.marker || def.kind === 'backsplash';
 }
+
+/** True if the builder tops the item with a counter slab (worktop finish applies). */
+export function hasWorktop(def: CatalogDef): boolean {
+  return ['baseCabinet', 'baseDrawers', 'sink', 'hob', 'oven', 'dishwasher', 'island'].includes(def.kind);
+}

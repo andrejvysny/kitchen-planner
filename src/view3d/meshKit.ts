@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { APPLIANCE_BLACK } from '../model/catalog';
 import { signedArea } from '../model/geometry';
-import type { Point, RoomStyle } from '../model/types';
+import type { Item, Point, RoomStyle } from '../model/types';
 import { texturedMaterial } from './textures';
 
 /**
@@ -41,6 +41,8 @@ export function wood(color: string): THREE.MeshStandardMaterial {
 export interface Finish {
   color: string;
   material?: string;
+  /** rotate the material's texture 90° (grain vertical → horizontal) */
+  rot?: boolean;
 }
 
 /**
@@ -52,7 +54,7 @@ export function surfMat(f: string | Finish, fallback: 'matte' | 'wood' = 'matte'
   const fin = typeof f === 'string' ? { color: f } : f;
   const color = tint === 1 ? fin.color : shade(fin.color, tint);
   if (fin.material) {
-    const m = texturedMaterial(fin.material, color);
+    const m = texturedMaterial(fin.material, color, fin.rot === true);
     if (m) {
       if (tint !== 1) m.color.multiplyScalar(tint);
       return m;
@@ -168,13 +170,19 @@ export function carcass(g: THREE.Group, w: number, h: number, d: number, color: 
   box(g, w, h, d - FRONT_T, surfMat(color, 'matte', CARCASS_DARKEN), 0, y0, -FRONT_T / 2);
 }
 
-/** The room's worktop finish (colour + optional material) as a Finish. */
-export function counterFin(room: RoomStyle): Finish {
-  return { color: room.counterColor, material: room.counterMaterial };
+/**
+ * Worktop finish as a Finish: the item's own counter material when set,
+ * else the room-wide worktop style.
+ */
+export function counterFin(room: RoomStyle, item?: Item): Finish {
+  if (item?.counterMaterial) {
+    return { color: room.counterColor, material: item.counterMaterial, rot: item.counterMaterialRot };
+  }
+  return { color: room.counterColor, material: room.counterMaterial, rot: room.counterMaterialRot };
 }
 
-export function counterSlab(g: THREE.Group, w: number, d: number, y: number, room: RoomStyle): void {
-  box(g, w, COUNTER_T, d + 0.02, surfMat(counterFin(room), 'wood'), 0, y, 0.01);
+export function counterSlab(g: THREE.Group, w: number, d: number, y: number, room: RoomStyle, item?: Item): void {
+  box(g, w, COUNTER_T, d + 0.02, surfMat(counterFin(room, item), 'wood'), 0, y, 0.01);
 }
 
 /**

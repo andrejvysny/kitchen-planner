@@ -564,6 +564,74 @@ await page.waitForTimeout(200);
 const sel3d = await page.evaluate(() => window.__kp.store.selection);
 results.push(['3D click selects item', sel3d.kind === 'item' && sel3d.id === pick3d.id]);
 
+// 17b. per-item worktop material: chip in the "Worktop" props section paints the counter slab
+const worktopChip = await page.evaluate(() => {
+  const sec = [...document.querySelectorAll('.prop-section')].find(
+    (s) => s.querySelector('.prop-section-title')?.textContent === 'Worktop'
+  );
+  const chip = sec?.querySelector('.swatch[title="Dark marble"]');
+  if (!chip) return false;
+  chip.click();
+  return true;
+});
+await page.waitForTimeout(250);
+const counterState = await page.evaluate((id) => {
+  const it = window.__kp.store.itemById(id);
+  let textured = false;
+  window.__kp.view.items.get(id).group.traverse((o) => {
+    const m = o.material;
+    if (m?.color && `#${m.color.getHexString()}` === '#3c3f44' && m.map) textured = true;
+  });
+  return { mat: it.counterMaterial, textured };
+}, stackIds.baseId);
+results.push(['worktop chip sets counter material', worktopChip && counterState.mat === 'marble-dark']);
+results.push(['worktop override renders textured slab', counterState.textured]);
+
+// 17c. rotate toggle in the Worktop section rotates the texture 90°
+await page.evaluate(() => {
+  const sec = [...document.querySelectorAll('.prop-section')].find(
+    (s) => s.querySelector('.prop-section-title')?.textContent === 'Worktop'
+  );
+  sec.querySelector('.toggle-row input').click();
+});
+await page.waitForTimeout(250);
+const rotState = await page.evaluate((id) => {
+  const it = window.__kp.store.itemById(id);
+  let rot = 0;
+  window.__kp.view.items.get(id).group.traverse((o) => {
+    const m = o.material;
+    if (m?.color && `#${m.color.getHexString()}` === '#3c3f44' && m.map) rot = m.map.rotation;
+  });
+  return { flag: it.counterMaterialRot, rot };
+}, stackIds.baseId);
+results.push([
+  'worktop rotate toggle rotates texture',
+  rotState.flag === true && Math.abs(rotState.rot - Math.PI / 2) < 1e-6,
+]);
+
+// 17d. item front material rotation applies through the store, then reset
+const frontRot = await page.evaluate(async (id) => {
+  const st = window.__kp.store;
+  st.updateItem(id, { material: 'oak', materialRot: true });
+  st.commit();
+  await new Promise((r) => requestAnimationFrame(r));
+  let ok = false;
+  window.__kp.view.items.get(id).group.traverse((o) => {
+    const m = o.material;
+    if (m?.map && `#${m.color.getHexString()}` === '#c9a87c' && Math.abs(m.map.rotation - Math.PI / 2) < 1e-6)
+      ok = true;
+  });
+  st.updateItem(id, {
+    material: undefined,
+    materialRot: undefined,
+    counterMaterial: undefined,
+    counterMaterialRot: undefined,
+  });
+  st.commit();
+  return ok;
+}, stackIds.baseId);
+results.push(['item material rotation applies', frontRot]);
+
 // 18. structural rebuilds must not leak GPU textures (fixture shadow maps)
 const tex = await page.evaluate(async () => {
   const st = window.__kp.store;

@@ -175,7 +175,9 @@ interface PatternMaps {
   canvas: HTMLCanvasElement;
 }
 
-const patternCache = new Map<TexturePattern, PatternMaps | null>();
+/** keyed by pattern + rotation variant (`wood`, `wood|rot`, …) */
+const patternCache = new Map<string, PatternMaps | null>();
+const canvasCache = new Map<TexturePattern, { color: HTMLCanvasElement; bump: HTMLCanvasElement }>();
 
 function renderPattern(pattern: Exclude<TexturePattern, 'none'>): { color: HTMLCanvasElement; bump: HTMLCanvasElement } {
   const field = FIELDS[pattern];
@@ -203,12 +205,22 @@ function renderPattern(pattern: Exclude<TexturePattern, 'none'>): { color: HTMLC
   return { color, bump };
 }
 
-/** Shared, cached maps for a pattern; null headless or for pattern 'none'. */
-function patternMaps(pattern: TexturePattern): PatternMaps | null {
+/**
+ * Shared, cached maps for a pattern; null headless or for pattern 'none'.
+ * `rot` returns a 90°-rotated texture variant (grain vertical → horizontal) —
+ * a separate texture instance over the SAME rendered canvases, since UV
+ * rotation is a per-texture transform.
+ */
+function patternMaps(pattern: TexturePattern, rot = false): PatternMaps | null {
   if (pattern === 'none' || typeof document === 'undefined') return null;
-  const hit = patternCache.get(pattern);
+  const key = rot ? `${pattern}|rot` : pattern;
+  const hit = patternCache.get(key);
   if (hit !== undefined) return hit;
-  const { color, bump } = renderPattern(pattern);
+  let canvases = canvasCache.get(pattern);
+  if (!canvases) {
+    canvases = renderPattern(pattern);
+    canvasCache.set(pattern, canvases);
+  }
   const mk = (cnv: HTMLCanvasElement, srgb: boolean) => {
     const t = new THREE.CanvasTexture(cnv);
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -216,15 +228,19 @@ function patternMaps(pattern: TexturePattern): PatternMaps | null {
     t.anisotropy = 8;
     const r = 1 / TILE_M[pattern];
     t.repeat.set(r, r);
+    if (rot) {
+      t.center.set(0.5, 0.5);
+      t.rotation = Math.PI / 2;
+    }
     return t;
   };
   const maps: PatternMaps = {
-    map: mk(color, true),
-    bumpMap: mk(bump, false),
+    map: mk(canvases.color, true),
+    bumpMap: mk(canvases.bump, false),
     bumpScale: BUMP_SCALE[pattern],
-    canvas: color,
+    canvas: canvases.color,
   };
-  patternCache.set(pattern, maps);
+  patternCache.set(key, maps);
   return maps;
 }
 
@@ -234,7 +250,7 @@ function patternMaps(pattern: TexturePattern): PatternMaps | null {
  * callers can fall back to the plain-colour finish. Maps are shared and
  * cached — disposing the returned material never disposes them.
  */
-export function texturedMaterial(matId: string, userColor: string): THREE.MeshStandardMaterial | null {
+export function texturedMaterial(matId: string, userColor: string, rot = false): THREE.MeshStandardMaterial | null {
   const def = materialDef(matId);
   if (!def) return null;
   const mat = new THREE.MeshStandardMaterial({
@@ -246,7 +262,7 @@ export function texturedMaterial(matId: string, userColor: string): THREE.MeshSt
     mat.transparent = true;
     mat.opacity = def.opacity;
   }
-  const maps = patternMaps(def.pattern);
+  const maps = patternMaps(def.pattern, rot);
   if (maps) {
     mat.map = maps.map;
     mat.bumpMap = maps.bumpMap;

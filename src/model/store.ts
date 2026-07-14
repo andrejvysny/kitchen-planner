@@ -604,14 +604,19 @@ export function sanitizeDesign(raw: unknown): Design | null {
   d.items = (d.items as Item[]).filter(
     (i) => i && typeof i.defId === 'string' && (partIds.has(i.defId) || hasCatalogDef(i.defId))
   );
-  // material ids must resolve in the built-in library — unknown ones are dropped
+  // material ids must resolve in the built-in library — unknown ones are dropped;
+  // rotation flags only persist as literal `true`
   for (const i of d.items as Item[]) {
     if (i.material !== undefined && !hasMaterial(i.material)) delete i.material;
+    if (i.counterMaterial !== undefined && !hasMaterial(i.counterMaterial)) delete i.counterMaterial;
+    if (i.materialRot !== true) delete i.materialRot;
+    if (i.counterMaterialRot !== true) delete i.counterMaterialRot;
   }
   d.room = { ...base.room, ...(d.room && typeof d.room === 'object' ? d.room : {}) };
   const room = d.room as Record<string, unknown>;
   for (const key of ['wallMaterial', 'floorMaterial', 'counterMaterial']) {
     if (room[key] !== undefined && !hasMaterial(room[key])) delete room[key];
+    if (room[`${key}Rot`] !== true) delete room[`${key}Rot`];
   }
   d.scene = sanitizeScene(d.scene);
   d.wallVisibility = sanitizeWallVisibility(d.wallVisibility);

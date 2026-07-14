@@ -45,7 +45,7 @@ interface Ctx {
 type Builder = (g: THREE.Group, c: Ctx) => void;
 
 /** The item's paintable finish: its colour + optional PBR material. */
-const fin = (item: Item): Finish => ({ color: item.color, material: item.material });
+const fin = (item: Item): Finish => ({ color: item.color, material: item.material, rot: item.materialRot });
 
 /* ---------------- base units ---------------- */
 
@@ -56,7 +56,7 @@ const baseCabinet: Builder = (g, { item, room }) => {
   carcass(g, w, bodyH, d, fin(item), PLINTH_H);
   const doors = Math.max(1, item.params?.doors ?? 1);
   splitFronts(w, doors, (x, fw) => frontSlab(g, fw, bodyH, fin(item), x, PLINTH_H, d / 2));
-  counterSlab(g, w, d, h - COUNTER_T, room);
+  counterSlab(g, w, d, h - COUNTER_T, room, item);
 };
 
 const baseDrawers: Builder = (g, { item, room }) => {
@@ -69,7 +69,7 @@ const baseDrawers: Builder = (g, { item, room }) => {
   for (let i = 0; i < n; i++) {
     frontSlab(g, w - GAP * 2, fh, fin(item), 0, PLINTH_H + GAP + i * (fh + GAP), d / 2);
   }
-  counterSlab(g, w, d, h - COUNTER_T, room);
+  counterSlab(g, w, d, h - COUNTER_T, room, item);
 };
 
 const sink: Builder = (g, c) => {
@@ -123,7 +123,7 @@ const oven: Builder = (g, { item, room }) => {
   box(g, w - GAP * 2, ovenH, 0.02, applianceGlass(), 0, oy, d / 2 - 0.01);
   box(g, w - 0.1, 0.02, 0.03, steelMat(), 0, oy + ovenH - 0.07, d / 2 + 0.012);
   box(g, w - 0.16, 0.16, 0.005, matte('#0c0d0f'), 0, oy + 0.12, d / 2 + 0.001);
-  counterSlab(g, w, d, h - COUNTER_T, room);
+  counterSlab(g, w, d, h - COUNTER_T, room, item);
 };
 
 const dishwasher: Builder = (g, { item, room }) => {
@@ -133,7 +133,7 @@ const dishwasher: Builder = (g, { item, room }) => {
   carcass(g, w, bodyH, d, '#9aa0a3', PLINTH_H);
   box(g, w - GAP * 2, bodyH, 0.016, steelMat(), 0, PLINTH_H, d / 2 - 0.008);
   box(g, w - 0.1, 0.02, 0.03, steelMat(), 0, PLINTH_H + bodyH - 0.06, d / 2 + 0.01);
-  counterSlab(g, w, d, h - COUNTER_T, room);
+  counterSlab(g, w, d, h - COUNTER_T, room, item);
 };
 
 const island: Builder = (g, { item, room }) => {
@@ -156,7 +156,7 @@ const island: Builder = (g, { item, room }) => {
     box(g, w, bodyH, FRONT_T, surfMat(fin(item)), 0, PLINTH_H, d / 2 - FRONT_T / 2);
   }
   // generous worktop overhang on the seating side (front)
-  box(g, w + 0.06, COUNTER_T, d + 0.18, surfMat(counterFin(room), 'wood'), 0, h - COUNTER_T, 0.06);
+  box(g, w + 0.06, COUNTER_T, d + 0.18, surfMat(counterFin(room, item), 'wood'), 0, h - COUNTER_T, 0.06);
 };
 
 /* ---------------- tall units ---------------- */

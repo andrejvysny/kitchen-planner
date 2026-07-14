@@ -9,7 +9,7 @@ import { box, cyl, type Finish, GROOVE, matte, PLINTH_COLOR, prism, surfMat } fr
  * routed grooves). Anything geometric belongs in the panel generator.
  */
 
-function panelMaterial(p: Panel, front: Finish, accentColor: string): THREE.Material {
+function panelMaterial(p: Panel, front: Finish, accentColor: string, counter?: Finish): THREE.Material {
   if (p.slot === 'glass') {
     return new THREE.MeshStandardMaterial({
       color: '#bcd2d8',
@@ -19,9 +19,16 @@ function panelMaterial(p: Panel, front: Finish, accentColor: string): THREE.Mate
       opacity: 0.35,
     });
   }
-  // the instance's PBR material paints the 'front' slot; accent/plinth stay flat colours
+  // the instance's worktop material paints 'worktop' panels, its PBR material
+  // the 'front' slot; other accent/plinth panels stay flat colours
   const fin: Finish =
-    p.slot === 'accent' ? { color: accentColor } : p.slot === 'plinth' ? { color: PLINTH_COLOR } : front;
+    p.role === 'worktop' && counter
+      ? counter
+      : p.slot === 'accent'
+        ? { color: accentColor }
+        : p.slot === 'plinth'
+          ? { color: PLINTH_COLOR }
+          : front;
   return surfMat(fin, p.finish === 'wood' ? 'wood' : 'matte', p.tint ?? 1);
 }
 
@@ -31,8 +38,8 @@ function tag(o: THREE.Object3D, p: Panel): void {
   if (p.boardId) o.userData.boardId = p.boardId;
 }
 
-function panelMesh(g: THREE.Group, p: Panel, front: Finish, accentColor: string): void {
-  const mat = panelMaterial(p, front, accentColor);
+function panelMesh(g: THREE.Group, p: Panel, front: Finish, accentColor: string, counter?: Finish): void {
+  const mat = panelMaterial(p, front, accentColor, counter);
   if (p.shape.kind === 'prism') {
     tag(prism(g, p.shape.outline, p.shape.h, mat, p.y, p.shape.holes), p);
     return;
@@ -63,8 +70,12 @@ function panelMesh(g: THREE.Group, p: Panel, front: Finish, accentColor: string)
 
 export function buildCustomPart(g: THREE.Group, item: Item, part: CustomPartDef, _room: RoomStyle): void {
   const dims = { w: item.w, d: item.d, h: item.h, elevation: item.elevation };
-  const front: Finish = { color: item.color, material: item.material };
+  const front: Finish = { color: item.color, material: item.material, rot: item.materialRot };
+  // worktop override keeps the part's accent tone as the plain-colour fallback
+  const counter: Finish | undefined = item.counterMaterial
+    ? { color: part.accentColor, material: item.counterMaterial, rot: item.counterMaterialRot }
+    : undefined;
   for (const p of partPanels(part, dims)) {
-    panelMesh(g, p, front, part.accentColor);
+    panelMesh(g, p, front, part.accentColor, counter);
   }
 }

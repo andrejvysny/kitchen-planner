@@ -3,6 +3,7 @@ import {
   COUNTER_COLORS,
   FLOOR_COLORS,
   FRONT_COLORS,
+  hasWorktop,
   LIGHT_COLORS,
   WALL_COLORS,
   type CatalogDef,
@@ -11,6 +12,7 @@ import { footprintPolygon, toCatalogDef } from '../model/parts';
 import {
   COUNTER_MATERIALS,
   FLOOR_MATERIALS,
+  hasPattern,
   ITEM_MATERIALS,
   WALL_MATERIALS,
   type MaterialDef,
@@ -360,7 +362,8 @@ export class UI {
     parent: HTMLElement,
     mats: MaterialDef[],
     current: string | undefined,
-    onPick: (id?: string) => void
+    onPick: (id?: string) => void,
+    plainTitle = 'Plain colour'
   ): void {
     const sw = this.el('<div class="swatches"></div>');
     const add = (id: string | undefined, title: string, bg: string) => {
@@ -375,12 +378,23 @@ export class UI {
       });
       sw.appendChild(b);
     };
-    add(undefined, 'Plain colour', 'linear-gradient(135deg,#fff 44%,#b9bdc0 44%,#b9bdc0 56%,#fff 56%)');
+    add(undefined, plainTitle, 'linear-gradient(135deg,#fff 44%,#b9bdc0 44%,#b9bdc0 56%,#fff 56%)');
     for (const m of mats) {
       const cnv = materialSwatch(m.id, 52);
       add(m.id, m.label, cnv ? `url(${cnv.toDataURL()})` : m.color);
     }
     parent.appendChild(sw);
+  }
+
+  /** "Rotate texture" toggle — only rendered when the active material has a pattern. */
+  private rotToggle(
+    parent: HTMLElement,
+    matId: string | undefined,
+    value: boolean,
+    onChange: (v: boolean) => void
+  ): void {
+    if (!hasPattern(matId)) return;
+    this.toggleRow(parent, 'Rotate texture 90°', value, onChange);
   }
 
   /** Segmented two-way choice; updates its own active state so no re-render is needed. */
@@ -483,6 +497,9 @@ export class UI {
       this.store.setRoomStyle({ wallColor: c }));
     this.materialRow(colors, WALL_MATERIALS, this.store.design.room.wallMaterial, (id) =>
       this.store.setRoomStyle({ wallMaterial: id }));
+    this.rotToggle(colors, this.store.design.room.wallMaterial,
+      this.store.design.room.wallMaterialRot === true, (v) =>
+        this.store.setRoomStyle({ wallMaterialRot: v || undefined }));
     const visRow = this.el(`<div class="btn-row">
       <button class="btn" data-m="auto">Auto all</button>
       <button class="btn" data-m="show">Show all</button>
@@ -499,11 +516,17 @@ export class UI {
       this.store.setRoomStyle({ floorColor: c }));
     this.materialRow(floor, FLOOR_MATERIALS, this.store.design.room.floorMaterial, (id) =>
       this.store.setRoomStyle({ floorMaterial: id }));
+    this.rotToggle(floor, this.store.design.room.floorMaterial,
+      this.store.design.room.floorMaterialRot === true, (v) =>
+        this.store.setRoomStyle({ floorMaterialRot: v || undefined }));
     const counter = this.section(root, 'Worktops');
     this.swatchRow(counter, COUNTER_COLORS, this.store.design.room.counterColor, (c) =>
       this.store.setRoomStyle({ counterColor: c }));
     this.materialRow(counter, COUNTER_MATERIALS, this.store.design.room.counterMaterial, (id) =>
       this.store.setRoomStyle({ counterMaterial: id }));
+    this.rotToggle(counter, this.store.design.room.counterMaterial,
+      this.store.design.room.counterMaterialRot === true, (v) =>
+        this.store.setRoomStyle({ counterMaterialRot: v || undefined }));
 
     this.renderLightingProps(root);
 
@@ -614,6 +637,22 @@ export class UI {
         this.store.updateItem(item.id, { color: c }));
       this.materialRow(colors, ITEM_MATERIALS, item.material, (id) =>
         this.store.updateItem(item.id, { material: id }));
+      this.rotToggle(colors, item.material, item.materialRot === true, (v) =>
+        this.store.updateItem(item.id, { materialRot: v || undefined }));
+
+      // per-item worktop finish for anything topped with a counter slab
+      const part = this.store.customPartById(item.defId);
+      const withWorktop = part ? part.type === 'cabinet' && part.worktop : hasWorktop(def);
+      if (withWorktop) {
+        const counter = this.section(root, 'Worktop');
+        this.materialRow(counter, COUNTER_MATERIALS, item.counterMaterial, (id) =>
+          this.store.updateItem(item.id, { counterMaterial: id }), 'Room default');
+        this.rotToggle(counter, item.counterMaterial, item.counterMaterialRot === true, (v) =>
+          this.store.updateItem(item.id, { counterMaterialRot: v || undefined }));
+        counter.appendChild(
+          this.el(`<p class="props-sub" style="margin-top:8px">First chip follows the room's worktop setting</p>`)
+        );
+      }
     }
 
     // light

@@ -64,6 +64,12 @@ export function hasMaterial(id: unknown): id is string {
   return typeof id === 'string' && byId.has(id);
 }
 
+/** True when the material renders a texture pattern — i.e. rotation applies. */
+export function hasPattern(id: string | undefined): boolean {
+  const def = id ? byId.get(id) : undefined;
+  return !!def && def.pattern !== 'none';
+}
+
 const ids = (...list: string[]) => list.map((id) => byId.get(id)!);
 
 /** Curated per-surface choices shown in the props panel. */

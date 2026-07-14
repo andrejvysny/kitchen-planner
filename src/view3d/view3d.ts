@@ -280,7 +280,7 @@ export class View3D {
     // material textures (repeat = 1/tile) land at real-world scale directly
     const shape = new THREE.Shape(corners.map((p) => new THREE.Vector2(p.x, p.y)));
     const floorMat = room.floorMaterial
-      ? surfMat({ color: room.floorColor, material: room.floorMaterial })
+      ? surfMat({ color: room.floorColor, material: room.floorMaterial, rot: room.floorMaterialRot })
       : new THREE.MeshStandardMaterial({ color: room.floorColor, roughness: 0.88 });
     floorMat.side = THREE.DoubleSide;
     const floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMat);
@@ -311,7 +311,7 @@ export class View3D {
       group.rotation.y = -g.angle;
 
       const wallMat = room.wallMaterial
-        ? surfMat({ color: room.wallColor, material: room.wallMaterial })
+        ? surfMat({ color: room.wallColor, material: room.wallMaterial, rot: room.wallMaterialRot })
         : new THREE.MeshStandardMaterial({ color: room.wallColor, roughness: 0.94 });
       const openings = design.openings
         .filter((o) => o.wallId === g.id)

@@ -58,6 +58,11 @@ export interface Item {
   color: string;
   /** built-in PBR material id (src/model/materials.ts); missing = plain colour */
   material?: string;
+  /** rotate the material's texture 90° (e.g. wood grain vertical → horizontal) */
+  materialRot?: boolean;
+  /** worktop material override for items with a counter; missing = room worktop */
+  counterMaterial?: string;
+  counterMaterialRot?: boolean;
   light?: LightProps;
   /** parametric options, e.g. { drawers: 3, doors: 2 } — keys defined per catalog entry */
   params?: Record<string, number>;
@@ -71,6 +76,10 @@ export interface RoomStyle {
   wallMaterial?: string;
   floorMaterial?: string;
   counterMaterial?: string;
+  /** rotate the surface's texture 90° */
+  wallMaterialRot?: boolean;
+  floorMaterialRot?: boolean;
+  counterMaterialRot?: boolean;
   wallHeight: number;
   wallThickness: number;
 }
