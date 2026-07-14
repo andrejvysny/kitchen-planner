@@ -70,6 +70,18 @@ export function hasPattern(id: string | undefined): boolean {
   return !!def && def.pattern !== 'none';
 }
 
+/**
+ * True when the material imposes its own colour and so hides a freshly-picked
+ * one (any non-tintable preset: woods, stone, tiles, glass). Picking a plain
+ * colour on such a surface should drop the material, else the colour has no
+ * visible effect — the user "can't get back to a colour". Tintable materials
+ * (plastic) take the user's colour, so they survive a colour pick.
+ */
+export function overridesColor(id: string | undefined): boolean {
+  const def = id ? byId.get(id) : undefined;
+  return !!def && !def.tintable;
+}
+
 const ids = (...list: string[]) => list.map((id) => byId.get(id)!);
 
 /** Curated per-surface choices shown in the props panel. */

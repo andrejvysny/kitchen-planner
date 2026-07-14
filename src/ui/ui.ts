@@ -14,6 +14,7 @@ import {
   FLOOR_MATERIALS,
   hasPattern,
   ITEM_MATERIALS,
+  overridesColor,
   WALL_MATERIALS,
   type MaterialDef,
 } from '../model/materials';
@@ -454,7 +455,9 @@ export class UI {
         this.store.commit();
       });
       card.appendChild(name);
-      this.swatchRow(card, FRONT_COLORS, v.color, (c) => this.store.updateVariable(v.id, { color: c }));
+      this.swatchRow(card, FRONT_COLORS, v.color, (c) => this.store.updateVariable(v.id, overridesColor(v.material)
+        ? { color: c, material: undefined, materialRot: undefined }
+        : { color: c }));
       this.materialRow(card, ITEM_MATERIALS, v.material, (id) => this.store.updateVariable(v.id, { material: id }));
       this.rotToggle(card, v.material, v.materialRot === true, (r) =>
         this.store.updateVariable(v.id, { materialRot: r || undefined }));
@@ -639,7 +642,9 @@ export class UI {
     const colors = this.section(root, 'Walls');
     this.varChips(colors, design.room.wallColor, (ref) => this.store.setRoomStyle({ wallColor: ref }));
     this.swatchRow(colors, WALL_COLORS, resolveColor(design, design.room.wallColor), (c) =>
-      this.store.setRoomStyle({ wallColor: c }));
+      this.store.setRoomStyle(overridesColor(design.room.wallMaterial)
+        ? { wallColor: c, wallMaterial: undefined, wallMaterialRot: undefined }
+        : { wallColor: c }));
     this.materialRow(colors, WALL_MATERIALS, this.store.design.room.wallMaterial, (id) =>
       this.store.setRoomStyle({ wallMaterial: id }));
     this.rotToggle(colors, this.store.design.room.wallMaterial,
@@ -659,7 +664,9 @@ export class UI {
     const floor = this.section(root, 'Floor');
     this.varChips(floor, design.room.floorColor, (ref) => this.store.setRoomStyle({ floorColor: ref }));
     this.swatchRow(floor, FLOOR_COLORS, resolveColor(design, design.room.floorColor), (c) =>
-      this.store.setRoomStyle({ floorColor: c }));
+      this.store.setRoomStyle(overridesColor(design.room.floorMaterial)
+        ? { floorColor: c, floorMaterial: undefined, floorMaterialRot: undefined }
+        : { floorColor: c }));
     this.materialRow(floor, FLOOR_MATERIALS, this.store.design.room.floorMaterial, (id) =>
       this.store.setRoomStyle({ floorMaterial: id }));
     this.rotToggle(floor, this.store.design.room.floorMaterial,
@@ -668,7 +675,9 @@ export class UI {
     const counter = this.section(root, 'Worktops');
     this.varChips(counter, design.room.counterColor, (ref) => this.store.setRoomStyle({ counterColor: ref }));
     this.swatchRow(counter, COUNTER_COLORS, resolveColor(design, design.room.counterColor), (c) =>
-      this.store.setRoomStyle({ counterColor: c }));
+      this.store.setRoomStyle(overridesColor(design.room.counterMaterial)
+        ? { counterColor: c, counterMaterial: undefined, counterMaterialRot: undefined }
+        : { counterColor: c }));
     this.materialRow(counter, COUNTER_MATERIALS, this.store.design.room.counterMaterial, (id) =>
       this.store.setRoomStyle({ counterMaterial: id }));
     this.rotToggle(counter, this.store.design.room.counterMaterial,
@@ -779,8 +788,11 @@ export class UI {
       const colors = this.section(root, 'Colour & material');
       // bind chips first — picking a literal swatch below detaches back to a hex
       this.varChips(colors, item.color, (ref) => this.store.updateItem(item.id, { color: ref }));
+      // picking a plain colour drops a colour-hiding texture so the colour shows
       this.swatchRow(colors, FRONT_COLORS, resolveColor(this.store.design, item.color), (c) =>
-        this.store.updateItem(item.id, { color: c }));
+        this.store.updateItem(item.id, overridesColor(item.material)
+          ? { color: c, material: undefined, materialRot: undefined }
+          : { color: c }));
       if (!isVarRef(item.color)) {
         this.materialRow(colors, ITEM_MATERIALS, item.material, (id) =>
           this.store.updateItem(item.id, { material: id }));

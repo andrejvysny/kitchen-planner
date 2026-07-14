@@ -642,6 +642,62 @@ const frontRot = await page.evaluate(async (id) => {
 }, stackIds.baseId);
 results.push(['item material rotation applies', frontRot]);
 
+// 17e. KITCHENP-12: picking a front COLOUR must drop a texture so the colour
+// shows (else the surface is stuck on textures). Drive the real props UI.
+await page.evaluate((id) => window.__kp.store.select({ kind: 'item', id }), stackIds.baseId);
+await page.waitForTimeout(120);
+const colourSection = () =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.prop-section')].findIndex(
+      (s) => s.querySelector('.prop-section-title')?.textContent === 'Colour & material'
+    )
+  );
+const secIdx = await colourSection();
+const clickInColourSection = (sel) =>
+  page.evaluate(
+    ({ i, sel }) => {
+      const s = document.querySelectorAll('.prop-section')[i];
+      const el = s?.querySelector(sel);
+      if (!el) return false;
+      el.click();
+      return true;
+    },
+    { i: secIdx, sel }
+  );
+// apply Oak texture, then pick a plain colour swatch in the same section
+const appliedTex = await clickInColourSection('.swatch[title="Oak"]');
+await page.waitForTimeout(200);
+const texturedBefore = await page.evaluate((id) => window.__kp.store.itemById(id).material, stackIds.baseId);
+const pickedColour = await clickInColourSection('.swatch[title^="#"]');
+await page.waitForTimeout(250);
+const revert = await page.evaluate((id) => {
+  const it = window.__kp.store.itemById(id);
+  let mappedFronts = 0;
+  window.__kp.view.items.get(id).group.traverse((o) => {
+    if (o.material?.map) mappedFronts++; // any surviving texture on the item
+  });
+  return { material: it.material, colorIsHex: typeof it.color === 'string' && it.color[0] === '#', mappedFronts };
+}, stackIds.baseId);
+results.push([
+  'front colour pick reverts a texture to plain colour',
+  appliedTex && texturedBefore === 'oak' && pickedColour && revert.material === undefined && revert.colorIsHex,
+]);
+results.push(['reverted front renders untextured', revert.mappedFronts === 0]);
+
+// 17f. tintable plastic keeps tinting on a colour pick (must NOT be dropped)
+await clickInColourSection('.swatch[title="Matte plastic"]');
+await page.waitForTimeout(180);
+await clickInColourSection('.swatch[title^="#"]');
+await page.waitForTimeout(180);
+const plasticKept = await page.evaluate((id) => window.__kp.store.itemById(id).material, stackIds.baseId);
+results.push(['tintable plastic survives a colour pick', plasticKept === 'plastic-matte']);
+// reset so later assertions see a clean front
+await page.evaluate((id) => {
+  const st = window.__kp.store;
+  st.updateItem(id, { material: undefined, materialRot: undefined });
+  st.commit();
+}, stackIds.baseId);
+
 // 18. structural rebuilds must not leak GPU textures (fixture shadow maps)
 const tex = await page.evaluate(async () => {
   const st = window.__kp.store;

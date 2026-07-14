@@ -10,6 +10,7 @@ import {
   MATERIALS,
   materialColor,
   materialDef,
+  overridesColor,
   WALL_MATERIALS,
 } from '../../src/model/materials';
 import { newCabinetPart, toCatalogDef } from '../../src/model/parts';
@@ -75,6 +76,19 @@ describe('material registry', () => {
     expect(hasPattern('plastic-matte')).toBe(false);
     expect(hasPattern(undefined)).toBe(false);
     expect(hasPattern('nope')).toBe(false);
+  });
+
+  it('overridesColor: non-tintable presets hide a picked colour, tintables do not', () => {
+    // woods / stone / tiles / glass impose their own colour → picking a colour
+    // must drop them (KITCHENP-12: "can't get back to a colour")
+    expect(overridesColor('oak')).toBe(true);
+    expect(overridesColor('marble-light')).toBe(true);
+    expect(overridesColor('glass')).toBe(true);
+    // plastic takes the user colour, so it survives a colour pick
+    expect(overridesColor('plastic-matte')).toBe(false);
+    expect(overridesColor('plastic-gloss')).toBe(false);
+    expect(overridesColor(undefined)).toBe(false);
+    expect(overridesColor('nope')).toBe(false);
   });
 
   it('hasWorktop flags exactly the counter-slab kinds', () => {
