@@ -20,6 +20,7 @@ import {
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../model/sky';
 import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
 import type { Item, Selection, WallVisMode } from '../model/types';
+import { isVarRef, refId, resolveColor, toVarRef } from '../model/variables';
 import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
 import type { ElevationView } from '../plan2d/elevation';
@@ -390,6 +391,93 @@ export class UI {
     parent.appendChild(sw);
   }
 
+  /**
+   * Design-variable binding chips, prepended to a colour swatch row. Picking a
+   * chip binds the slot to that variable (`var:<id>`); picking a literal swatch
+   * afterwards detaches it. No chips render when no variables exist.
+   */
+  private varChips(parent: HTMLElement, current: string, onBind: (ref: string) => void): void {
+    const vars = this.store.design.variables;
+    if (!vars.length) return;
+    const row = this.el('<div class="swatches var-chips"></div>');
+    for (const v of vars) {
+      const active = isVarRef(current) && refId(current) === v.id;
+      const chip = this.el(`<button class="var-chip${active ? ' active' : ''}"><span class="dot"></span></button>`);
+      (chip.querySelector('.dot') as HTMLElement).style.background = v.color;
+      chip.append(document.createTextNode(v.name));
+      chip.title = `Bind to variable "${v.name}"`;
+      chip.addEventListener('click', () => {
+        onBind(toVarRef(v.id));
+        this.store.commit();
+      });
+      row.appendChild(chip);
+    }
+    parent.appendChild(row);
+  }
+
+  /** The Variables manager: create / edit / delete design tokens + defaults. */
+  private renderVariablesSection(root: HTMLElement): void {
+    const design = this.store.design;
+    const sec = this.section(root, 'Variables');
+    sec.appendChild(
+      this.el(`<p class="props-sub">Named colours &amp; textures — bind cabinets, walls, floor or worktops to one so a single edit re-themes them all.</p>`)
+    );
+
+    for (const v of design.variables) {
+      const card = this.el('<div class="var-item"></div>');
+      const name = this.el('<input class="var-name" type="text" spellcheck="false">') as HTMLInputElement;
+      name.value = v.name;
+      name.addEventListener('change', () => {
+        this.store.updateVariable(v.id, { name: name.value.trim() || 'Variable' });
+        this.store.commit();
+      });
+      card.appendChild(name);
+      this.swatchRow(card, FRONT_COLORS, v.color, (c) => this.store.updateVariable(v.id, { color: c }));
+      this.materialRow(card, ITEM_MATERIALS, v.material, (id) => this.store.updateVariable(v.id, { material: id }));
+      this.rotToggle(card, v.material, v.materialRot === true, (r) =>
+        this.store.updateVariable(v.id, { materialRot: r || undefined }));
+      const actions = this.el('<div class="btn-row"></div>');
+      const apply = this.el('<button class="btn">Apply to all fronts</button>');
+      apply.addEventListener('click', () => {
+        const n = this.store.applyVarToItems(v.id, 'front');
+        this.store.commit();
+        $('#status-hint').textContent = `Bound ${n} item${n === 1 ? '' : 's'} to "${v.name}"`;
+      });
+      const del = this.el('<button class="btn danger">Delete</button>');
+      del.addEventListener('click', () => {
+        this.store.deleteVariable(v.id);
+        this.store.commit();
+      });
+      actions.append(apply, del);
+      card.appendChild(actions);
+      sec.appendChild(card);
+    }
+
+    const add = this.el('<div class="btn-row"><button class="btn">＋ Add variable</button></div>');
+    add.querySelector('button')!.addEventListener('click', () => {
+      this.store.addVariable();
+      this.store.commit();
+    });
+    sec.appendChild(add);
+
+    if (design.variables.length) {
+      const row = this.el('<div class="prop-row"><label>New items use</label></div>');
+      const select = document.createElement('select');
+      select.appendChild(new Option('None', ''));
+      for (const v of design.variables) {
+        const opt = new Option(v.name, v.id);
+        opt.selected = design.defaultFrontVar === v.id;
+        select.appendChild(opt);
+      }
+      select.addEventListener('change', () => {
+        this.store.setDefaultVar('front', select.value || undefined);
+        this.store.commit();
+      });
+      row.appendChild(select);
+      sec.appendChild(row);
+    }
+  }
+
   /** Built-in PBR material chips (textured previews) + a "plain colour" chip. */
   private materialRow(
     parent: HTMLElement,
@@ -525,8 +613,10 @@ export class UI {
         this.store.setCeilingVisibility(v as WallVisMode));
     ceiling.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Auto shows the ceiling only when the camera is below it</p>`));
 
+    const design = this.store.design;
     const colors = this.section(root, 'Walls');
-    this.swatchRow(colors, WALL_COLORS, this.store.design.room.wallColor, (c) =>
+    this.varChips(colors, design.room.wallColor, (ref) => this.store.setRoomStyle({ wallColor: ref }));
+    this.swatchRow(colors, WALL_COLORS, resolveColor(design, design.room.wallColor), (c) =>
       this.store.setRoomStyle({ wallColor: c }));
     this.materialRow(colors, WALL_MATERIALS, this.store.design.room.wallMaterial, (id) =>
       this.store.setRoomStyle({ wallMaterial: id }));
@@ -545,7 +635,8 @@ export class UI {
     colors.appendChild(visRow);
     colors.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Or select a single wall to override it</p>`));
     const floor = this.section(root, 'Floor');
-    this.swatchRow(floor, FLOOR_COLORS, this.store.design.room.floorColor, (c) =>
+    this.varChips(floor, design.room.floorColor, (ref) => this.store.setRoomStyle({ floorColor: ref }));
+    this.swatchRow(floor, FLOOR_COLORS, resolveColor(design, design.room.floorColor), (c) =>
       this.store.setRoomStyle({ floorColor: c }));
     this.materialRow(floor, FLOOR_MATERIALS, this.store.design.room.floorMaterial, (id) =>
       this.store.setRoomStyle({ floorMaterial: id }));
@@ -553,7 +644,8 @@ export class UI {
       this.store.design.room.floorMaterialRot === true, (v) =>
         this.store.setRoomStyle({ floorMaterialRot: v || undefined }));
     const counter = this.section(root, 'Worktops');
-    this.swatchRow(counter, COUNTER_COLORS, this.store.design.room.counterColor, (c) =>
+    this.varChips(counter, design.room.counterColor, (ref) => this.store.setRoomStyle({ counterColor: ref }));
+    this.swatchRow(counter, COUNTER_COLORS, resolveColor(design, design.room.counterColor), (c) =>
       this.store.setRoomStyle({ counterColor: c }));
     this.materialRow(counter, COUNTER_MATERIALS, this.store.design.room.counterMaterial, (id) =>
       this.store.setRoomStyle({ counterMaterial: id }));
@@ -561,6 +653,7 @@ export class UI {
       this.store.design.room.counterMaterialRot === true, (v) =>
         this.store.setRoomStyle({ counterMaterialRot: v || undefined }));
 
+    this.renderVariablesSection(root);
     this.renderLightingProps(root);
 
     root.appendChild(
@@ -663,15 +756,30 @@ export class UI {
     // colour + material
     if (!def.opening && !def.marker) {
       const colors = this.section(root, 'Colour & material');
-      this.swatchRow(colors, FRONT_COLORS, item.color, (c) =>
+      // bind chips first — picking a literal swatch below detaches back to a hex
+      this.varChips(colors, item.color, (ref) => this.store.updateItem(item.id, { color: ref }));
+      this.swatchRow(colors, FRONT_COLORS, resolveColor(this.store.design, item.color), (c) =>
         this.store.updateItem(item.id, { color: c }));
-      this.materialRow(colors, ITEM_MATERIALS, item.material, (id) =>
-        this.store.updateItem(item.id, { material: id }));
-      this.rotToggle(colors, item.material, item.materialRot === true, (v) =>
-        this.store.updateItem(item.id, { materialRot: v || undefined }));
+      if (!isVarRef(item.color)) {
+        this.materialRow(colors, ITEM_MATERIALS, item.material, (id) =>
+          this.store.updateItem(item.id, { material: id }));
+        this.rotToggle(colors, item.material, item.materialRot === true, (v) =>
+          this.store.updateItem(item.id, { materialRot: v || undefined }));
+      } else {
+        colors.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Texture follows the bound variable</p>`));
+      }
 
       // per-item worktop finish for anything topped with a counter slab
       const part = this.store.customPartById(item.defId);
+
+      // custom parts expose an accent (wood-tone) slot — bindable per instance
+      if (part) {
+        const accent = this.section(root, 'Accent');
+        this.varChips(accent, item.accentColor ?? '', (ref) =>
+          this.store.updateItem(item.id, { accentColor: ref }));
+        this.swatchRow(accent, COUNTER_COLORS, resolveColor(this.store.design, item.accentColor ?? part.accentColor), (c) =>
+          this.store.updateItem(item.id, { accentColor: c }));
+      }
       const withWorktop = part ? part.type === 'cabinet' && part.worktop : hasWorktop(def);
       if (withWorktop) {
         const counter = this.section(root, 'Worktop');

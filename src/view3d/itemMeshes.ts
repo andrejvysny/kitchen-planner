@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { CatalogDef } from '../model/catalog';
-import type { CustomPartDef, Item, RoomStyle } from '../model/types';
+import type { CustomPartDef, Design, Item, RoomStyle } from '../model/types';
+import { resolveFinish } from '../model/variables';
 import {
   applianceGlass,
   box,
@@ -38,38 +39,38 @@ export { shade } from './meshKit';
 interface Ctx {
   item: Item;
   def: CatalogDef;
+  design: Design;
   room: RoomStyle;
   part?: CustomPartDef;
+  /** the item's paintable front finish, with design-variable refs already resolved */
+  finish: Finish;
 }
 
 type Builder = (g: THREE.Group, c: Ctx) => void;
 
-/** The item's paintable finish: its colour + optional PBR material. */
-const fin = (item: Item): Finish => ({ color: item.color, material: item.material, rot: item.materialRot });
-
 /* ---------------- base units ---------------- */
 
-const baseCabinet: Builder = (g, { item, room }) => {
+const baseCabinet: Builder = (g, { item, design, room, finish }) => {
   const { w, d, h } = item;
   const bodyH = h - PLINTH_H - COUNTER_T;
   plinth(g, w, d);
-  carcass(g, w, bodyH, d, fin(item), PLINTH_H);
+  carcass(g, w, bodyH, d, finish, PLINTH_H);
   const doors = Math.max(1, item.params?.doors ?? 1);
-  splitFronts(w, doors, (x, fw) => frontSlab(g, fw, bodyH, fin(item), x, PLINTH_H, d / 2));
-  counterSlab(g, w, d, h - COUNTER_T, room, item);
+  splitFronts(w, doors, (x, fw) => frontSlab(g, fw, bodyH, finish, x, PLINTH_H, d / 2));
+  counterSlab(g, w, d, h - COUNTER_T, design, room, item);
 };
 
-const baseDrawers: Builder = (g, { item, room }) => {
+const baseDrawers: Builder = (g, { item, design, room, finish }) => {
   const { w, d, h } = item;
   const bodyH = h - PLINTH_H - COUNTER_T;
   plinth(g, w, d);
-  carcass(g, w, bodyH, d, fin(item), PLINTH_H);
+  carcass(g, w, bodyH, d, finish, PLINTH_H);
   const n = Math.max(1, item.params?.drawers ?? 3);
   const fh = (bodyH - GAP * (n + 1)) / n;
   for (let i = 0; i < n; i++) {
-    frontSlab(g, w - GAP * 2, fh, fin(item), 0, PLINTH_H + GAP + i * (fh + GAP), d / 2);
+    frontSlab(g, w - GAP * 2, fh, finish, 0, PLINTH_H + GAP + i * (fh + GAP), d / 2);
   }
-  counterSlab(g, w, d, h - COUNTER_T, room, item);
+  counterSlab(g, w, d, h - COUNTER_T, design, room, item);
 };
 
 const sink: Builder = (g, c) => {
@@ -112,51 +113,51 @@ const hob: Builder = (g, c) => {
   }
 };
 
-const oven: Builder = (g, { item, room }) => {
+const oven: Builder = (g, { item, design, room, finish }) => {
   const { w, d, h } = item;
   const bodyH = h - PLINTH_H - COUNTER_T;
   plinth(g, w, d);
-  carcass(g, w, bodyH, d, fin(item), PLINTH_H);
+  carcass(g, w, bodyH, d, finish, PLINTH_H);
   const ovenH = Math.min(0.6, bodyH - 0.12);
-  frontSlab(g, w - GAP * 2, bodyH - ovenH - GAP * 2, fin(item), 0, PLINTH_H + GAP, d / 2, 'none');
+  frontSlab(g, w - GAP * 2, bodyH - ovenH - GAP * 2, finish, 0, PLINTH_H + GAP, d / 2, 'none');
   const oy = PLINTH_H + (bodyH - ovenH);
   box(g, w - GAP * 2, ovenH, 0.02, applianceGlass(), 0, oy, d / 2 - 0.01);
   box(g, w - 0.1, 0.02, 0.03, steelMat(), 0, oy + ovenH - 0.07, d / 2 + 0.012);
   box(g, w - 0.16, 0.16, 0.005, matte('#0c0d0f'), 0, oy + 0.12, d / 2 + 0.001);
-  counterSlab(g, w, d, h - COUNTER_T, room, item);
+  counterSlab(g, w, d, h - COUNTER_T, design, room, item);
 };
 
-const dishwasher: Builder = (g, { item, room }) => {
+const dishwasher: Builder = (g, { item, design, room }) => {
   const { w, d, h } = item;
   const bodyH = h - PLINTH_H - COUNTER_T;
   plinth(g, w, d);
   carcass(g, w, bodyH, d, '#9aa0a3', PLINTH_H);
   box(g, w - GAP * 2, bodyH, 0.016, steelMat(), 0, PLINTH_H, d / 2 - 0.008);
   box(g, w - 0.1, 0.02, 0.03, steelMat(), 0, PLINTH_H + bodyH - 0.06, d / 2 + 0.01);
-  counterSlab(g, w, d, h - COUNTER_T, room, item);
+  counterSlab(g, w, d, h - COUNTER_T, design, room, item);
 };
 
-const island: Builder = (g, { item, room }) => {
+const island: Builder = (g, { item, design, room, finish }) => {
   const { w, d, h } = item;
   const bodyH = h - PLINTH_H - COUNTER_T;
   plinth(g, w, d);
   // body panels all around
-  box(g, w, bodyH, d - FRONT_T, surfMat(fin(item), 'matte', CARCASS_DARKEN), 0, PLINTH_H, -FRONT_T / 2);
-  box(g, w, bodyH, FRONT_T, surfMat(fin(item)), 0, PLINTH_H, -d / 2 + FRONT_T / 2); // back panel
+  box(g, w, bodyH, d - FRONT_T, surfMat(finish, 'matte', CARCASS_DARKEN), 0, PLINTH_H, -FRONT_T / 2);
+  box(g, w, bodyH, FRONT_T, surfMat(finish), 0, PLINTH_H, -d / 2 + FRONT_T / 2); // back panel
   const n = item.params?.drawers ?? 3;
   if (n > 0) {
     splitFronts(w, Math.min(n, Math.max(1, Math.round(w / 0.55))), (x, fw) => {
       const rows = Math.min(3, Math.max(1, n));
       const fh = (bodyH - GAP * (rows + 1)) / rows;
       for (let i = 0; i < rows; i++) {
-        frontSlab(g, fw, fh, fin(item), x, PLINTH_H + GAP + i * (fh + GAP), d / 2);
+        frontSlab(g, fw, fh, finish, x, PLINTH_H + GAP + i * (fh + GAP), d / 2);
       }
     });
   } else {
-    box(g, w, bodyH, FRONT_T, surfMat(fin(item)), 0, PLINTH_H, d / 2 - FRONT_T / 2);
+    box(g, w, bodyH, FRONT_T, surfMat(finish), 0, PLINTH_H, d / 2 - FRONT_T / 2);
   }
   // generous worktop overhang on the seating side (front)
-  box(g, w + 0.06, COUNTER_T, d + 0.18, surfMat(counterFin(room, item), 'wood'), 0, h - COUNTER_T, 0.06);
+  box(g, w + 0.06, COUNTER_T, d + 0.18, surfMat(counterFin(design, room, item), 'wood'), 0, h - COUNTER_T, 0.06);
 };
 
 /* ---------------- tall units ---------------- */
@@ -174,31 +175,31 @@ const fridge: Builder = (g, { item }) => {
   box(g, 0.02, Math.min(0.3, h * 0.16), 0.025, handle, -w / 2 + 0.07, split - 0.4, d / 2 + 0.03);
 };
 
-const pantry: Builder = (g, { item }) => {
+const pantry: Builder = (g, { item, finish }) => {
   const { w, d, h } = item;
   plinth(g, w, d);
   const bodyH = h - PLINTH_H;
-  carcass(g, w, bodyH, d, fin(item), PLINTH_H);
+  carcass(g, w, bodyH, d, finish, PLINTH_H);
   const sections = Math.max(1, item.params?.split ?? 2);
   const heights = sections === 1 ? [bodyH] : sections === 2 ? [bodyH * 0.62, bodyH * 0.38] : [bodyH * 0.5, bodyH * 0.28, bodyH * 0.22];
   let y = PLINTH_H;
   for (const sh of heights) {
-    splitFronts(w, w > 0.75 ? 2 : 1, (x, fw) => frontSlab(g, fw, sh - GAP, fin(item), x, y, d / 2));
+    splitFronts(w, w > 0.75 ? 2 : 1, (x, fw) => frontSlab(g, fw, sh - GAP, finish, x, y, d / 2));
     y += sh;
   }
 };
 
-const ovenTower: Builder = (g, { item }) => {
+const ovenTower: Builder = (g, { item, finish }) => {
   const { w, d, h } = item;
   plinth(g, w, d);
   const bodyH = h - PLINTH_H;
-  carcass(g, w, bodyH, d, fin(item), PLINTH_H);
+  carcass(g, w, bodyH, d, finish, PLINTH_H);
   const n = Math.max(1, Math.min(3, item.params?.appliances ?? 2));
   const appH = [0.6, 0.38, 0.38]; // oven, micro/steam, coffee
   const zoneY = PLINTH_H + 0.72; // appliances start at ~standing height
   let y = zoneY;
   // lower doors
-  frontSlab(g, w - GAP * 2, zoneY - PLINTH_H - GAP, fin(item), 0, PLINTH_H + GAP / 2, d / 2, 'top');
+  frontSlab(g, w - GAP * 2, zoneY - PLINTH_H - GAP, finish, 0, PLINTH_H + GAP / 2, d / 2, 'top');
   for (let i = 0; i < n; i++) {
     const ah = appH[i];
     if (y + ah > PLINTH_H + bodyH - 0.06) break;
@@ -208,22 +209,22 @@ const ovenTower: Builder = (g, { item }) => {
   }
   // top doors fill the rest
   const rest = PLINTH_H + bodyH - y - GAP;
-  if (rest > 0.08) frontSlab(g, w - GAP * 2, rest, fin(item), 0, y + GAP / 2, d / 2, 'bottom');
+  if (rest > 0.08) frontSlab(g, w - GAP * 2, rest, finish, 0, y + GAP / 2, d / 2, 'bottom');
 };
 
 /* ---------------- wall units ---------------- */
 
-const wallCabinet: Builder = (g, { item }) => {
+const wallCabinet: Builder = (g, { item, finish }) => {
   const { w, d, h } = item;
-  carcass(g, w, h, d, fin(item), 0);
+  carcass(g, w, h, d, finish, 0);
   const doors = Math.max(1, item.params?.doors ?? 1);
-  splitFronts(w, doors, (x, fw) => frontSlab(g, fw, h, fin(item), x, 0, d / 2, 'bottom'));
+  splitFronts(w, doors, (x, fw) => frontSlab(g, fw, h, finish, x, 0, d / 2, 'bottom'));
 };
 
-const shelf: Builder = (g, { item }) => {
+const shelf: Builder = (g, { item, finish }) => {
   const { w, d, h } = item;
   const n = Math.max(1, item.params?.shelves ?? 2);
-  const mat = surfMat(fin(item), 'wood');
+  const mat = surfMat(finish, 'wood');
   for (let i = 0; i < n; i++) {
     const y = n === 1 ? 0 : (i * (h - 0.025)) / (n - 1);
     box(g, w, 0.028, d, mat, 0, y, 0);
@@ -242,25 +243,25 @@ const hood: Builder = (g, { item }) => {
   box(g, 0.24, Math.max(0.1, h - 0.5), 0.24, matte('#1b1c1e'), 0, 0.47, -d / 2 + 0.14);
 };
 
-const backsplash: Builder = (g, { item }) => {
-  box(g, item.w, item.h, 0.018, surfMat(fin(item), 'wood'), 0, 0, 0);
+const backsplash: Builder = (g, { item, finish }) => {
+  box(g, item.w, item.h, 0.018, surfMat(finish, 'wood'), 0, 0, 0);
 };
 
 /* ---------------- furniture ---------------- */
 
-const table: Builder = (g, { item }) => {
+const table: Builder = (g, { item, finish }) => {
   const { w, d, h } = item;
-  box(g, w, 0.04, d, surfMat(fin(item), 'wood'), 0, h - 0.04, 0);
-  const leg = surfMat(fin(item), 'wood', 0.85);
+  box(g, w, 0.04, d, surfMat(finish, 'wood'), 0, h - 0.04, 0);
+  const leg = surfMat(finish, 'wood', 0.85);
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
     cyl(g, 0.025, h - 0.04, leg, sx * (w / 2 - 0.08), 0, sz * (d / 2 - 0.08));
   }
 };
 
-const chair: Builder = (g, { item }) => {
+const chair: Builder = (g, { item, finish }) => {
   const { w, d, h } = item;
   const seatH = 0.46;
-  const mat = surfMat(fin(item));
+  const mat = surfMat(finish);
   const legMat = wood('#a8895e');
   box(g, w - 0.04, 0.035, d - 0.06, mat, 0, seatH, 0.02);
   const back = box(g, w - 0.06, h - seatH - 0.05, 0.03, mat, 0, seatH + 0.04, -d / 2 + 0.035);
@@ -273,13 +274,13 @@ const chair: Builder = (g, { item }) => {
 };
 
 /** A plain wooden slab — used freely as tabletop, shelf, board or riser. */
-const woodPlane: Builder = (g, { item }) => {
-  box(g, item.w, item.h, item.d, surfMat(fin(item), 'wood'), 0, 0, 0);
+const woodPlane: Builder = (g, { item, finish }) => {
+  box(g, item.w, item.h, item.d, surfMat(finish, 'wood'), 0, 0, 0);
 };
 
-const stool: Builder = (g, { item }) => {
+const stool: Builder = (g, { item, finish }) => {
   const { w, h } = item;
-  cyl(g, w / 2, 0.045, surfMat(fin(item), 'wood'), 0, h - 0.045, 0);
+  cyl(g, w / 2, 0.045, surfMat(finish, 'wood'), 0, h - 0.045, 0);
   const legMat = matte('#2a2926');
   for (let i = 0; i < 4; i++) {
     const a = (i * Math.PI) / 2 + Math.PI / 4;
@@ -291,12 +292,12 @@ const stool: Builder = (g, { item }) => {
 
 /* ---------------- lighting fixtures ---------------- */
 
-const pendant: Builder = (g, { item, room }) => {
+const pendant: Builder = (g, { item, room, finish }) => {
   const { w, h } = item;
   const cordLen = Math.max(0.05, room.wallHeight - item.elevation - h);
   const black = matte('#1c1b19');
   cyl(g, 0.006, cordLen, black, 0, h, 0);
-  const shadeMesh = cyl(g, w / 2, h * 0.75, surfMat(fin(item)), 0, h * 0.25, 0, w / 6);
+  const shadeMesh = cyl(g, w / 2, h * 0.75, surfMat(finish), 0, h * 0.25, 0, w / 6);
   shadeMesh.castShadow = false;
   const bulb = new THREE.Mesh(
     new THREE.SphereGeometry(0.045, 16, 12),
@@ -307,8 +308,8 @@ const pendant: Builder = (g, { item, room }) => {
   g.add(bulb);
 };
 
-const spot: Builder = (g, { item }) => {
-  cyl(g, item.w / 2, 0.02, surfMat(fin(item)), 0, 0.02, 0);
+const spot: Builder = (g, { item, finish }) => {
+  cyl(g, item.w / 2, 0.02, surfMat(finish), 0, 0.02, 0);
   const lens = new THREE.Mesh(
     new THREE.CylinderGeometry(item.w / 2 - 0.02, item.w / 2 - 0.02, 0.008, 20),
     new THREE.MeshStandardMaterial({ color: '#fff8e6', emissive: '#ffe8b8', emissiveIntensity: 1.4 })
@@ -379,9 +380,9 @@ const outlet: Builder = (g, { item }) => {
 
 /* ---------------- custom parts (Part Studio) ---------------- */
 
-const custom: Builder = (g, { item, part, room }) => {
-  if (part) buildCustomPart(g, item, part, room);
-  else box(g, item.w, item.h, item.d, surfMat(fin(item)), 0, 0, 0);
+const custom: Builder = (g, { item, part, design, finish }) => {
+  if (part) buildCustomPart(g, item, part, design);
+  else box(g, item.w, item.h, item.d, surfMat(finish), 0, 0, 0);
 };
 
 /* ---------------- registry ---------------- */
@@ -413,11 +414,18 @@ const BUILDERS: Record<string, Builder> = {
   custom,
 };
 
-export function buildItemGroup(item: Item, def: CatalogDef, room: RoomStyle, part?: CustomPartDef): THREE.Group {
+export function buildItemGroup(
+  item: Item,
+  def: CatalogDef,
+  design: Design,
+  part?: CustomPartDef
+): THREE.Group {
   const g = new THREE.Group();
+  const room = design.room;
+  const finish = resolveFinish(design, item.color, item.material, item.materialRot);
   const builder = BUILDERS[def.kind];
-  if (builder) builder(g, { item, def, room, part });
-  else box(g, item.w, item.h, item.d, surfMat(fin(item)), 0, 0, 0);
+  if (builder) builder(g, { item, def, design, room, part, finish });
+  else box(g, item.w, item.h, item.d, surfMat(finish), 0, 0, 0);
   return g;
 }
 

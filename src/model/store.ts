@@ -4,8 +4,9 @@ import { hasMaterial } from './materials';
 import { samplePart, sanitizePart, toCatalogDef } from './parts';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from './sky';
 import { migrateDesignV1, migratePartV1 } from './partsMigrate';
-import type { ChangeInfo, Corner, CustomPartDef, Design, Item, Opening, Point, Selection, WallVisMode } from './types';
+import type { ChangeInfo, Corner, CustomPartDef, Design, DesignVar, Item, Opening, Point, Selection, WallVisMode } from './types';
 import { uid } from './types';
+import { detach, isVarRef, refId, toVarRef, VAR_FALLBACK } from './variables';
 
 type EventMap = {
   change: ChangeInfo;
@@ -396,6 +397,14 @@ export class Store {
     // instances of user parts start at the part's configured elevation
     const part = this.customPartById(def.id);
     if (part) item.elevation = part.elevation;
+    // bind new items to the configured default variables where applicable
+    const { defaultFrontVar, defaultAccentVar } = this.design;
+    if (defaultFrontVar && !def.opening && !def.marker && this.variableById(defaultFrontVar)) {
+      item.color = toVarRef(defaultFrontVar);
+    }
+    if (defaultAccentVar && part && this.variableById(defaultAccentVar)) {
+      item.accentColor = toVarRef(defaultAccentVar);
+    }
     this.design.items.push(item);
     this.notify({ structural: true });
     return item;
@@ -513,6 +522,89 @@ export class Store {
     this.notify({ structural: true });
   }
 
+  /* ---------------- design variables ---------------- */
+
+  variableById(id: string): DesignVar | undefined {
+    return this.design.variables.find((v) => v.id === id);
+  }
+
+  addVariable(patch: Partial<DesignVar> = {}): DesignVar {
+    const v: DesignVar = {
+      id: uid('var'),
+      name: patch.name ?? `Variable ${this.design.variables.length + 1}`,
+      color: patch.color ?? '#8a9683',
+      material: patch.material,
+      materialRot: patch.materialRot,
+    };
+    this.design.variables.push(v);
+    // colour changes force a geometry rebuild, so keep this structural
+    this.notify({ structural: true });
+    return v;
+  }
+
+  updateVariable(id: string, patch: Partial<DesignVar>): void {
+    const v = this.variableById(id);
+    if (!v) return;
+    Object.assign(v, patch);
+    if (patch.material !== undefined && !patch.material) delete v.material;
+    if (patch.materialRot !== undefined && !patch.materialRot) delete v.materialRot;
+    this.notify({ structural: true });
+  }
+
+  /**
+   * Delete a variable, inlining its current resolved finish back into every
+   * slot that references it — so no bound component silently loses its colour.
+   */
+  deleteVariable(id: string): void {
+    const ref = toVarRef(id);
+    const fin = detach(this.design, ref); // resolve before removal
+    const applyTo = (slot: string): string => (slot === ref ? fin.color : slot);
+    for (const it of this.design.items) {
+      if (it.color === ref) {
+        it.color = fin.color;
+        if (fin.material) it.material = fin.material;
+        else delete it.material;
+        if (fin.rot) it.materialRot = true;
+        else delete it.materialRot;
+      }
+      if (it.accentColor === ref) it.accentColor = fin.color;
+    }
+    const room = this.design.room;
+    room.wallColor = applyTo(room.wallColor);
+    room.floorColor = applyTo(room.floorColor);
+    room.counterColor = applyTo(room.counterColor);
+    if (this.design.defaultFrontVar === id) delete this.design.defaultFrontVar;
+    if (this.design.defaultAccentVar === id) delete this.design.defaultAccentVar;
+    this.design.variables = this.design.variables.filter((v) => v.id !== id);
+    this.notify({ structural: true });
+  }
+
+  setDefaultVar(slot: 'front' | 'accent', id: string | undefined): void {
+    if (slot === 'front') {
+      if (id) this.design.defaultFrontVar = id;
+      else delete this.design.defaultFrontVar;
+    } else if (id) this.design.defaultAccentVar = id;
+    else delete this.design.defaultAccentVar;
+    this.notify({ structural: false });
+  }
+
+  /** Bulk "apply to all": bind a colour slot on every front-painted item to a variable. */
+  applyVarToItems(id: string, slot: 'front' | 'accent'): number {
+    if (!this.variableById(id)) return 0;
+    const ref = toVarRef(id);
+    let n = 0;
+    for (const it of this.design.items) {
+      const def = this.defOf(it.defId);
+      if (def.opening || def.marker) continue;
+      if (slot === 'front') it.color = ref;
+      else if (this.customPartById(it.defId)) it.accentColor = ref;
+      else continue;
+      n++;
+    }
+    this.notify({ structural: true });
+    return n;
+  }
+
   /* ---------------- wall visibility ---------------- */
 
   wallVisibility(wallId: string): WallVisMode {
@@ -585,7 +677,7 @@ export function normalizeDesign(d: Design): Design {
   return d;
 }
 
-export const DESIGN_VERSION = 3;
+export const DESIGN_VERSION = 4;
 
 /** Validate + repair a design parsed from storage or a file. Returns null when unusable. */
 export function sanitizeDesign(raw: unknown): Design | null {
@@ -597,6 +689,8 @@ export function sanitizeDesign(raw: unknown): Design | null {
   if (!Array.isArray(d.openings)) d.openings = [];
   if (!Array.isArray(d.items)) d.items = [];
   if (!Array.isArray(d.customParts)) d.customParts = [];
+  // v≤3 → 4 is additive: designs simply gain an empty variables registry
+  d.variables = sanitizeVariables(d.variables);
   if (d.version < 2) migrateDesignV1(d);
   d.customParts = (d.customParts as unknown[]).map(sanitizePart).filter(Boolean);
   // items whose defId resolves nowhere would crash the render loop
@@ -618,11 +712,48 @@ export function sanitizeDesign(raw: unknown): Design | null {
     if (room[key] !== undefined && !hasMaterial(room[key])) delete room[key];
     if (room[`${key}Rot`] !== true) delete room[`${key}Rot`];
   }
+  // detach dangling `var:` refs so no slot points at a removed variable
+  const varIds = new Set((d.variables as DesignVar[]).map((v) => v.id));
+  const settle = (v: unknown): string | undefined =>
+    isVarRef(v as string) && !varIds.has(refId(v as string)) ? VAR_FALLBACK : (v as string | undefined);
+  for (const i of d.items as Item[]) {
+    i.color = settle(i.color) ?? i.color;
+    if (i.accentColor !== undefined) {
+      const s = settle(i.accentColor);
+      if (s === undefined || typeof s !== 'string') delete i.accentColor;
+      else i.accentColor = s;
+    }
+  }
+  for (const key of ['wallColor', 'floorColor', 'counterColor']) {
+    room[key] = settle(room[key]);
+  }
+  // defaults hold a bare variable id — clear ones that no longer resolve
+  if (typeof d.defaultFrontVar !== 'string' || !varIds.has(d.defaultFrontVar)) delete d.defaultFrontVar;
+  if (typeof d.defaultAccentVar !== 'string' || !varIds.has(d.defaultAccentVar)) delete d.defaultAccentVar;
   d.scene = sanitizeScene(d.scene);
   d.wallVisibility = sanitizeWallVisibility(d.wallVisibility);
   if (d.ceilingVisibility !== 'show' && d.ceilingVisibility !== 'hide') delete d.ceilingVisibility;
   d.version = DESIGN_VERSION;
   return normalizeDesign(d as unknown as Design);
+}
+
+/** Drop malformed variables; keep only valid material ids and literal `true` rot flags. */
+function sanitizeVariables(raw: unknown): DesignVar[] {
+  if (!Array.isArray(raw)) return [];
+  const out: DesignVar[] = [];
+  const seen = new Set<string>();
+  for (const v of raw) {
+    if (!v || typeof v !== 'object') continue;
+    const r = v as Record<string, unknown>;
+    if (typeof r.id !== 'string' || typeof r.name !== 'string' || typeof r.color !== 'string') continue;
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    const dv: DesignVar = { id: r.id, name: r.name, color: r.color };
+    if (typeof r.material === 'string' && hasMaterial(r.material)) dv.material = r.material;
+    if (r.materialRot === true) dv.materialRot = true;
+    out.push(dv);
+  }
+  return out;
 }
 
 /** Keep only valid non-'auto' overrides; 'auto' is the implicit default. */
@@ -679,11 +810,12 @@ export function defaultScene(): Design['scene'] {
 export function emptyDesign(): Design {
   const c = (x: number, y: number): Corner => ({ id: uid('c'), x, y });
   return normalizeDesign({
-    version: 3,
+    version: 4,
     corners: [c(0, 0), c(4, 0), c(4, 3), c(0, 3)],
     openings: [],
     items: [],
     customParts: Store.sharedLibrary(),
+    variables: [],
     room: {
       wallColor: '#f4f1ea',
       floorColor: '#cfccc6',
@@ -776,11 +908,12 @@ export function demoDesign(): Design {
   ];
 
   return normalizeDesign({
-    version: 3,
+    version: 4,
     corners: [c1, c2, c3, c4],
     openings,
     items,
     customParts: Store.sharedLibrary(),
+    variables: [],
     room: {
       wallColor: '#f4f1ea',
       floorColor: '#cfccc6',

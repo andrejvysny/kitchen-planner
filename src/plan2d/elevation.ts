@@ -2,6 +2,7 @@ import { clamp, fmtCm } from '../model/geometry';
 import { wallElevation, type WallElevation, type WallElevationItem } from '../model/elevation';
 import type { Store } from '../model/store';
 import type { Point } from '../model/types';
+import { resolveColor } from '../model/variables';
 
 const INK = '#3a3934';
 const ACCENT = '#2f6f5e';
@@ -267,7 +268,7 @@ export class ElevationView {
       const w = it.halfW * 2 * this.zoom;
       const h = (it.z1 - it.z0) * this.zoom;
       const selected = sel.kind === 'item' && sel.id === it.id;
-      ctx.fillStyle = it.color;
+      ctx.fillStyle = resolveColor(this.store.design, it.color);
       ctx.globalAlpha = 0.92;
       ctx.fillRect(a.x, a.y, w, h);
       ctx.globalAlpha = 1;

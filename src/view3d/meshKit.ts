@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { APPLIANCE_BLACK } from '../model/catalog';
 import { signedArea } from '../model/geometry';
-import type { Item, Point, RoomStyle } from '../model/types';
+import type { Design, Item, Point, RoomStyle } from '../model/types';
+import { resolveFinish } from '../model/variables';
 import { texturedMaterial } from './textures';
 
 /**
@@ -171,18 +172,28 @@ export function carcass(g: THREE.Group, w: number, h: number, d: number, color: 
 }
 
 /**
- * Worktop finish as a Finish: the item's own counter material when set,
- * else the room-wide worktop style.
+ * Worktop finish as a Finish: the item's own counter material when set, else
+ * the room-wide worktop style. The room worktop colour may be a design-variable
+ * ref, so resolve it; a per-item material override keeps that resolved colour.
  */
-export function counterFin(room: RoomStyle, item?: Item): Finish {
+export function counterFin(design: Design, room: RoomStyle, item?: Item): Finish {
+  const base = resolveFinish(design, room.counterColor, room.counterMaterial, room.counterMaterialRot);
   if (item?.counterMaterial) {
-    return { color: room.counterColor, material: item.counterMaterial, rot: item.counterMaterialRot };
+    return { color: base.color, material: item.counterMaterial, rot: item.counterMaterialRot };
   }
-  return { color: room.counterColor, material: room.counterMaterial, rot: room.counterMaterialRot };
+  return base;
 }
 
-export function counterSlab(g: THREE.Group, w: number, d: number, y: number, room: RoomStyle, item?: Item): void {
-  box(g, w, COUNTER_T, d + 0.02, surfMat(counterFin(room, item), 'wood'), 0, y, 0.01);
+export function counterSlab(
+  g: THREE.Group,
+  w: number,
+  d: number,
+  y: number,
+  design: Design,
+  room: RoomStyle,
+  item?: Item
+): void {
+  box(g, w, COUNTER_T, d + 0.02, surfMat(counterFin(design, room, item), 'wood'), 0, y, 0.01);
 }
 
 /**

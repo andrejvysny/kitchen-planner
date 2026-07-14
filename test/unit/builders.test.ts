@@ -9,7 +9,7 @@ import {
   toCatalogDef,
 } from '../../src/model/parts';
 import { deskBoards, migratePartV1 } from '../../src/model/partsMigrate';
-import type { BoardPartDef, CabinetPartDef, CustomPartDef, Item, RoomStyle, Zone } from '../../src/model/types';
+import type { BoardPartDef, CabinetPartDef, CustomPartDef, Design, Item, RoomStyle, Zone } from '../../src/model/types';
 import { buildItemGroup } from '../../src/view3d/itemMeshes';
 
 const ROOM: RoomStyle = {
@@ -19,6 +19,10 @@ const ROOM: RoomStyle = {
   wallHeight: 2.6,
   wallThickness: 0.1,
 };
+
+// buildItemGroup resolves colours against the whole design (for variable refs);
+// these smoke tests use literal colours, so an empty variables registry suffices.
+const DESIGN = { variables: [], room: ROOM } as unknown as Design;
 
 function itemFor(def: CatalogDef, params?: Record<string, number>): Item {
   return {
@@ -51,7 +55,7 @@ describe('mesh builders', () => {
         variants.push(Object.fromEntries(def.params.map((p) => [p.key, p.max])));
       }
       for (const params of variants) {
-        const group = buildItemGroup(itemFor(def, params), def, ROOM, undefined);
+        const group = buildItemGroup(itemFor(def, params), def, DESIGN, undefined);
         expect(group.children.length).toBeGreaterThan(0);
       }
     });
@@ -67,7 +71,7 @@ describe('mesh builders', () => {
     ];
     for (const p of parts) {
       const def = toCatalogDef(p);
-      const group = buildItemGroup(itemFor(def), def, ROOM, p);
+      const group = buildItemGroup(itemFor(def), def, DESIGN, p);
       expect(group.children.length).toBeGreaterThan(0);
     }
   });
@@ -103,7 +107,7 @@ describe('mesh builders', () => {
     ];
     for (const p of variants) {
       const def = toCatalogDef(p);
-      const group = buildItemGroup(itemFor(def), def, ROOM, p);
+      const group = buildItemGroup(itemFor(def), def, DESIGN, p);
       expect(group.children.length).toBeGreaterThan(2);
     }
   });
@@ -124,7 +128,7 @@ describe('mesh builders', () => {
       holes: [{ x: -0.6, y: -0.3, w: 0.5, d: 0.35 }],
     };
     const def = toCatalogDef(p);
-    const group = buildItemGroup(itemFor(def), def, ROOM, p);
+    const group = buildItemGroup(itemFor(def), def, DESIGN, p);
     expect(group.children.length).toBe(1);
     const bounds = new Box3().setFromObject(group);
     // plan +y (front) must land on world +z, thickness on +y
@@ -151,7 +155,7 @@ describe('mesh builders', () => {
     const part = migratePartV1(raw)!;
     expect(part.type).toBe('cabinet');
     const def = toCatalogDef(part);
-    const group = buildItemGroup(itemFor(def), def, ROOM, part);
+    const group = buildItemGroup(itemFor(def), def, DESIGN, part);
     const bounds = new Box3().setFromObject(group);
     expect(bounds.max.y).toBeCloseTo(0.75, 2);
     expect(bounds.max.x).toBeCloseTo(1.2 / 2 + 0.01, 2);
@@ -161,7 +165,7 @@ describe('mesh builders', () => {
 
     const desk = migratePartV1({ ...raw, template: 'desk', options: { drawers: 2, panelLegs: 0 } })!;
     expect(desk.type).toBe('freeform');
-    const dg = buildItemGroup(itemFor(toCatalogDef(desk)), toCatalogDef(desk), ROOM, desk);
+    const dg = buildItemGroup(itemFor(toCatalogDef(desk)), toCatalogDef(desk), DESIGN, desk);
     const db = new Box3().setFromObject(dg);
     expect(db.max.y).toBeCloseTo(0.75, 2);
     expect(db.min.y).toBeCloseTo(0, 2);

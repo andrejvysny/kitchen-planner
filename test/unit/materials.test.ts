@@ -14,7 +14,7 @@ import {
 } from '../../src/model/materials';
 import { newCabinetPart, toCatalogDef } from '../../src/model/parts';
 import { emptyDesign, sanitizeDesign } from '../../src/model/store';
-import type { Corner, Item, RoomStyle } from '../../src/model/types';
+import type { Corner, Design, Item, RoomStyle } from '../../src/model/types';
 import { buildItemGroup } from '../../src/view3d/itemMeshes';
 import { counterFin, surfMat } from '../../src/view3d/meshKit';
 import { texturedMaterial } from '../../src/view3d/textures';
@@ -26,6 +26,10 @@ const ROOM: RoomStyle = {
   wallHeight: 2.6,
   wallThickness: 0.1,
 };
+
+// colour resolution runs against the whole design; these tests use literal
+// colours, so an empty variables registry wrapping ROOM is all that's needed.
+const DESIGN = { variables: [], room: ROOM } as unknown as Design;
 
 describe('material registry', () => {
   it('has unique ids that all resolve', () => {
@@ -82,11 +86,11 @@ describe('material registry', () => {
   it('counterFin: item override wins over the room worktop', () => {
     const room: RoomStyle = { ...ROOM, counterMaterial: 'oak', counterMaterialRot: true };
     const item = { counterMaterial: 'marble-dark', counterMaterialRot: false } as Item;
-    expect(counterFin(room)).toEqual({ color: ROOM.counterColor, material: 'oak', rot: true });
-    const over = counterFin(room, item);
+    expect(counterFin(DESIGN, room)).toEqual({ color: ROOM.counterColor, material: 'oak', rot: true });
+    const over = counterFin(DESIGN, room, item);
     expect(over.material).toBe('marble-dark');
     expect(over.rot).toBe(false);
-    expect(counterFin(room, {} as Item).material).toBe('oak');
+    expect(counterFin(DESIGN, room, {} as Item).material).toBe('oak');
   });
 });
 
@@ -231,14 +235,14 @@ describe('textured materials (headless)', () => {
       return out;
     };
     const marble = materialDef('marble-dark')!.color;
-    expect(colorsOf(buildItemGroup(item, def, ROOM, undefined)).has(marble)).toBe(true);
+    expect(colorsOf(buildItemGroup(item, def, DESIGN, undefined)).has(marble)).toBe(true);
     // without the override (and no room material) nothing takes the marble tone
     const plain: Item = { ...item, material: undefined, counterMaterial: undefined };
-    expect(colorsOf(buildItemGroup(plain, def, ROOM, undefined)).has(marble)).toBe(false);
+    expect(colorsOf(buildItemGroup(plain, def, DESIGN, undefined)).has(marble)).toBe(false);
     // custom cabinet: the worktop-role panel takes the instance counter material
     const part = newCabinetPart();
     const custom: Item = { ...item, defId: part.id, w: part.w, d: part.d, h: part.h };
-    const g = buildItemGroup(custom, toCatalogDef(part), ROOM, part);
+    const g = buildItemGroup(custom, toCatalogDef(part), DESIGN, part);
     let worktopColor = '';
     g.traverse((o) => {
       if (o.userData.role === 'worktop') {
@@ -264,9 +268,9 @@ describe('textured materials (headless)', () => {
       material: 'wenge',
       params: { doors: 2 },
     };
-    const group = buildItemGroup(item, def, ROOM, undefined);
+    const group = buildItemGroup(item, def, DESIGN, undefined);
     expect(group.children.length).toBeGreaterThan(0);
-    const glass = buildItemGroup({ ...item, material: 'glass' }, def, ROOM, undefined);
+    const glass = buildItemGroup({ ...item, material: 'glass' }, def, DESIGN, undefined);
     expect(glass.children.length).toBeGreaterThan(0);
   });
 });

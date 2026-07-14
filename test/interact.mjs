@@ -794,6 +794,69 @@ const elevSel = await page.evaluate(() => {
 results.push(['elevation click selects item', elevSel === elevIds.cab]);
 await page.click('#mode2d-toggle button[data-2dmode="plan"]');
 
+// 24. design variables — create, bind a cabinet AND a wall to one token,
+//     edit it live, undo, and confirm the binding survives a reload.
+const varScenario = await page.evaluate(() => {
+  const st = window.__kp.store;
+  st.select({ kind: 'none' });
+  const cab = st.addItem(st.defOf('base-cabinet'), 1.0, 0.4, 0);
+  const wallId = st.walls()[0].id;
+  const v = st.addVariable({ name: 'Theme', color: '#123456' });
+  st.updateItem(cab.id, { color: 'var:' + v.id });
+  st.setRoomStyle({ wallColor: 'var:' + v.id });
+  st.commit();
+  return { cabId: cab.id, wallId, varId: v.id };
+});
+// does the resolved hex reach both the cabinet front slab and the wall meshes?
+const readVarColors = (arg) =>
+  page.evaluate(({ cabId, expected }) => {
+    const has = (root) => {
+      let found = false;
+      root.traverse((o) => {
+        const m = o.material;
+        if (m && m.color && `#${m.color.getHexString()}` === expected) found = true;
+      });
+      return found;
+    };
+    const cabGroup = window.__kp.view.items.get(cabId).group;
+    let wall = false;
+    window.__kp.view['scene'].traverse((o) => {
+      if (o.name && /^Wall_/.test(o.name) && has(o)) wall = true;
+    });
+    return { cab: has(cabGroup), wall };
+  }, arg);
+
+const boundA = await readVarColors({ cabId: varScenario.cabId, expected: '#123456' });
+results.push(['variable binds cabinet + wall to one colour', boundA.cab && boundA.wall]);
+
+await page.evaluate((vid) => {
+  const st = window.__kp.store;
+  st.updateVariable(vid, { color: '#654321' });
+  st.commit();
+}, varScenario.varId);
+const editedB = await readVarColors({ cabId: varScenario.cabId, expected: '#654321' });
+results.push(['editing a variable re-themes every bound slot live', editedB.cab && editedB.wall]);
+
+await page.evaluate(() => window.__kp.store.undo());
+const undoneA = await readVarColors({ cabId: varScenario.cabId, expected: '#123456' });
+results.push(['undo restores the previous variable colour', undoneA.cab && undoneA.wall]);
+
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(800);
+const persisted = await page.evaluate(() => {
+  const d = window.__kp.store.design;
+  const cab = d.items.find((i) => typeof i.color === 'string' && i.color.startsWith('var:'));
+  return {
+    hasVar: d.variables.length >= 1 && d.variables[0].color === '#123456',
+    cabBound: !!cab,
+    wallBound: d.room.wallColor.startsWith('var:'),
+  };
+});
+results.push([
+  'variable binding + value persist across reload',
+  persisted.hasVar && persisted.cabBound && persisted.wallBound,
+]);
+
 let pass = 0;
 for (const [name, ok] of results) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`);

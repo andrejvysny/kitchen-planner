@@ -55,7 +55,10 @@ export interface Item {
   h: number;
   /** bottom of the item above the floor */
   elevation: number;
+  /** front colour slot; may hold a literal hex or a `var:<id>` reference to a DesignVar */
   color: string;
+  /** accent colour override; missing = the part's own accent. May be a `var:<id>` reference */
+  accentColor?: string;
   /** built-in PBR material id (src/model/materials.ts); missing = plain colour */
   material?: string;
   /** rotate the material's texture 90° (e.g. wood grain vertical → horizontal) */
@@ -203,12 +206,33 @@ export interface FreeformPartDef extends PartBase {
 /** A user-created part, built in the Part Studio. */
 export type CustomPartDef = CabinetPartDef | BoardPartDef | FreeformPartDef;
 
+/**
+ * A named, reusable finish token ("design variable"). Colour slots bind to it
+ * by storing `var:<id>` in their `color` string; the resolver
+ * (src/model/variables.ts) turns that into this variable's concrete finish.
+ */
+export interface DesignVar {
+  id: string;
+  name: string;
+  color: string;
+  /** built-in PBR material id (src/model/materials.ts); missing = plain colour */
+  material?: string;
+  /** rotate the material's texture 90° */
+  materialRot?: boolean;
+}
+
 export interface Design {
-  version: 3;
+  version: 4;
   corners: Corner[];
   openings: Opening[];
   items: Item[];
   customParts: CustomPartDef[];
+  /** named finish tokens; slots reference them as `var:<id>` */
+  variables: DesignVar[];
+  /** var id applied to a new item's front colour when set */
+  defaultFrontVar?: string;
+  /** var id applied to a new item's accent colour when set */
+  defaultAccentVar?: string;
   room: RoomStyle;
   scene: Scene;
   /** per-wall visibility override, keyed by wall id (start corner id); missing = 'auto' */

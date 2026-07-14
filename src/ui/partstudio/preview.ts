@@ -1,16 +1,24 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { toCatalogDef } from '../../model/parts';
-import type { CustomPartDef, Item, RoomStyle } from '../../model/types';
+import type { CustomPartDef, Design, Item } from '../../model/types';
 import { buildItemGroup } from '../../view3d/itemMeshes';
 
-const PREVIEW_ROOM: RoomStyle = {
-  wallColor: '#f4f1ea',
-  floorColor: '#cfccc6',
-  counterColor: '#c9a87c',
-  wallHeight: 2.6,
-  wallThickness: 0.1,
-};
+/**
+ * Minimal Design wrapping the fixed preview room. The studio previews a single
+ * part with literal colours (design variables live on the real design, not the
+ * part def), so an empty variables registry is all the renderer needs.
+ */
+const PREVIEW_DESIGN = {
+  variables: [],
+  room: {
+    wallColor: '#f4f1ea',
+    floorColor: '#cfccc6',
+    counterColor: '#c9a87c',
+    wallHeight: 2.6,
+    wallThickness: 0.1,
+  },
+} as unknown as Design;
 
 /**
  * The studio's live, orbitable 3D preview. Optionally reports clicks on
@@ -136,7 +144,7 @@ export class StudioPreview {
       elevation: part.elevation,
       color: part.color,
     };
-    this.meshGroup = buildItemGroup(fake, toCatalogDef(part), PREVIEW_ROOM, part);
+    this.meshGroup = buildItemGroup(fake, toCatalogDef(part), PREVIEW_DESIGN, part);
     this.meshGroup.position.y = part.elevation > 0.3 ? 0.6 : 0;
     if (selectedBoardId) {
       this.meshGroup.traverse((o) => {

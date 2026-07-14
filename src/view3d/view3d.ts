@@ -9,6 +9,7 @@ import { snapItem } from '../model/snapping';
 import type { Store } from '../model/store';
 import type { Item, Opening } from '../model/types';
 import { AMBIENT_DAY, skyState } from '../model/sky';
+import { resolveFinish } from '../model/variables';
 import { buildItemGroup, lightLocalY, shade } from './itemMeshes';
 import { scaleBoxUV, surfMat } from './meshKit';
 import { isMac, wheelGesture, type WheelLike } from './wheelInput';
@@ -278,9 +279,10 @@ export class View3D {
     // floor — ShapeGeometry UVs are the plan coords in meters, so shared
     // material textures (repeat = 1/tile) land at real-world scale directly
     const shape = new THREE.Shape(corners.map((p) => new THREE.Vector2(p.x, p.y)));
-    const floorMat = room.floorMaterial
-      ? surfMat({ color: room.floorColor, material: room.floorMaterial, rot: room.floorMaterialRot })
-      : new THREE.MeshStandardMaterial({ color: room.floorColor, roughness: 0.88 });
+    const floorFin = resolveFinish(design, room.floorColor, room.floorMaterial, room.floorMaterialRot);
+    const floorMat = floorFin.material
+      ? surfMat(floorFin)
+      : new THREE.MeshStandardMaterial({ color: floorFin.color, roughness: 0.88 });
     floorMat.side = THREE.DoubleSide;
     const floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMat);
     floor.rotation.x = Math.PI / 2;
@@ -309,9 +311,10 @@ export class View3D {
       group.position.set(g.a.x, 0, g.a.y);
       group.rotation.y = -g.angle;
 
-      const wallMat = room.wallMaterial
-        ? surfMat({ color: room.wallColor, material: room.wallMaterial, rot: room.wallMaterialRot })
-        : new THREE.MeshStandardMaterial({ color: room.wallColor, roughness: 0.94 });
+      const wallFin = resolveFinish(design, room.wallColor, room.wallMaterial, room.wallMaterialRot);
+      const wallMat = wallFin.material
+        ? surfMat(wallFin)
+        : new THREE.MeshStandardMaterial({ color: wallFin.color, roughness: 0.94 });
       const openings = design.openings
         .filter((o) => o.wallId === g.id)
         .sort((a, b) => a.offset - b.offset);
@@ -416,7 +419,7 @@ export class View3D {
   private buildItem(item: Item): void {
     const def = this.store.defOf(item.defId);
     const part = this.store.customPartById(item.defId);
-    const group = buildItemGroup(item, def, this.store.design.room, part);
+    const group = buildItemGroup(item, def, this.store.design, part);
     group.userData.itemId = item.id;
     group.name = `${def.label.replace(/[^\w]+/g, '_')}_${item.id.slice(-4)}`;
 

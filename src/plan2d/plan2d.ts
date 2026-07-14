@@ -14,6 +14,7 @@ import { footprintPolygon } from '../model/parts';
 import { nearestWall, snapItem, type Guide } from '../model/snapping';
 import type { Store } from '../model/store';
 import type { CustomPartDef, Item, Opening, Point } from '../model/types';
+import { resolveColor } from '../model/variables';
 import { isMac, isTrackpadWheel, type WheelLike } from '../view3d/wheelInput';
 import { drawPlanSymbol, isOverhead } from './symbols';
 
@@ -679,7 +680,7 @@ export class Plan2D {
       ctx.moveTo(corners[0].x, corners[0].y);
       for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i].x, corners[i].y);
       ctx.closePath();
-      ctx.fillStyle = design.room.floorColor;
+      ctx.fillStyle = resolveColor(design, design.room.floorColor);
       ctx.globalAlpha = 0.42;
       ctx.fill();
       ctx.globalAlpha = 1;
@@ -734,7 +735,7 @@ export class Plan2D {
       }
       const part = this.partOf(it);
       drawPlanSymbol(ctx, def.kind, it.w, it.d, {
-        color: it.color,
+        color: resolveColor(design, it.color),
         selected,
         pxPerM: this.zoom,
         overhead:

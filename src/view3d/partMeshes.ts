@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { partPanels, type Panel } from '../model/panels';
-import type { CustomPartDef, Item, RoomStyle } from '../model/types';
+import type { CustomPartDef, Design, Item } from '../model/types';
+import { resolveColor, resolveFinish } from '../model/variables';
 import { box, cyl, type Finish, GROOVE, matte, PLINTH_COLOR, prism, surfMat } from './meshKit';
 
 /**
@@ -68,14 +69,17 @@ function panelMesh(g: THREE.Group, p: Panel, front: Finish, accentColor: string,
   grooveAt(g, p.x, p.y, p.z);
 }
 
-export function buildCustomPart(g: THREE.Group, item: Item, part: CustomPartDef, _room: RoomStyle): void {
+export function buildCustomPart(g: THREE.Group, item: Item, part: CustomPartDef, design: Design): void {
   const dims = { w: item.w, d: item.d, h: item.h, elevation: item.elevation };
-  const front: Finish = { color: item.color, material: item.material, rot: item.materialRot };
-  // worktop override keeps the part's accent tone as the plain-colour fallback
+  // front + accent colour slots may hold design-variable refs — resolve them.
+  // The per-instance accent override (item.accentColor) wins over the part's.
+  const front: Finish = resolveFinish(design, item.color, item.material, item.materialRot);
+  const accentColor = resolveColor(design, item.accentColor ?? part.accentColor);
+  // worktop override keeps the resolved accent tone as the plain-colour fallback
   const counter: Finish | undefined = item.counterMaterial
-    ? { color: part.accentColor, material: item.counterMaterial, rot: item.counterMaterialRot }
+    ? { color: accentColor, material: item.counterMaterial, rot: item.counterMaterialRot }
     : undefined;
   for (const p of partPanels(part, dims)) {
-    panelMesh(g, p, front, part.accentColor, counter);
+    panelMesh(g, p, front, accentColor, counter);
   }
 }

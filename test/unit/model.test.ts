@@ -42,7 +42,7 @@ describe('sanitizeDesign', () => {
     expect(sanitizeDesign(null)).toBeNull();
     expect(sanitizeDesign('x')).toBeNull();
     expect(sanitizeDesign({})).toBeNull();
-    expect(sanitizeDesign({ version: 4, corners: rectDesign().corners })).toBeNull();
+    expect(sanitizeDesign({ version: 5, corners: rectDesign().corners })).toBeNull();
     expect(sanitizeDesign({ version: 1, corners: [c('a', 0, 0), c('b', 1, 0)] })).toBeNull();
   });
 
