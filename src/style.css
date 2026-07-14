@@ -98,8 +98,48 @@ html, body {
   flex: none;
   background: var(--panel);
   border-right: 1px solid var(--panel-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#sidebar-tabs {
+  flex: none;
+  display: flex;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+#sidebar-tabs button {
+  flex: 1;
+  padding: 9px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+#sidebar-tabs button:hover { color: var(--ink); }
+
+#sidebar-tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+#sidebar-tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.tab-panel {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
 }
+
+.tab-panel[hidden] { display: none; }
 
 #catalog-inner { padding: 10px; }
 
@@ -163,7 +203,6 @@ html, body {
 
 #outline {
   padding: 10px 10px 6px;
-  border-bottom: 1px solid var(--panel-border);
 }
 
 .ol-head {

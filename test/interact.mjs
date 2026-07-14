@@ -56,6 +56,13 @@ const title = await page.textContent('.props-title');
 results.push(['props shows item', title === 'Base cabinet']);
 
 // 2b. components outline lists the placed item under its type group + row selects it
+// (outline lives on the "Components" sidebar tab — switch to it first)
+await page.click('#sidebar-tabs button[data-tab="components"]');
+await page.waitForTimeout(80);
+results.push([
+  'components tab shows outline, hides library',
+  (await page.isVisible('#outline .ol-head')) && !(await page.isVisible('#catalog-inner')),
+]);
 const outline = await page.evaluate(() =>
   [...document.querySelectorAll('#outline .ol-group')].map((g) => ({
     title: g.querySelector('.ol-label')?.textContent?.trim(),
@@ -79,6 +86,9 @@ results.push([
     return items[items.length - 1].id;
   })),
 ]);
+// back to the Library tab for subsequent catalog placements
+await page.click('#sidebar-tabs button[data-tab="library"]');
+await page.waitForTimeout(80);
 
 // 3. drag the item along the wall
 const from = await worldToScreen(placed.x, placed.y);

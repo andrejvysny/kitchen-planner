@@ -59,6 +59,7 @@ export class UI {
     this.renderCatalog();
     this.renderOutline();
     this.renderProps();
+    this.wireTabs();
     this.wireTopbar();
     this.wireKeyboard();
 
@@ -82,6 +83,38 @@ export class UI {
     });
     this.updateUndoButtons();
     this.updateInfo();
+  }
+
+  /* ================= sidebar tabs ================= */
+
+  /** Left sidebar has two tabs: "library" (catalog) and "components" (outline). */
+  private wireTabs(): void {
+    const buttons = document.querySelectorAll<HTMLButtonElement>('#sidebar-tabs button');
+    buttons.forEach((btn) => {
+      btn.addEventListener('click', () => this.selectTab(btn.dataset.tab as string));
+      btn.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+        e.preventDefault();
+        const list = [...buttons];
+        const i = list.indexOf(btn);
+        const next = list[(i + (e.key === 'ArrowRight' ? 1 : list.length - 1)) % list.length];
+        this.selectTab(next.dataset.tab as string);
+        next.focus();
+      });
+    });
+  }
+
+  private selectTab(tab: string): void {
+    document.querySelectorAll<HTMLButtonElement>('#sidebar-tabs button').forEach((btn) => {
+      const on = btn.dataset.tab === tab;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-selected', String(on));
+    });
+    document.querySelectorAll<HTMLElement>('#catalog .tab-panel').forEach((panel) => {
+      const on = panel.id === `tab-${tab}`;
+      panel.classList.toggle('active', on);
+      panel.hidden = !on;
+    });
   }
 
   /* ================= catalog ================= */

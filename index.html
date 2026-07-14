@@ -39,8 +39,16 @@
 
       <main id="workspace">
         <aside id="catalog">
-          <div id="outline"></div>
-          <div id="catalog-inner"></div>
+          <div id="sidebar-tabs" role="tablist" aria-label="Left sidebar">
+            <button id="tab-btn-library" role="tab" data-tab="library" class="active" aria-selected="true" aria-controls="tab-library">Library</button>
+            <button id="tab-btn-components" role="tab" data-tab="components" aria-selected="false" aria-controls="tab-components">Components</button>
+          </div>
+          <div id="tab-library" class="tab-panel active" role="tabpanel" aria-labelledby="tab-btn-library">
+            <div id="catalog-inner"></div>
+          </div>
+          <div id="tab-components" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-components" hidden>
+            <div id="outline"></div>
+          </div>
         </aside>
 
         <section id="canvases">
