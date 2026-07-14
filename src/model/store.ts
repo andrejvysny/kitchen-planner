@@ -467,6 +467,9 @@ export class Store {
     if (!it) return;
     if (!it.params) it.params = {};
     it.params[key] = value;
+    // a param may drive item width (e.g. outlet gangs extend the box)
+    const pd = this.defOf(it.defId).params?.find((p) => p.key === key);
+    if (pd?.widthPer) it.w = value * pd.widthPer;
     this.notify({ structural: true });
   }
 

@@ -50,6 +50,9 @@ export interface ParamDef {
   min: number;
   max: number;
   def: number;
+  /** if set, changing this param drives item width to value × widthPer (m) —
+   * e.g. each socket gang extends the outlet box by one 80 mm cell */
+  widthPer?: number;
 }
 
 export interface CatalogDef {
@@ -134,9 +137,10 @@ export const CATALOG: CatalogSection[] = [
         h: 0.086,
         elevation: 1.05,
         color: '#f2f1ec',
-        resize: { w: [0.086, 0.4] },
+        // width is driven by `gangs` (one 80 mm cell each), not resized directly
+        resize: {},
         elevAdjust: [0.2, 1.6],
-        params: [{ key: 'gangs', label: 'Sockets', min: 1, max: 4, def: 1 }],
+        params: [{ key: 'gangs', label: 'Sockets', min: 1, max: 4, def: 1, widthPer: 0.086 }],
         marker: true,
       }),
     ],

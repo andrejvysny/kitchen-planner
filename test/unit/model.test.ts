@@ -197,6 +197,16 @@ describe('Store mutations', () => {
     expect([rect!.w, rect!.d].sort()).toEqual([3.5, 4]);
   });
 
+  it('outlet gangs param extends the box width by one cell each', () => {
+    const store = new Store(rectDesign());
+    const item = store.addItem(catalogDef('outlet'), 1, 1);
+    expect(item.w).toBeCloseTo(0.086);
+    store.setItemParam(item.id, 'gangs', 3);
+    expect(store.itemById(item.id)!.w).toBeCloseTo(0.258); // 3 × 0.086
+    store.setItemParam(item.id, 'gangs', 1);
+    expect(store.itemById(item.id)!.w).toBeCloseTo(0.086);
+  });
+
   it('undo with an uncommitted gesture lands on the last committed state', () => {
     const store = new Store(rectDesign());
     const item = store.addItem(catalogDef('base-cabinet'), 1, 1);
