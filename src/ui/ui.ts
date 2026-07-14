@@ -599,24 +599,21 @@ export class UI {
     root.appendChild(this.el(`<h2 class="props-title">${def.label}</h2>`));
     root.appendChild(this.el(`<p class="props-sub">${def.kind === 'custom' ? 'Custom part' : 'Catalog item'}</p>`));
 
-    // dimensions
+    // dimensions — freeform, no catalog limits (KITCHENP-7). Every dimension is
+    // always editable; only a small positive floor guards against degenerate geometry.
     const dims = this.section(root, 'Dimensions');
-    const dimRow = (label: string, key: 'w' | 'd' | 'h', range?: [number, number]) => {
-      const input = this.numberRow(dims, label, Math.round(item[key] * 100), 'cm', (v) => {
-        const clamped = range ? Math.min(range[1], Math.max(range[0], v / 100)) : v / 100;
-        this.store.updateItem(item.id, { [key]: clamped } as Partial<Item>);
-      }, range ? { min: range[0] * 100, max: range[1] * 100 } : {});
-      if (!range) input.disabled = true;
+    const MIN_DIM = 0.01; // 1 cm
+    const dimRow = (label: string, key: 'w' | 'd' | 'h') => {
+      this.numberRow(dims, label, Math.round(item[key] * 100), 'cm', (v) => {
+        this.store.updateItem(item.id, { [key]: Math.max(MIN_DIM, v / 100) } as Partial<Item>);
+      }, { min: 1 });
     };
-    dimRow('Width', 'w', def.resize.w);
-    dimRow('Depth', 'd', def.resize.d);
-    dimRow('Height', 'h', def.resize.h);
-    if (def.elevAdjust) {
-      this.numberRow(dims, 'Off floor', Math.round(item.elevation * 100), 'cm', (v) =>
-        this.store.updateItem(item.id, {
-          elevation: Math.min(def.elevAdjust![1], Math.max(def.elevAdjust![0], v / 100)),
-        }), { min: def.elevAdjust[0] * 100, max: def.elevAdjust[1] * 100 });
-    }
+    dimRow('Width', 'w');
+    dimRow('Depth', 'd');
+    dimRow('Height', 'h');
+    // Off-floor placement is likewise freeform for every item (floor at 0, no ceiling cap).
+    this.numberRow(dims, 'Off floor', Math.round(item.elevation * 100), 'cm', (v) =>
+      this.store.updateItem(item.id, { elevation: Math.max(0, v / 100) }), { min: 0 });
 
     // position
     const pos = this.section(root, 'Position');
