@@ -321,7 +321,7 @@ html, body {
   pointer-events: none;
 }
 
-#zoom-controls, #cam-controls {
+#zoom-controls, #cam-controls, #measure-controls {
   position: absolute;
   bottom: 12px;
   right: 12px;
@@ -335,8 +335,10 @@ html, body {
 }
 
 #zoom-controls { flex-direction: column; }
+/* sits just left of the zoom stack */
+#measure-controls { right: 58px; }
 
-#zoom-controls button, #cam-controls button {
+#zoom-controls button, #cam-controls button, #measure-controls button {
   border: none;
   background: transparent;
   padding: 5px 9px;
@@ -346,8 +348,10 @@ html, body {
   color: var(--ink);
 }
 
-#zoom-controls button:hover, #cam-controls button:hover { background: #eceae6; }
-#cam-controls button.active { background: var(--ink); color: #fff; }
+#zoom-controls button:hover, #cam-controls button:hover,
+#measure-controls button:hover { background: #eceae6; }
+#cam-controls button.active,
+#measure-controls button.active { background: var(--ink); color: #fff; }
 
 /* ---------- 2D pane sub-mode (plan / elevation) ---------- */
 
@@ -356,6 +360,7 @@ html, body {
 
 #pane2d.elev-mode #canvas2d,
 #pane2d.elev-mode #badge-plan,
+#pane2d.elev-mode #measure-controls,
 #pane2d.elev-mode #zoom-controls { display: none; }
 #pane2d.elev-mode #canvas-elev { display: block; }
 #pane2d.elev-mode #badge-elev,

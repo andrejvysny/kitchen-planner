@@ -1079,6 +1079,11 @@ export class UI {
     $('#btn-zoom-in').addEventListener('click', () => this.plan.zoomBy(1.25));
     $('#btn-zoom-out').addEventListener('click', () => this.plan.zoomBy(0.8));
     $('#btn-zoom-fit').addEventListener('click', () => this.plan.zoomFit());
+
+    const measureBtn = $('#btn-measure');
+    measureBtn.addEventListener('click', () => this.plan.setMeasure(!this.plan.measureOn));
+    this.plan.onMeasureChange = () =>
+      measureBtn.classList.toggle('active', this.plan.measureOn);
     document.querySelectorAll<HTMLElement>('#cam-controls button').forEach((b) =>
       b.addEventListener('click', () => {
         this.view.setPreset(b.dataset.cam as CamPreset);
@@ -1115,6 +1120,7 @@ export class UI {
       if (e.key === 'Escape') {
         if (this.studio.isOpen()) this.studio.handleEscape();
         else if (this.plan.armedDef) this.plan.setArmed(null);
+        else if (this.plan.measureOn) this.plan.setMeasure(false);
         else this.store.select({ kind: 'none' });
         return;
       }

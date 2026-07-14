@@ -33,6 +33,37 @@ const paneOffset = async () => {
 const n0 = await count();
 const results = [];
 
+// 0. measure tool (KITCHENP-9): toggle on, drag between two free interior
+// points, read the distance back; it must not mutate the model.
+await page.click('#btn-measure');
+const measureState = await page.evaluate(() => ({
+  on: window.__kp.plan.measureOn,
+  active: document.getElementById('btn-measure').classList.contains('active'),
+}));
+const mbb = await paneOffset();
+const mp1 = await worldToScreen(1.0, 1.0);
+const mp2 = await worldToScreen(2.0, 1.5);
+await page.mouse.move(mbb.x + mp1.x, mbb.y + mp1.y);
+await page.mouse.down();
+await page.mouse.move(mbb.x + mp2.x, mbb.y + mp2.y, { steps: 6 });
+await page.mouse.up();
+await page.waitForTimeout(120);
+const measured = await page.evaluate(() => {
+  const m = window.__kp.plan.measure;
+  const d = m.a && m.b ? Math.hypot(m.b.x - m.a.x, m.b.y - m.a.y) : -1;
+  return { d, items: window.__kp.store.design.items.length };
+});
+results.push([
+  'measure tool: toggle + two-point distance',
+  measureState.on &&
+    measureState.active &&
+    Math.abs(measured.d - Math.hypot(1.0, 0.5)) < 0.03 &&
+    measured.items === n0,
+]);
+await page.keyboard.press('Escape'); // exit measure mode for the steps below
+const measureOff = await page.evaluate(() => window.__kp.plan.measureOn);
+results.push(['measure tool: Esc exits', measureOff === false]);
+
 // 1. place a base cabinet near the bottom wall (should wall-snap + rotate)
 await page.click('.cat-item[data-def-id="base-cabinet"]');
 const bb = await paneOffset();

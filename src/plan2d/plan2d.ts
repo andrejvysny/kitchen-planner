@@ -21,6 +21,7 @@ import { drawPlanSymbol, isOverhead } from './symbols';
 const INK = '#3a3934';
 const ACCENT = '#2f6f5e';
 const GUIDE = '#c26d3f';
+const MEASURE = '#2563eb';
 
 interface Label {
   x: number;
@@ -41,7 +42,17 @@ type Drag =
   | { type: 'item'; id: string; ox: number; oy: number; moved: boolean; cycleTo?: string | null }
   | { type: 'corner'; id: string }
   | { type: 'opening'; id: string }
-  | { type: 'rotate'; id: string };
+  | { type: 'rotate'; id: string }
+  | { type: 'measure'; sx: number; sy: number; moved: boolean };
+
+/** Transient two-point distance measurement (overlay only — never touches the model). */
+interface Measure {
+  a: Point | null; // first point
+  b: Point | null; // second point, set once the measurement is complete
+  hover: Point | null; // snapped cursor while measuring / before the first click
+  snapped: boolean; // whether `hover` locked onto a corner/edge (vs. a free point)
+  measuring: boolean; // first point placed, waiting for the second
+}
 
 export class Plan2D {
   private canvas: HTMLCanvasElement;
@@ -57,6 +68,10 @@ export class Plan2D {
 
   armedDef: CatalogDef | null = null;
   onArmedChange: (() => void) | null = null;
+
+  measureOn = false;
+  onMeasureChange: (() => void) | null = null;
+  private measure: Measure = { a: null, b: null, hover: null, snapped: false, measuring: false };
 
   private ghost: { x: number; y: number; rotation: number; valid: boolean } | null = null;
   private ghostOpening: { wallId: string; t: number; valid: boolean } | null = null;
@@ -160,15 +175,120 @@ export class Plan2D {
     this.armedDef = def;
     this.ghost = null;
     this.ghostOpening = null;
+    // arming and measuring are mutually exclusive
+    if (def && this.measureOn) {
+      this.measureOn = false;
+      this.resetMeasure();
+      this.onMeasureChange?.();
+    }
     this.canvas.style.cursor = def ? 'crosshair' : 'default';
     this.updateHint();
     this.onArmedChange?.();
     this.requestDraw();
   }
 
+  /* ---------------- measure tool ---------------- */
+
+  private resetMeasure(): void {
+    this.measure = { a: null, b: null, hover: null, snapped: false, measuring: false };
+  }
+
+  setMeasure(on: boolean): void {
+    this.measureOn = on;
+    this.resetMeasure();
+    // arming and measuring are mutually exclusive
+    if (on && this.armedDef) {
+      this.armedDef = null;
+      this.ghost = null;
+      this.ghostOpening = null;
+      this.onArmedChange?.();
+    }
+    this.canvas.style.cursor = on ? 'crosshair' : 'default';
+    this.updateHint();
+    this.onMeasureChange?.();
+    this.requestDraw();
+  }
+
+  /** An item's plan outline in world coordinates (custom footprint or the bounding rect). */
+  private itemOutlineWorld(it: Item): Point[] {
+    const local =
+      this.footprintOf(it) ??
+      [
+        { x: -it.w / 2, y: -it.d / 2 },
+        { x: it.w / 2, y: -it.d / 2 },
+        { x: it.w / 2, y: it.d / 2 },
+        { x: -it.w / 2, y: it.d / 2 },
+      ];
+    return local.map((p) => {
+      const r = rot(p, it.rotation);
+      return { x: it.x + r.x, y: it.y + r.y };
+    });
+  }
+
+  private closestOnSeg(p: Point, a: Point, b: Point): Point {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const l2 = dx * dx + dy * dy;
+    if (l2 === 0) return { x: a.x, y: a.y };
+    const t = clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0, 1);
+    return { x: a.x + t * dx, y: a.y + t * dy };
+  }
+
+  /**
+   * Snap a screen point to the nearest meaningful spot for measuring. Vertices
+   * (corners, item centres & outline corners) win over edges (walls, item
+   * outlines); with nothing near, the bare cursor is returned as a free point.
+   */
+  private measureSnap(sx: number, sy: number): { p: Point; snapped: boolean } {
+    const w = this.toWorld(sx, sy);
+    const thr = 11 / this.zoom; // ~11 px reach, in world units
+
+    let best: Point | null = null;
+    let bestD = thr;
+    const tryV = (p: Point): void => {
+      const d = Math.hypot(p.x - w.x, p.y - w.y);
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    };
+    for (const c of this.store.design.corners) tryV(c);
+    for (const it of this.store.design.items) {
+      tryV({ x: it.x, y: it.y });
+      for (const v of this.itemOutlineWorld(it)) tryV(v);
+    }
+    if (best) return { p: best, snapped: true };
+
+    bestD = thr;
+    const tryE = (a: Point, b: Point): void => {
+      const q = this.closestOnSeg(w, a, b);
+      const d = Math.hypot(q.x - w.x, q.y - w.y);
+      if (d < bestD) {
+        bestD = d;
+        best = q;
+      }
+    };
+    for (const g of this.store.walls()) tryE(g.a, g.b);
+    for (const it of this.store.design.items) {
+      const o = this.itemOutlineWorld(it);
+      for (let i = 0; i < o.length; i++) tryE(o[i], o[(i + 1) % o.length]);
+    }
+    if (best) return { p: best, snapped: true };
+
+    return { p: w, snapped: false };
+  }
+
   /* ---------------- hints ---------------- */
 
   private updateHint(): void {
+    if (this.measureOn) {
+      this.onHint(
+        this.measure.measuring
+          ? 'Click the second point · snaps to corners, edges & walls · Esc exits'
+          : 'Click two points to measure · snaps to corners, edges & walls · Esc exits'
+      );
+      return;
+    }
     if (this.armedDef) {
       if (this.armedDef.opening) {
         this.onHint(`Click on a wall to place the ${this.armedDef.label.toLowerCase()} · Esc cancels`);
@@ -317,6 +437,22 @@ export class Plan2D {
       return;
     }
     if (e.button !== 0) return;
+
+    // measuring: click sets a point; a second click (or a drag) sets the other
+    if (this.measureOn) {
+      const snap = this.measureSnap(s.x, s.y);
+      if (this.measure.measuring) {
+        this.measure.b = snap.p;
+        this.measure.measuring = false;
+        this.drag = { type: 'none' };
+      } else {
+        this.measure = { a: snap.p, b: null, hover: snap.p, snapped: snap.snapped, measuring: true };
+        this.drag = { type: 'measure', sx: s.x, sy: s.y, moved: false };
+      }
+      this.updateHint();
+      this.requestDraw();
+      return;
+    }
 
     // placing from the catalog
     if (this.armedDef) {
@@ -509,8 +645,27 @@ export class Plan2D {
         this.store.updateItem(it.id, { rotation: ang }, { structural: false, transient: true });
         return;
       }
+      case 'measure': {
+        const d = this.drag;
+        if (Math.hypot(s.x - d.sx, s.y - d.sy) > 4) d.moved = true;
+        const snap = this.measureSnap(s.x, s.y);
+        this.measure.hover = snap.p;
+        this.measure.snapped = snap.snapped;
+        this.requestDraw();
+        return;
+      }
       case 'none':
         break;
+    }
+
+    // measuring, between clicks: keep the snapped hover / rubber-band live
+    if (this.measureOn) {
+      const snap = this.measureSnap(s.x, s.y);
+      this.measure.hover = snap.p;
+      this.measure.snapped = snap.snapped;
+      this.canvas.style.cursor = 'crosshair';
+      this.requestDraw();
+      return;
     }
 
     // not dragging: ghost preview / hover cursor
@@ -550,6 +705,19 @@ export class Plan2D {
       this.drag = { type: 'none' };
       return;
     }
+    if (wasDrag.type === 'measure') {
+      // a real drag completes the measurement; a bare click waits for a 2nd click
+      if (wasDrag.moved) {
+        const snap = this.measureSnap(e.offsetX, e.offsetY);
+        this.measure.b = snap.p;
+        this.measure.measuring = false;
+      }
+      this.drag = { type: 'none' };
+      this.canvas.style.cursor = 'crosshair';
+      this.updateHint();
+      this.requestDraw();
+      return;
+    }
     if (wasDrag.type === 'maybe-pan' && !wasDrag.moved) {
       this.store.select({ kind: 'none' });
     }
@@ -567,7 +735,7 @@ export class Plan2D {
     const wasDrag = this.drag;
     this.drag = { type: 'none' };
     this.guides = [];
-    this.canvas.style.cursor = this.armedDef ? 'crosshair' : 'default';
+    this.canvas.style.cursor = this.armedDef || this.measureOn ? 'crosshair' : 'default';
     if (['corner', 'opening', 'item', 'rotate'].includes(wasDrag.type)) {
       this.store.commit();
     }
@@ -922,6 +1090,9 @@ export class Plan2D {
       ctx.strokeRect(c.x - r, c.y - r, r * 2, r * 2);
     }
 
+    // ---- measure overlay (on top of everything) ----
+    if (this.measureOn) this.drawMeasure(ctx, hair, labels);
+
     ctx.restore();
 
     // ---- labels in screen space ----
@@ -939,6 +1110,68 @@ export class Plan2D {
       ctx.fillStyle = l.color ?? INK;
       ctx.fillText(l.text, 0, 0);
       ctx.restore();
+    }
+  }
+
+  /** Draws the two-point measurement: dashed line, endpoint dots, snap ring, label. */
+  private drawMeasure(
+    ctx: CanvasRenderingContext2D,
+    hair: number,
+    labels: Label[]
+  ): void {
+    const a = this.measure.a;
+    const hover = this.measure.hover;
+    // while measuring the hover position stands in for the second point
+    const b = this.measure.b ?? (this.measure.measuring ? hover : null);
+
+    const dot = (p: Point): void => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4 / this.zoom, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+      ctx.lineWidth = hair * 1.8;
+      ctx.strokeStyle = MEASURE;
+      ctx.stroke();
+    };
+
+    if (a && b) {
+      ctx.strokeStyle = MEASURE;
+      ctx.lineWidth = hair * 1.8;
+      ctx.setLineDash([hair * 6, hair * 4]);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      dot(a);
+      dot(b);
+
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy);
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      // nudge the label off the line so it stays readable
+      const len = Math.max(1e-6, dist);
+      const off = 0.24;
+      labels.push({
+        x: mid.x - (dy / len) * off,
+        y: mid.y + (dx / len) * off,
+        text: `${fmtCm(dist)}  (${Math.round(Math.abs(dx) * 100)}×${Math.round(Math.abs(dy) * 100)})`,
+        color: MEASURE,
+        size: 12,
+        bold: true,
+      });
+    } else if (a) {
+      dot(a);
+    }
+
+    // snap indicator on the live cursor (before the segment is complete)
+    if (hover && this.measure.snapped && !this.measure.b) {
+      ctx.beginPath();
+      ctx.arc(hover.x, hover.y, 6.5 / this.zoom, 0, Math.PI * 2);
+      ctx.strokeStyle = MEASURE;
+      ctx.lineWidth = hair * 1.4;
+      ctx.stroke();
     }
   }
 }
