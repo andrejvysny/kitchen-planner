@@ -34,6 +34,7 @@ export type ItemKind =
   | 'table'
   | 'chair'
   | 'stool'
+  | 'woodPlane'
   | 'pendant'
   | 'spot'
   | 'strip'
@@ -404,6 +405,21 @@ export const CATALOG: CatalogSection[] = [
         color: OAK,
         resize: {},
       }),
+      def({
+        id: 'wood-plane',
+        kind: 'woodPlane',
+        label: 'Wood plane',
+        // a plain wooden slab, freely usable — tabletop, shelf, board, riser.
+        // every dimension is freeform in the props panel and the texture is
+        // swappable via the material picker.
+        w: 1.0,
+        d: 0.6,
+        h: 0.04,
+        elevation: 0,
+        color: OAK,
+        resize: { w: [0.05, 4.0], d: [0.05, 4.0], h: [0.01, 2.6] },
+        elevAdjust: [0, 2.5],
+      }),
     ],
   },
 ];
@@ -430,7 +446,7 @@ export function defaultParams(def: CatalogDef): Record<string, number> | undefin
 
 /** True if the item should back up against walls when dragged near them. */
 export function snapsToWall(def: CatalogDef): boolean {
-  return !['table', 'chair', 'stool', 'pendant', 'spot', 'island'].includes(def.kind);
+  return !['table', 'chair', 'stool', 'pendant', 'spot', 'island', 'woodPlane'].includes(def.kind);
 }
 
 /** Markers and backsplash hug the wall face exactly. */

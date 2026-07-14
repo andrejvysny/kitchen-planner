@@ -272,6 +272,11 @@ const chair: Builder = (g, { item }) => {
   }
 };
 
+/** A plain wooden slab — used freely as tabletop, shelf, board or riser. */
+const woodPlane: Builder = (g, { item }) => {
+  box(g, item.w, item.h, item.d, surfMat(fin(item), 'wood'), 0, 0, 0);
+};
+
 const stool: Builder = (g, { item }) => {
   const { w, h } = item;
   cyl(g, w / 2, 0.045, surfMat(fin(item), 'wood'), 0, h - 0.045, 0);
@@ -374,6 +379,7 @@ const BUILDERS: Record<string, Builder> = {
   table,
   chair,
   stool,
+  woodPlane,
   pendant,
   spot,
   strip,

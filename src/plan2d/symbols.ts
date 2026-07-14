@@ -263,7 +263,7 @@ export function drawPlanSymbol(
   // front tick (helps users see which way an item faces)
   if (
     !overhead &&
-    !['door', 'window', 'water', 'outlet', 'stool', 'table', 'chair', 'backsplash'].includes(kind)
+    !['door', 'window', 'water', 'outlet', 'stool', 'table', 'chair', 'backsplash', 'woodPlane'].includes(kind)
   ) {
     ctx.strokeStyle = ink;
     ctx.lineWidth = hair * 1.5;
