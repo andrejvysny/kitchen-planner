@@ -741,6 +741,7 @@ export class Plan2D {
           def.kind === 'custom' ? (part?.type === 'board' ? false : it.elevation > 0.5) : undefined,
         bodyAlpha: part?.type === 'board' ? 0.5 : undefined,
         footprint: this.footprintOf(it) ?? undefined,
+        gangs: it.params?.gangs,
       });
       ctx.restore();
 

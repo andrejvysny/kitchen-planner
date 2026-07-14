@@ -343,12 +343,37 @@ const water: Builder = (g, { item }) => {
   cyl(g, 0.022, 0.04, matte('#8a8f94'), 0, 0.02, 0).rotation.x = Math.PI / 2;
 };
 
+// EU Type E (CEE 7/5, Slovak) socket: round recessed well with two round pin
+// holes and a protruding earth pin. `gangs` sockets are laid evenly across the
+// faceplate width so the mesh stays correct for any width/gang combination.
 const outlet: Builder = (g, { item }) => {
-  box(g, item.w, item.h, 0.014, matte('#f4f3ef'), 0, 0, -item.d / 2 + 0.007);
-  const holeMat = matte('#3a3934');
-  for (const sx of [-1, 1]) {
-    const holeCyl = cyl(g, 0.006, 0.012, holeMat, sx * 0.022, item.h / 2 - 0.006, 0.004);
-    holeCyl.rotation.x = Math.PI / 2;
+  const gangs = Math.max(1, Math.min(4, Math.round(item.params?.gangs ?? 1)));
+  const back = -item.d / 2;
+  const cy = item.h / 2; // vertical centre in local space
+  // faceplate
+  box(g, item.w, item.h, 0.016, matte('#f4f3ef'), 0, 0, back + 0.008);
+  const bossMat = matte('#eceae4');
+  const wellMat = matte('#26251f');
+  const pinMat = matte('#111111');
+  const earthMat = steelMat();
+  const pitch = item.w / gangs;
+  const r = Math.min(pitch, item.h) * 0.4; // socket radius — always fits the box
+  for (let i = 0; i < gangs; i++) {
+    const cx = -item.w / 2 + pitch * (i + 0.5);
+    // raised round socket boss
+    const boss = cyl(g, r, 0.01, bossMat, cx, cy - 0.005, back + 0.016);
+    boss.rotation.x = Math.PI / 2;
+    // dark recessed well on the boss face
+    const well = cyl(g, r * 0.74, 0.006, wellMat, cx, cy - 0.003, back + 0.022);
+    well.rotation.x = Math.PI / 2;
+    // two round plug holes
+    for (const sx of [-1, 1]) {
+      const hole = cyl(g, r * 0.13, 0.014, pinMat, cx + sx * r * 0.4, cy, back + 0.02);
+      hole.rotation.x = Math.PI / 2;
+    }
+    // protruding male earth pin (the distinctive Type E feature)
+    const earth = cyl(g, r * 0.1, 0.014, earthMat, cx, cy + r * 0.42, back + 0.026);
+    earth.rotation.x = Math.PI / 2;
   }
 };
 

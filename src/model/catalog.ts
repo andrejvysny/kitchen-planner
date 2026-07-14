@@ -125,14 +125,18 @@ export const CATALOG: CatalogSection[] = [
       def({
         id: 'outlet',
         kind: 'outlet',
-        label: 'Power outlet',
-        w: 0.15,
-        d: 0.03,
-        h: 0.15,
+        // EU Type E (CEE 7/5) — the Slovak standard: round recessed socket
+        // with a protruding earth pin. Faceplate is a standard 80 mm square;
+        // `gangs` widens it into a multi-socket box.
+        label: 'Power outlet (EU)',
+        w: 0.086,
+        d: 0.035,
+        h: 0.086,
         elevation: 1.05,
         color: '#f2f1ec',
-        resize: {},
+        resize: { w: [0.086, 0.4] },
         elevAdjust: [0.2, 1.6],
+        params: [{ key: 'gangs', label: 'Sockets', min: 1, max: 4, def: 1 }],
         marker: true,
       }),
     ],

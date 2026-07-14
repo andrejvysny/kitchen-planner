@@ -21,6 +21,8 @@ export interface SymbolStyle {
   /** doors only */
   doorHinge?: 'left' | 'right';
   doorSwing?: 'in' | 'out';
+  /** outlets only: number of sockets in the box */
+  gangs?: number;
 }
 
 const INK = '#3a3934';
@@ -224,12 +226,21 @@ export function drawPlanSymbol(
       break;
     }
     case 'outlet': {
-      ctx.fillStyle = '#fff';
-      circle(ctx, 0, 0, 0.07, true);
-      circle(ctx, 0, 0, 0.07);
-      ctx.fillStyle = ink;
-      circle(ctx, -0.025, 0, 0.012, true);
-      circle(ctx, 0.025, 0, 0.012, true);
+      // EU Type E (Slovak): round socket, two pin holes + earth pin per gang.
+      const gangs = Math.max(1, Math.min(4, Math.round(style.gangs ?? 1)));
+      const pitch = w / gangs;
+      const r = pitch * 0.42;
+      for (let i = 0; i < gangs; i++) {
+        const cx = -hw + pitch * (i + 0.5);
+        ctx.fillStyle = '#fff';
+        circle(ctx, cx, 0, r, true);
+        circle(ctx, cx, 0, r);
+        ctx.fillStyle = ink;
+        circle(ctx, cx - r * 0.4, 0, r * 0.13, true);
+        circle(ctx, cx + r * 0.4, 0, r * 0.13, true);
+        // earth pin toward the front (+y)
+        circle(ctx, cx, r * 0.42, r * 0.11, true);
+      }
       break;
     }
     case 'door': {
