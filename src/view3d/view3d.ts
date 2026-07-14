@@ -612,12 +612,20 @@ export class View3D {
   private onGizmoChange(): void {
     const obj = this.gizmo.object;
     if (!obj) return;
-    if (obj.position.y < 0) obj.position.y = 0; // never below the floor
     const id = obj.userData.itemId as string | undefined;
     if (!id) return;
+    const it = this.store.itemById(id);
+    if (!it) return;
+    const def = this.store.defOf(it.defId);
+    const elevation = Math.max(0, obj.position.y); // never below the floor
+    // Route the horizontal move through the same snapper the floor drag uses so
+    // gizmo moves still hug walls and click to neighbouring cabinets.
+    const res = snapItem(this.store, def, id, obj.position.x, obj.position.z, it.rotation);
+    // glue the gizmo handle to the snapped pose so it doesn't drift from the item
+    obj.position.set(res.x, elevation, res.y);
     this.store.updateItem(
       id,
-      { x: obj.position.x, y: obj.position.z, elevation: obj.position.y },
+      { x: res.x, y: res.y, rotation: res.rotation, elevation },
       { structural: false, transient: true }
     );
   }
