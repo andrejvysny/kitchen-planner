@@ -116,6 +116,11 @@ export class View3D {
     this.controls.maxPolarAngle = Math.PI / 2 + 0.35;
     this.controls.minDistance = 0.6;
     this.controls.maxDistance = 30;
+    // Middle-drag orbits, Shift+middle-drag pans. OrbitControls' ROTATE action
+    // already swaps to pan while Shift is held, so one mapping covers both; the
+    // default (MIDDLE = DOLLY) also did nothing on macOS, where enableZoom is
+    // off because onWheel() owns the dolly.
+    this.controls.mouseButtons.MIDDLE = THREE.MOUSE.ROTATE;
 
     this.hemi = new THREE.HemisphereLight('#ffffff', '#b9b4a8', 0.85);
     this.scene.add(this.hemi);

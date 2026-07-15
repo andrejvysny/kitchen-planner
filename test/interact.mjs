@@ -605,6 +605,62 @@ await page.waitForTimeout(200);
 const sel3d = await page.evaluate(() => window.__kp.store.selection);
 results.push(['3D click selects item', sel3d.kind === 'item' && sel3d.id === pick3d.id]);
 
+// 17a. mouse navigation (KITCHENP-13): in 3D, middle-drag orbits (camera swings
+// around a fixed target) and Shift+middle-drag pans (target travels with the
+// camera). Both must leave the camera→target distance alone — that is the tell
+// that neither one silently degraded into OrbitControls' default MIDDLE=DOLLY.
+// Middle-button gestures must not touch the selection, and the camera is
+// restored afterwards so later 3D steps still see the 'corner' preset framing.
+const cam3d = () =>
+  page.evaluate(() => {
+    const { camera, controls } = window.__kp.view;
+    return {
+      pos: [camera.position.x, camera.position.y, camera.position.z],
+      tgt: [controls.target.x, controls.target.y, controls.target.z],
+      dist: camera.position.distanceTo(controls.target),
+    };
+  });
+const navMidDrag = async (shift) => {
+  if (shift) await page.keyboard.down('Shift');
+  await page.mouse.move(bb3.x + bb3.width / 2, bb3.y + bb3.height / 2);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(bb3.x + bb3.width / 2 + 120, bb3.y + bb3.height / 2 + 60, { steps: 6 });
+  await page.mouse.up({ button: 'middle' });
+  if (shift) await page.keyboard.up('Shift');
+  await page.waitForTimeout(300);
+  return cam3d();
+};
+const navMoved = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
+const navA = await cam3d();
+const navB = await navMidDrag(false);
+results.push([
+  '3D middle-drag orbits',
+  navMoved(navA.pos, navB.pos) > 0.1 && navMoved(navA.tgt, navB.tgt) < 1e-6 && Math.abs(navA.dist - navB.dist) < 1e-3,
+]);
+
+const navC = await navMidDrag(true);
+results.push([
+  '3D shift+middle-drag pans',
+  navMoved(navB.tgt, navC.tgt) > 0.1 && Math.abs(navB.dist - navC.dist) < 1e-3,
+]);
+
+// navigating with the middle button must never change what is selected
+const navSel = await page.evaluate(() => window.__kp.store.selection);
+results.push([
+  '3D middle-drag keeps selection',
+  navSel.kind === 'item' && navSel.id === pick3d.id,
+]);
+
+// restore the pre-navigation camera for the steps below
+await page.evaluate((c) => {
+  const { camera, controls } = window.__kp.view;
+  camera.position.set(...c.pos);
+  controls.target.set(...c.tgt);
+  controls.update();
+}, navA);
+await page.waitForTimeout(200);
+
 // 17b. per-item worktop material: chip in the "Worktop" props section paints the counter slab
 const worktopChip = await page.evaluate(() => {
   const sec = [...document.querySelectorAll('.prop-section')].find(
