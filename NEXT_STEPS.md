@@ -17,13 +17,12 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
 
 ## Tier 1 — highest value next
 
-1. **Corner base & wall cabinets** (M) — new `kind`s with an L-shaped footprint.
-   Touches `catalog.ts`, a builder in `itemMeshes.ts`, a plan symbol in
-   `symbols.ts`, and a footprint-aware hit test in `plan2d.ts` (currently
-   rectangle-only via `pointInRect`).
-2. **Continuous worktops** (M) — group adjacent `counter: true` items on the same
-   wall run, generate one merged slab with sink/hob cutouts (`ShapeGeometry`
-   with holes) in `view3d.ts`. Big visual payoff; also fixes tiny seams.
+1. ~~Corner base & wall cabinets~~ — DONE: cabinets are zone-tree parts with
+   chamfer/cornerL footprints and true polygon hit-tests; ship corner PRESETS
+   in `presets.ts` if wanted (S).
+2. **Continuous worktops** (M) — group adjacent worktop-bearing cabinets on a
+   run into one merged slab. Cutouts already work per host (`HostContext`
+   prism holes); the merge is the remaining piece.
 3. **Collision & overlap warnings** (S–M) — oriented-bounding-box overlap test in
    `snapping.ts`; tint offending items red in both views rather than blocking
    movement (planners that hard-block feel frustrating).
@@ -66,10 +65,8 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
 
 ## Tier 4 — bigger bets
 
-16. **Part Studio: free-form template** (L) — a row/column layout editor
-    (split zones, assign drawer/door/open per zone) instead of the fixed
-    drawers-doors-shelves stack. The `CustomPartDef.options` schema is already
-    an open `Record<string, number>`; the work is UI + builder.
+16. ~~Part Studio: free-form template~~ — DONE (zone-tree editor, interiors,
+    appliance niches, openable fronts).
 17. **Multi-room / whole-apartment planning** (L) — the model already supports
     arbitrary polygons; needs multiple polygons, shared walls, and a room
     switcher.

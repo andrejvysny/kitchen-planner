@@ -1,24 +1,18 @@
 import * as THREE from 'three';
 import type { CatalogDef } from '../model/catalog';
+import type { HostContext } from '../model/panels';
 import type { CustomPartDef, Design, Item, RoomStyle } from '../model/types';
 import { resolveFinish } from '../model/variables';
 import {
   applianceGlass,
   box,
-  CARCASS_DARKEN,
   carcass,
-  COUNTER_T,
-  counterFin,
-  counterSlab,
   cyl,
   type Finish,
-  FRONT_T,
-  frontSlab,
   GAP,
   matte,
   plinth,
   PLINTH_H,
-  splitFronts,
   steelMat,
   surfMat,
   wood,
@@ -26,12 +20,11 @@ import {
 import { buildCustomPart } from './partMeshes';
 
 /**
- * Procedural, parametric meshes for every catalog kind.
- * Local space: x = width, y = up (0 at item bottom), z = depth
+ * Procedural meshes for the remaining catalog kinds: appliances (bought
+ * products — never panel lists), loose furniture, lights and wall markers.
+ * Cabinets all render through the panel IR (partMeshes) via the 'custom'
+ * builder. Local space: x = width, y = up (0 at item bottom), z = depth
  * (back face at -d/2 — the side that touches walls; front at +d/2).
- *
- * Style follows the reference kitchens: matte handleless slab fronts with a
- * routed dark groove, dark recessed plinth, oak worktops.
  */
 
 export { shade } from './meshKit';
@@ -42,62 +35,44 @@ interface Ctx {
   design: Design;
   room: RoomStyle;
   part?: CustomPartDef;
+  /** appliance cutouts other items take out of THIS item's worktop */
+  host?: HostContext;
   /** the item's paintable front finish, with design-variable refs already resolved */
   finish: Finish;
 }
 
 type Builder = (g: THREE.Group, c: Ctx) => void;
 
-/* ---------------- base units ---------------- */
+/* ---------------- counter appliances ----------------
+ * Sinks and hobs are bought products that mount INTO a worktop: local y = 0
+ * is the counter surface, the basin hangs below into the host's cutout.
+ */
 
-const baseCabinet: Builder = (g, { item, design, room, finish }) => {
-  const { w, d, h } = item;
-  const bodyH = h - PLINTH_H - COUNTER_T;
-  plinth(g, w, d);
-  carcass(g, w, bodyH, d, finish, PLINTH_H);
-  const doors = Math.max(1, item.params?.doors ?? 1);
-  splitFronts(w, doors, (x, fw) => frontSlab(g, fw, bodyH, finish, x, PLINTH_H, d / 2));
-  counterSlab(g, w, d, h - COUNTER_T, design, room, item);
-};
-
-const baseDrawers: Builder = (g, { item, design, room, finish }) => {
-  const { w, d, h } = item;
-  const bodyH = h - PLINTH_H - COUNTER_T;
-  plinth(g, w, d);
-  carcass(g, w, bodyH, d, finish, PLINTH_H);
-  const n = Math.max(1, item.params?.drawers ?? 3);
-  const fh = (bodyH - GAP * (n + 1)) / n;
-  for (let i = 0; i < n; i++) {
-    frontSlab(g, w - GAP * 2, fh, finish, 0, PLINTH_H + GAP + i * (fh + GAP), d / 2);
-  }
-  counterSlab(g, w, d, h - COUNTER_T, design, room, item);
-};
-
-const sink: Builder = (g, c) => {
-  const { item } = c;
-  baseCabinet(g, c);
-  const { w, d, h } = item;
+const sink: Builder = (g, { item }) => {
+  const { w, d } = item;
   const bowls = Math.max(1, item.params?.bowls ?? 1);
+  const steel = new THREE.MeshStandardMaterial({ color: '#b9bdc0', roughness: 0.35, metalness: 0.7 });
+  // rim plate flush on the counter
+  box(g, w, 0.012, d - 0.08, steel, 0, 0, 0.02);
   const basinMat = new THREE.MeshStandardMaterial({ color: '#2e3134', roughness: 0.35, metalness: 0.7 });
-  const bw = Math.min(0.4, (w - 0.16) / bowls - 0.04);
+  const bw = (w - 0.06) / bowls - 0.02;
   for (let i = 0; i < bowls; i++) {
-    const x = bowls === 1 ? 0 : (i === 0 ? -1 : 1) * (bw / 2 + 0.03);
-    box(g, bw, 0.012, d - 0.24, basinMat, x, h - 0.005, 0);
-    box(g, bw - 0.05, 0.02, d - 0.3, matte('#191b1d'), x, h - 0.02, 0);
+    const x = bowls === 1 ? 0 : (i === 0 ? -1 : 1) * (bw / 2 + 0.015);
+    // bowl hangs below the counter, into the cutout
+    box(g, bw, 0.16, d - 0.14, basinMat, x, -0.16, 0.02);
+    box(g, bw - 0.04, 0.02, d - 0.18, matte('#191b1d'), x, -0.02, 0.02);
   }
-  // black arc faucet
+  // black arc faucet at the back edge
   const black = new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.4, metalness: 0.5 });
-  cyl(g, 0.014, 0.3, black, 0, h, -d / 2 + 0.09);
-  const arm = cyl(g, 0.011, 0.22, black, 0, h + 0.29, -d / 2 + 0.09);
+  cyl(g, 0.014, 0.3, black, 0, 0.005, -d / 2 + 0.05);
+  const arm = cyl(g, 0.011, 0.22, black, 0, 0.295, -d / 2 + 0.05);
   arm.rotation.x = Math.PI / 2.3;
   arm.position.z += 0.09;
 };
 
-const hob: Builder = (g, c) => {
-  const { item } = c;
-  baseDrawers(g, { ...c, item: { ...item, params: { drawers: 2 } } });
-  const { w, d, h } = item;
-  box(g, w - 0.06, 0.008, d - 0.14, applianceGlass(), 0, h, 0);
+const hob: Builder = (g, { item }) => {
+  const { w, d } = item;
+  box(g, w, 0.008, d, applianceGlass(), 0, 0, 0);
   const zones = Math.max(2, item.params?.burners ?? 4);
   const ring = new THREE.MeshStandardMaterial({ color: '#3c3f43', roughness: 0.5, metalness: 0.3 });
   const pos: [number, number][] =
@@ -109,55 +84,29 @@ const hob: Builder = (g, c) => {
           ? [[-0.13, -0.11], [-0.13, 0.11], [0.13, -0.11], [0.13, 0.11]]
           : [[-0.15, -0.12], [-0.15, 0.12], [0.15, -0.12], [0.15, 0.12], [0, 0]];
   for (const [px, pz] of pos) {
-    cyl(g, 0.065, 0.004, ring, px * (w / 0.6), h + 0.008, pz * (d / 0.6));
+    cyl(g, 0.065, 0.004, ring, px * (w / 0.6), 0.008, pz * (d / 0.6));
   }
 };
 
-const oven: Builder = (g, { item, design, room, finish }) => {
+// A built-in oven/microwave: a boxed product that slides into a cabinet niche.
+const oven: Builder = (g, { item }) => {
   const { w, d, h } = item;
-  const bodyH = h - PLINTH_H - COUNTER_T;
-  plinth(g, w, d);
-  carcass(g, w, bodyH, d, finish, PLINTH_H);
-  const ovenH = Math.min(0.6, bodyH - 0.12);
-  frontSlab(g, w - GAP * 2, bodyH - ovenH - GAP * 2, finish, 0, PLINTH_H + GAP, d / 2, 'none');
-  const oy = PLINTH_H + (bodyH - ovenH);
-  box(g, w - GAP * 2, ovenH, 0.02, applianceGlass(), 0, oy, d / 2 - 0.01);
-  box(g, w - 0.1, 0.02, 0.03, steelMat(), 0, oy + ovenH - 0.07, d / 2 + 0.012);
-  box(g, w - 0.16, 0.16, 0.005, matte('#0c0d0f'), 0, oy + 0.12, d / 2 + 0.001);
-  counterSlab(g, w, d, h - COUNTER_T, design, room, item);
+  box(g, w, h, d - 0.02, matte('#26282b'), 0, 0, -0.01);
+  box(g, w, h, 0.02, applianceGlass(), 0, 0, d / 2 - 0.01);
+  box(g, w - 0.1, 0.02, 0.03, steelMat(), 0, h - 0.07, d / 2 + 0.012);
+  box(g, w - 0.16, Math.min(0.16, h * 0.28), 0.005, matte('#0c0d0f'), 0, 0.06, d / 2 + 0.001);
 };
 
-const dishwasher: Builder = (g, { item, design, room }) => {
+// Freestanding dishwasher: a self-contained product with its own dark top —
+// slotting it INTO a run (behind a cabinet front) is future zone territory.
+const dishwasher: Builder = (g, { item }) => {
   const { w, d, h } = item;
-  const bodyH = h - PLINTH_H - COUNTER_T;
+  const bodyH = h - PLINTH_H - 0.02;
   plinth(g, w, d);
   carcass(g, w, bodyH, d, '#9aa0a3', PLINTH_H);
   box(g, w - GAP * 2, bodyH, 0.016, steelMat(), 0, PLINTH_H, d / 2 - 0.008);
   box(g, w - 0.1, 0.02, 0.03, steelMat(), 0, PLINTH_H + bodyH - 0.06, d / 2 + 0.01);
-  counterSlab(g, w, d, h - COUNTER_T, design, room, item);
-};
-
-const island: Builder = (g, { item, design, room, finish }) => {
-  const { w, d, h } = item;
-  const bodyH = h - PLINTH_H - COUNTER_T;
-  plinth(g, w, d);
-  // body panels all around
-  box(g, w, bodyH, d - FRONT_T, surfMat(finish, 'matte', CARCASS_DARKEN), 0, PLINTH_H, -FRONT_T / 2);
-  box(g, w, bodyH, FRONT_T, surfMat(finish), 0, PLINTH_H, -d / 2 + FRONT_T / 2); // back panel
-  const n = item.params?.drawers ?? 3;
-  if (n > 0) {
-    splitFronts(w, Math.min(n, Math.max(1, Math.round(w / 0.55))), (x, fw) => {
-      const rows = Math.min(3, Math.max(1, n));
-      const fh = (bodyH - GAP * (rows + 1)) / rows;
-      for (let i = 0; i < rows; i++) {
-        frontSlab(g, fw, fh, finish, x, PLINTH_H + GAP + i * (fh + GAP), d / 2);
-      }
-    });
-  } else {
-    box(g, w, bodyH, FRONT_T, surfMat(finish), 0, PLINTH_H, d / 2 - FRONT_T / 2);
-  }
-  // generous worktop overhang on the seating side (front)
-  box(g, w + 0.06, COUNTER_T, d + 0.18, surfMat(counterFin(design, room, item), 'wood'), 0, h - COUNTER_T, 0.06);
+  box(g, w, 0.02, d, matte('#3a3d40'), 0, h - 0.02, 0);
 };
 
 /* ---------------- tall units ---------------- */
@@ -175,61 +124,7 @@ const fridge: Builder = (g, { item }) => {
   box(g, 0.02, Math.min(0.3, h * 0.16), 0.025, handle, -w / 2 + 0.07, split - 0.4, d / 2 + 0.03);
 };
 
-const pantry: Builder = (g, { item, finish }) => {
-  const { w, d, h } = item;
-  plinth(g, w, d);
-  const bodyH = h - PLINTH_H;
-  carcass(g, w, bodyH, d, finish, PLINTH_H);
-  const sections = Math.max(1, item.params?.split ?? 2);
-  const heights = sections === 1 ? [bodyH] : sections === 2 ? [bodyH * 0.62, bodyH * 0.38] : [bodyH * 0.5, bodyH * 0.28, bodyH * 0.22];
-  let y = PLINTH_H;
-  for (const sh of heights) {
-    splitFronts(w, w > 0.75 ? 2 : 1, (x, fw) => frontSlab(g, fw, sh - GAP, finish, x, y, d / 2));
-    y += sh;
-  }
-};
-
-const ovenTower: Builder = (g, { item, finish }) => {
-  const { w, d, h } = item;
-  plinth(g, w, d);
-  const bodyH = h - PLINTH_H;
-  carcass(g, w, bodyH, d, finish, PLINTH_H);
-  const n = Math.max(1, Math.min(3, item.params?.appliances ?? 2));
-  const appH = [0.6, 0.38, 0.38]; // oven, micro/steam, coffee
-  const zoneY = PLINTH_H + 0.72; // appliances start at ~standing height
-  let y = zoneY;
-  // lower doors
-  frontSlab(g, w - GAP * 2, zoneY - PLINTH_H - GAP, finish, 0, PLINTH_H + GAP / 2, d / 2, 'top');
-  for (let i = 0; i < n; i++) {
-    const ah = appH[i];
-    if (y + ah > PLINTH_H + bodyH - 0.06) break;
-    box(g, w - GAP * 2, ah - GAP, 0.02, applianceGlass(), 0, y, d / 2 - 0.01);
-    box(g, w - 0.12, 0.015, 0.025, steelMat(), 0, y + ah - 0.06, d / 2 + 0.01);
-    y += ah;
-  }
-  // top doors fill the rest
-  const rest = PLINTH_H + bodyH - y - GAP;
-  if (rest > 0.08) frontSlab(g, w - GAP * 2, rest, finish, 0, y + GAP / 2, d / 2, 'bottom');
-};
-
 /* ---------------- wall units ---------------- */
-
-const wallCabinet: Builder = (g, { item, finish }) => {
-  const { w, d, h } = item;
-  carcass(g, w, h, d, finish, 0);
-  const doors = Math.max(1, item.params?.doors ?? 1);
-  splitFronts(w, doors, (x, fw) => frontSlab(g, fw, h, finish, x, 0, d / 2, 'bottom'));
-};
-
-const shelf: Builder = (g, { item, finish }) => {
-  const { w, d, h } = item;
-  const n = Math.max(1, item.params?.shelves ?? 2);
-  const mat = surfMat(finish, 'wood');
-  for (let i = 0; i < n; i++) {
-    const y = n === 1 ? 0 : (i * (h - 0.025)) / (n - 1);
-    box(g, w, 0.028, d, mat, 0, y, 0);
-  }
-};
 
 const hood: Builder = (g, { item }) => {
   const { w, d, h } = item;
@@ -380,26 +275,19 @@ const outlet: Builder = (g, { item }) => {
 
 /* ---------------- custom parts (Part Studio) ---------------- */
 
-const custom: Builder = (g, { item, part, design, finish }) => {
-  if (part) buildCustomPart(g, item, part, design);
+const custom: Builder = (g, { item, part, design, host, finish }) => {
+  if (part) buildCustomPart(g, item, part, design, host);
   else box(g, item.w, item.h, item.d, surfMat(finish), 0, 0, 0);
 };
 
 /* ---------------- registry ---------------- */
 
 const BUILDERS: Record<string, Builder> = {
-  baseCabinet,
-  baseDrawers,
   sink,
   hob,
   oven,
   dishwasher,
-  island,
   fridge,
-  pantry,
-  ovenTower,
-  wallCabinet,
-  shelf,
   hood,
   backsplash,
   table,
@@ -418,13 +306,14 @@ export function buildItemGroup(
   item: Item,
   def: CatalogDef,
   design: Design,
-  part?: CustomPartDef
+  part?: CustomPartDef,
+  host?: HostContext
 ): THREE.Group {
   const g = new THREE.Group();
   const room = design.room;
   const finish = resolveFinish(design, item.color, item.material, item.materialRot);
   const builder = BUILDERS[def.kind];
-  if (builder) builder(g, { item, def, design, room, part, finish });
+  if (builder) builder(g, { item, def, design, room, part, host, finish });
   else box(g, item.w, item.h, item.d, surfMat(finish), 0, 0, 0);
   return g;
 }

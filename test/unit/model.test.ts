@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { catalogDef } from '../../src/model/catalog';
 import { signedArea } from '../../src/model/geometry';
+import { toCatalogDef } from '../../src/model/parts';
+import { presetPart } from '../../src/model/presets';
 import { snapItem } from '../../src/model/snapping';
 import { emptyDesign, normalizeDesign, sanitizeDesign, Store } from '../../src/model/store';
 import type { Corner, Design } from '../../src/model/types';
 
 const c = (id: string, x: number, y: number): Corner => ({ id, x, y });
+
+/** Built-in cabinet presets projected the way the app consumes them. */
+const presetDef = (id: string) => toCatalogDef(presetPart(id)!);
 
 function rectDesign(): Design {
   const d = emptyDesign();
@@ -38,22 +43,24 @@ describe('normalizeDesign', () => {
 });
 
 describe('sanitizeDesign', () => {
-  it('rejects unusable payloads', () => {
+  it('rejects unusable payloads — including any pre-v5 design (no migration path)', () => {
     expect(sanitizeDesign(null)).toBeNull();
     expect(sanitizeDesign('x')).toBeNull();
     expect(sanitizeDesign({})).toBeNull();
-    expect(sanitizeDesign({ version: 5, corners: rectDesign().corners })).toBeNull();
-    expect(sanitizeDesign({ version: 1, corners: [c('a', 0, 0), c('b', 1, 0)] })).toBeNull();
+    expect(sanitizeDesign({ version: 1, corners: rectDesign().corners })).toBeNull();
+    expect(sanitizeDesign({ version: 4, corners: rectDesign().corners })).toBeNull();
+    expect(sanitizeDesign({ version: 6, corners: rectDesign().corners })).toBeNull();
+    expect(sanitizeDesign({ version: 5, corners: [c('a', 0, 0), c('b', 1, 0)] })).toBeNull();
   });
 
-  it('repairs a minimal payload with defaults', () => {
-    const d = sanitizeDesign({ version: 1, corners: [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)] });
+  it('repairs a minimal v5 payload with defaults', () => {
+    const d = sanitizeDesign({ version: 5, corners: [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)] });
     expect(d).not.toBeNull();
     expect(Array.isArray(d!.items)).toBe(true);
     expect(Array.isArray(d!.openings)).toBe(true);
     expect(Array.isArray(d!.customParts)).toBe(true);
     expect(d!.room.wallThickness).toBeGreaterThan(0);
-    // no scene at all → the new defaults
+    // no scene at all → the defaults
     expect(d!.scene).toEqual({ sunAzimuth: 215, sunElevation: 35, brightness: 1, night: false });
     expect(signedArea(d!.corners)).toBeGreaterThan(0);
   });
@@ -70,7 +77,7 @@ describe('sanitizeDesign', () => {
   it('keeps only valid non-auto wall visibility overrides', () => {
     const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
     const d = sanitizeDesign({
-      version: 2,
+      version: 5,
       corners: base,
       wallVisibility: { a: 'hide', b: 'auto', d: 'bogus' },
     });
@@ -79,42 +86,18 @@ describe('sanitizeDesign', () => {
 
   it('keeps only a valid non-auto ceiling visibility override', () => {
     const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
-    const hide = sanitizeDesign({ version: 2, corners: base, ceilingVisibility: 'hide' });
+    const hide = sanitizeDesign({ version: 5, corners: base, ceilingVisibility: 'hide' });
     expect(hide!.ceilingVisibility).toBe('hide');
-    const auto = sanitizeDesign({ version: 2, corners: base, ceilingVisibility: 'auto' });
+    const auto = sanitizeDesign({ version: 5, corners: base, ceilingVisibility: 'auto' });
     expect(auto!.ceilingVisibility).toBeUndefined();
-    const bogus = sanitizeDesign({ version: 2, corners: base, ceilingVisibility: 'bogus' });
+    const bogus = sanitizeDesign({ version: 5, corners: base, ceilingVisibility: 'bogus' });
     expect(bogus!.ceilingVisibility).toBeUndefined();
-  });
-
-  it('migrates a legacy v1 { night } scene to sun angles', () => {
-    const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
-    const day = sanitizeDesign({ version: 2, corners: base, scene: { night: false } });
-    const night = sanitizeDesign({ version: 2, corners: base, scene: { night: true } });
-    // night:false → old t=13 look (noon-ish); night:true → old t=22 (sun setting west)
-    expect(day!.scene).toEqual({ sunAzimuth: 180, sunElevation: 60, brightness: 1, night: false });
-    expect(night!.scene).toEqual({ sunAzimuth: 265, sunElevation: 35, brightness: 1, night: true });
-  });
-
-  it('migrates a full v2 { timeOfDay, … } scene, dropping retired fields', () => {
-    const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
-    const d = sanitizeDesign({
-      version: 2,
-      corners: base,
-      scene: {
-        timeOfDay: 7.5, exposure: 1.3, sunStrength: 1.4, ambientStrength: 0.8,
-        sunColor: '#ff0000', ambientColor: '#00ff00', envPreset: 'dusk', envIntensity: 0.5,
-      },
-    });
-    // t=7.5 → p≈0.107 → azimuth 113, elevation 20; whole-object equality
-    // doubles as the "no old fields linger" assertion
-    expect(d!.scene).toEqual({ sunAzimuth: 113, sunElevation: 20, brightness: 1, night: false });
   });
 
   it('clamps out-of-range scene values', () => {
     const base = [c('a', 0, 0), c('b', 3, 0), c('d', 3, 2)];
     const d = sanitizeDesign({
-      version: 3,
+      version: 5,
       corners: base,
       scene: { sunAzimuth: 725, sunElevation: 200, brightness: -1, night: 'x' },
     });
@@ -209,7 +192,7 @@ describe('Store mutations', () => {
 
   it('undo with an uncommitted gesture lands on the last committed state', () => {
     const store = new Store(rectDesign());
-    const item = store.addItem(catalogDef('base-cabinet'), 1, 1);
+    const item = store.addItem(presetDef('base-cabinet'), 1, 1);
     store.commit();
     store.updateItem(item.id, { x: 2 }); // gesture without commit
     store.undo();
@@ -222,7 +205,7 @@ describe('Store mutations', () => {
 describe('snapItem', () => {
   it('snaps an item back-to-wall with auto-rotation', () => {
     const store = new Store(rectDesign());
-    const res = snapItem(store, catalogDef('base-cabinet'), null, 2, 2.8, 0);
+    const res = snapItem(store, presetDef('base-cabinet'), null, 2, 2.8, 0);
     expect(res.wallId).toBeTruthy();
     expect(res.y).toBeCloseTo(2.65);
     expect(Math.abs(Math.abs(res.rotation) - Math.PI)).toBeLessThan(0.01);
@@ -231,9 +214,9 @@ describe('snapItem', () => {
   it('edge snapping cannot push a wall-snapped item past the wall end', () => {
     const store = new Store(rectDesign());
     // neighbour sitting beyond the wall end lures the edge snap outward
-    const rogue = store.addItem(catalogDef('base-cabinet'), 4.55, 2.65, Math.PI);
+    const rogue = store.addItem(presetDef('base-cabinet'), 4.55, 2.65, Math.PI);
     expect(rogue).toBeTruthy();
-    const res = snapItem(store, catalogDef('base-cabinet'), null, 3.9, 2.75, 0);
+    const res = snapItem(store, presetDef('base-cabinet'), null, 3.9, 2.75, 0);
     expect(res.wallId).toBeTruthy();
     expect(res.x).toBeLessThanOrEqual(3.71);
     expect(res.x).toBeGreaterThanOrEqual(0.29);

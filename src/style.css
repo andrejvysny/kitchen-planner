@@ -968,6 +968,22 @@ html, body {
   height: 100%;
 }
 
+.studio-open-toggle {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  background: rgba(255,255,255,0.85);
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
 .studio-preview-hint {
   position: absolute;
   bottom: 10px;

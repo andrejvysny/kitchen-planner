@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Zone } from '../../src/model/types';
 import {
+  cabinetTreeFromCounts,
   countLeaves,
   MAX_DEPTH,
   MAX_LEAVES,
@@ -10,6 +11,7 @@ import {
   sanitizeZone,
   setDivider,
   splitZone,
+  walkSplits,
   walkZones,
   zoneAtPath,
   zoneAtPoint,
@@ -151,5 +153,100 @@ describe('normalizeZones / sanitizeZone', () => {
     if (nan.kind === 'split') {
       expect(nan.weights.every((w) => Number.isFinite(w) && w > 0)).toBe(true);
     }
+  });
+});
+
+describe('cabinetTreeFromCounts', () => {
+  it('builds the classic drawers/doors/open stack bottom→top', () => {
+    const tree = cabinetTreeFromCounts({ drawers: 2, doors: 2, shelves: 1 });
+    if (tree.kind !== 'split') throw new Error('expected split');
+    expect(tree.dir).toBe('h');
+    expect(tree.children.map((c) => (c.kind === 'leaf' ? c.fill : 'split'))).toEqual([
+      'drawers',
+      'doorPair',
+      'open',
+    ]);
+    const drawers = tree.children[0];
+    if (drawers.kind === 'leaf') expect(drawers.drawers).toBe(2);
+  });
+
+  it('single section collapses to a bare leaf; empty counts fall back to a door', () => {
+    const only = cabinetTreeFromCounts({ drawers: 3, doors: 0, shelves: 0 });
+    expect(only).toEqual({ kind: 'leaf', fill: 'drawers', drawers: 3 });
+    expect(cabinetTreeFromCounts({ drawers: 0, doors: 0, shelves: 0 })).toEqual({
+      kind: 'leaf',
+      fill: 'door',
+    });
+    const single = cabinetTreeFromCounts({ drawers: 0, doors: 1, shelves: 0 });
+    expect(single).toEqual({ kind: 'leaf', fill: 'door' });
+  });
+
+  it('normalizes cleanly — weights positive, tree valid for walkZones', () => {
+    const tree = normalizeZones(cabinetTreeFromCounts({ drawers: 4, doors: 1, shelves: 3 }));
+    const rects = walkZones(tree, 0.6, 0.9);
+    expect(rects.length).toBe(countLeaves(tree));
+    const area = rects.reduce((s, r) => s + r.w * r.h, 0);
+    expect(area).toBeCloseTo(0.6 * 0.9);
+  });
+});
+
+describe('interior + hinge round-trip', () => {
+  it('normalizeZones carries interior and hinge through the leaf rebuild', () => {
+    const tree: Zone = {
+      kind: 'split',
+      dir: 'h',
+      weights: [1, 1],
+      children: [
+        { kind: 'leaf', fill: 'door', hinge: 'right', interior: { mode: 'auto', shelves: 2, innerDrawers: 1 } },
+        { kind: 'leaf', fill: 'open', interior: { mode: 'custom', elements: [{ kind: 'shelf', y: 0.3 }] } },
+      ],
+    };
+    const out = normalizeZones(tree);
+    if (out.kind !== 'split') throw new Error('expected split');
+    const [door, open] = out.children;
+    if (door.kind !== 'leaf' || open.kind !== 'leaf') throw new Error('expected leaves');
+    expect(door.hinge).toBe('right');
+    expect(door.interior).toEqual({ mode: 'auto', shelves: 2, innerDrawers: 1 });
+    expect(open.interior).toEqual({ mode: 'custom', elements: [{ kind: 'shelf', y: 0.3 }] });
+  });
+
+  it('sanitizeZone shims the legacy open-leaf shelf count into an auto interior', () => {
+    const legacy = { kind: 'leaf', fill: 'open', shelves: 3 };
+    const out = sanitizeZone(legacy);
+    if (out.kind !== 'leaf') throw new Error('expected leaf');
+    expect(out.interior).toEqual({ mode: 'auto', shelves: 3, innerDrawers: 0 });
+    expect((out as { shelves?: number }).shelves).toBeUndefined();
+  });
+
+  it('hinge only survives on door leaves; junk hinge is dropped', () => {
+    const pair = sanitizeZone({ kind: 'leaf', fill: 'doorPair', hinge: 'left' });
+    if (pair.kind !== 'leaf') throw new Error('expected leaf');
+    expect(pair.hinge).toBeUndefined();
+    const junk = sanitizeZone({ kind: 'leaf', fill: 'door', hinge: 'sideways' });
+    if (junk.kind !== 'leaf') throw new Error('expected leaf');
+    expect(junk.hinge).toBeUndefined();
+  });
+});
+
+describe('walkSplits', () => {
+  it('yields one boundary per divider with correct segments', () => {
+    const tree: Zone = {
+      kind: 'split',
+      dir: 'v',
+      weights: [1, 1, 2],
+      children: [leaf(), leaf(), { kind: 'split', dir: 'h', weights: [1, 1], children: [leaf(), leaf()] }],
+    };
+    const bs = walkSplits(tree, 1.0, 0.8);
+    // 3 v-children → 2 vertical boundaries; nested h-split → 1 horizontal
+    expect(bs).toHaveLength(3);
+    const [v0, v1, h0] = bs;
+    expect(v0.dir).toBe('v');
+    expect(v0.x).toBeCloseTo(0.25);
+    expect(v0.len).toBeCloseTo(0.8);
+    expect(v1.x).toBeCloseTo(0.5);
+    expect(h0.dir).toBe('h');
+    expect(h0.y).toBeCloseTo(0.4);
+    expect(h0.x).toBeCloseTo(0.5);
+    expect(h0.len).toBeCloseTo(0.5);
   });
 });

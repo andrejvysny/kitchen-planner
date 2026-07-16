@@ -1,4 +1,5 @@
 import './style.css';
+import { navInput, setNavInput } from './model/navPref';
 import { demoDesign, Store } from './model/store';
 import { Plan2D } from './plan2d/plan2d';
 import { ElevationView } from './plan2d/elevation';
@@ -28,4 +29,4 @@ const view = new View3D(document.getElementById('canvas3d') as HTMLCanvasElement
 new UI(store, plan, view, elev);
 
 // small debug/testing handle
-(window as unknown as Record<string, unknown>).__kp = { store, plan, view, elev };
+(window as unknown as Record<string, unknown>).__kp = { store, plan, view, elev, navInput, setNavInput };

@@ -115,7 +115,37 @@ export function renderCabinetPanel(
 
   const body = section(rail, 'Body');
   toggleRow(body, 'Plinth', () => part.plinth, (v) => { part.plinth = v; onChange(); });
-  toggleRow(body, 'Worktop', () => part.worktop, (v) => { part.worktop = v; onChange(); });
+  const overhangDetail = document.createElement('div');
+  const renderOverhang = () => {
+    overhangDetail.innerHTML = '';
+    if (!part.worktop) return;
+    const ov = () =>
+      (part.worktopOverhang ??= { front: 0.015, back: 0.005, sides: 0.01 });
+    numRow(overhangDetail, 'Overhang front', () => part.worktopOverhang?.front ?? 0.015, (v) => {
+      ov().front = clamp(v, 0, 0.4);
+      onChange();
+    });
+    numRow(overhangDetail, 'Overhang back', () => part.worktopOverhang?.back ?? 0.005, (v) => {
+      ov().back = clamp(v, 0, 0.4);
+      onChange();
+    });
+    numRow(overhangDetail, 'Overhang sides', () => part.worktopOverhang?.sides ?? 0.01, (v) => {
+      ov().sides = clamp(v, 0, 0.4);
+      onChange();
+    });
+  };
+  toggleRow(body, 'Worktop', () => part.worktop, (v) => {
+    part.worktop = v;
+    renderOverhang();
+    onChange();
+  });
+  body.appendChild(overhangDetail);
+  renderOverhang();
+  toggleRow(body, 'Finished back', () => part.finishedBack === true, (v) => {
+    if (v) part.finishedBack = true;
+    else delete part.finishedBack;
+    onChange();
+  });
 
   const colors = section(rail, 'Front colour');
   swatchRow(colors, FRONT_COLORS, () => part.color, (c) => { part.color = c; onChange(); });

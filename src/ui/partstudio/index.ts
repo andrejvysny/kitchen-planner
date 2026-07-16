@@ -176,6 +176,19 @@ export class PartStudio {
     dup.addEventListener('click', () => this.duplicatePart());
 
     this.preview = new StudioPreview(body.querySelector('.studio-preview') as HTMLElement);
+    if (part.type === 'cabinet') {
+      // studio-local open toggle so interiors can be inspected while editing
+      const holder = body.querySelector('.studio-preview') as HTMLElement;
+      const toggle = document.createElement('label');
+      toggle.className = 'studio-open-toggle';
+      toggle.innerHTML = `<input type="checkbox"> Doors open`;
+      const cb = toggle.querySelector('input') as HTMLInputElement;
+      cb.addEventListener('change', () => {
+        this.preview!.frontsOpen = cb.checked;
+        this.refreshPreview();
+      });
+      holder.appendChild(toggle);
+    }
     this.renderRail();
     this.refreshPreview();
   }

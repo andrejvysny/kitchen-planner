@@ -35,22 +35,35 @@ subscribe and never talk to each other directly.
   - `transient: true` → mid-gesture; skips props-panel re-render.
 - Undo = JSON snapshots. Mutations do NOT auto-commit: call `store.commit()`
   at gesture end (pointerup, input change). Forgetting commit = broken undo.
-- `store.defOf(defId)` resolves both built-in catalog entries and user parts
-  (custom parts are `CustomPartDef` in `design.customParts`, adapted to
-  `CatalogDef` by src/model/parts.ts). Never call `catalogDef()` directly for
-  an item's defId.
+- `store.partOf(defId)` resolves a part def: design-local custom part first
+  (`design.customParts`), then the built-in cabinet PRESETS
+  (src/model/presets.ts — readonly, deep-frozen, never copied into a design).
+  `store.defOf(defId)` wraps that as a `CatalogDef` (via toCatalogDef,
+  kind 'custom') and falls back to `catalogDef()` for non-cabinet catalog
+  entries. Never call `catalogDef()` directly for an item's defId.
+- Cabinets are ALL zone-tree parts now: the old baseCabinet/baseDrawers/
+  island/pantry/wallCabinet/shelf kinds are gone; their ids live on as preset
+  parts ('base-cabinet', 'wall-cabinet', …). "Customize part…" in the props
+  panel forks a preset into design.customParts for one instance
+  (`store.forkPartForItem`).
 
 Custom parts (Part Studio, src/ui/partstudio/) are a discriminated union on
 `part.type`:
 
-- `cabinet` — carcass + plinth/worktop + a **zone tree** (`part.face`) on the
-  front face: n-ary weighted splits (`{dir, weights, children}`) with leaves
-  `door | doorPair | drawers | open | panel | glass`. All zone math lives in
-  src/model/zones.ts; `walkZones` is shared by the mesh builder AND the
-  studio's zone canvas, so the editor is WYSIWYG by construction. Caps:
-  MAX_LEAVES 12, MAX_DEPTH 4, MIN_FRAC 0.08. `part.footprint` supports
-  `rect | chamfer (diagonal/angled-end) | cornerL` — the zone tree always
-  applies to exactly ONE planar face; other fronts get a single panel/door.
+- `cabinet` — hollow carcass (shell boards + one divider board per zone
+  boundary via `walkSplits`) + plinth/worktop + a **zone tree** (`part.face`)
+  on the front face: n-ary weighted splits (`{dir, weights, children}`) with
+  leaves `door | doorPair | drawers | open | panel | glass | appliance`. All
+  zone math lives in src/model/zones.ts; `walkZones`/`walkSplits` are shared
+  by the panel generator AND the studio's zone canvas, so the editor is
+  WYSIWYG by construction. Caps: MAX_LEAVES 12, MAX_DEPTH 4, MIN_FRAC 0.08.
+  `part.footprint` supports `rect | chamfer (diagonal/angled-end) | cornerL`
+  (polygon footprints keep a solid prism carcass for now). Leaves carry
+  `interior?` (shelves/internal drawers: `{mode:'auto', counts}` resolved to
+  exact positions by src/model/interior.ts `resolveInterior` — the ONLY
+  parametric→explicit bridge — or `{mode:'custom', elements}` edited in the
+  zone canvas drill-in) and `hinge?` on doors (drilling datum). Every drawer
+  front emits a real drawer box (sides/back/bottom) into the panel list.
 - `board` — a horizontal slab extruded from a free CCW polygon `outline`
   (+ rectangular `holes`); worktops, floating shelves. Rendered via `prism()`
   (ExtrudeGeometry) in src/view3d/meshKit.ts.
@@ -58,36 +71,61 @@ Custom parts (Part Studio, src/ui/partstudio/) are a discriminated union on
   groove style) composing arbitrary furniture; meshes tagged
   `userData.boardId` for preview picking.
 
-Custom parts render through a **panel-list IR**: `partPanels(part, dims)`
-(src/model/panels.ts) emits every physical board as a `Panel` (box/cyl/prism
-shape, position, role, colour slot, finish) — pure model code, no three.js.
-src/view3d/partMeshes.ts only maps panels to meshes and adds the decoration
-layer (routed grooves, glass material); meshes carry `name = panel.id` and
-`userData.role`. A future manufacturing export (cut lists, CNC outlines)
-serializes the SAME panel list — never derive board dimensions from meshes.
-Anything geometric belongs in the panel generator, anything cosmetic in the
-mesh layer.
+Custom parts render through a **panel-list IR**: `partPanels(part, dims,
+ctx?)` (src/model/panels.ts) emits every physical board as a `Panel`
+(box/cyl/prism shape, position, role, colour slot, finish, `motion?`) — pure
+model code, no three.js. The optional `ctx: HostContext` carries appliance
+cutouts (a sink turns the worktop into a prism with holes). `Panel.motion`
+({unit, hinge side | slide travel}) is geometric truth (drilling datum,
+cavity-derived travel); the open/closed POSE is ephemeral view state
+(`store.openFronts`, like the selection — never in the Design, no undo/
+autosave contamination) applied by pivot groups in src/view3d/partMeshes.ts
+without any rebuild (dblclick a front in 3D, or the topbar "Open fronts"
+toggle). Meshes carry `name = panel.id` and `userData.role`. A future
+manufacturing export serializes the SAME panel list — never derive board
+dimensions from meshes. Anything geometric belongs in the panel generator,
+anything cosmetic in the mesh layer.
+
+**Appliances** are bought products, not manufactured: their meshes stay
+bespoke builders (itemMeshes.ts) and never enter panel lists. They mount on
+hosts via `item.attach` ({kind:'counter', hostId, u, v} into a worktop, or
+{kind:'zone', hostId, path} into an `appliance` zone niche) — anchors are
+HOST-LOCAL; `item.x/y/rotation/elevation` stay the authoritative world cache
+recomputed by `syncAttachments` (src/model/attach.ts, all pure). Hosting
+cutouts/occupancy come from `applianceHosting(design)` — computed once per
+View3D rebuild and by the future export. Deleting a host cascades to its
+appliances; unresolvable attachments detach-to-world. snapItem skips
+attached items (they overlap their hosts).
 
 Zone trees live on the part def only — placed instances override just
-w/d/h/color/elevation ("Duplicate part" in the studio covers variants).
-v1 templates (`{template, options}`) migrate via src/model/partsMigrate.ts;
-per-instance v1 params become cloned "(variant)" parts.
+w/d/h/color/elevation ("Duplicate part" in the studio and "Customize part…"
+in the props panel cover variants). There is NO pre-v5 migration path:
+sanitizeDesign rejects any design whose version ≠ 5 (callers fall back to a
+fresh/demo design).
 
 ## Extending custom parts
 
-- **New zone fill** (e.g. wine rack): add to `ZoneFill` (types.ts), `FILLS` +
-  count clamps in zones.ts `normalizeZones`, a case in panels.ts
-  `facePanels`, the fill button + caption in
-  src/ui/partstudio/zoneCanvas.ts. Builder smoke + panels tests catch misses.
+- **New zone fill** (e.g. wine rack): add to `ZoneFill` (types.ts), `FILLS`
+  in zones.ts + the leaf-field whitelist in `normalizeZones` (leaves are
+  REBUILT there — unlisted fields silently drop), a case in panels.ts
+  `facePanels`, the `FILL_LABELS` entry in src/ui/partstudio/zoneCanvas.ts.
+  Builder smoke + panels tests catch misses.
 - **New footprint**: extend the `Footprint` union, `footprintPolygon`
-  (parts.ts), the `faces` list in panels.ts `cabinetPanels`, `faceSize` in
-  zoneCanvas.ts, and the picker in cabinetPanel.ts.
+  (parts.ts), the `faces` list in panels.ts `cabinetPanels`,
+  `cabinetFaceSize` (panels.ts — the single body-math source), and the
+  picker in cabinetPanel.ts.
 - **New part type**: extend the `CustomPartDef` union + `sanitizePart` +
   factory (parts.ts), add a `partPanels` branch (panels.ts), a picker card
-  (typePicker.ts) and a rail panel module; migration untouched.
+  (typePicker.ts) and a rail panel module.
+- **New interior element**: extend `InteriorElement` (types.ts),
+  `sanitizeInterior`/`resolveInterior` (interior.ts), the emission in
+  panels.ts `facePanels`, and the drill-in editor in zoneCanvas.ts.
 - **Manufacturing export**: iterate `design.items` → `partPanels(part,
-  itemDims)` → rows from `Panel.shape` dims + `role` + resolved slot colour;
-  prism outlines are CNC-ready polygons. Panel ids are stable per part.
+  itemDims, applianceHosting(design).get(item.id))` → rows from
+  `Panel.shape` dims + `role` + resolved slot colour ('counter' resolves via
+  the room worktop like the renderer); prism outlines are CNC-ready
+  polygons (incl. sink/hob cutouts). Panel ids are stable per part;
+  `motion` carries hinge sides + slide travel; drawer boxes are real boards.
 
 Room model: `design.corners` is a polygon, normalized counter-clockwise
 (`normalizeDesign`). Walls are edges identified by their **start corner id**;
@@ -105,17 +143,20 @@ Coordinate conventions (easy to get wrong):
   y = 0..h up, z = depth with the BACK at −d/2 (wall side), front at +d/2.
 - `item.elevation` = bottom height above floor (wall cabinets ~1.45).
 
-## Adding a catalog item (the common task)
+## Adding a cabinet preset (the common task)
 
-1. Add the `kind` to `ItemKind` and a `CatalogDef` entry in src/model/catalog.ts
-   (sizes in meters; `params` for integer options like drawer count).
-2. Add a mesh builder in src/view3d/itemMeshes.ts and register it in `BUILDERS`.
-   Reuse `plinth/carcass/frontSlab/counterSlab` helpers to keep the style
-   (handleless fronts with groove, dark plinth).
-3. Add a plan symbol case in src/plan2d/symbols.ts (also renders the catalog
-   thumbnail automatically).
-4. Check `snapsToWall` / `isWallMounted` / `isOverhead` lists if the item is
-   free-standing, wall-hugging, or above-counter (dashed in 2D).
+Add a `PresetEntry` in src/model/presets.ts: a full `CabinetPartDef` (or
+freeform) with a stable literal id + a catalog section title. That's it —
+tiles, plan symbol (generic custom case + footprint polygon), meshes (panel
+IR), outline grouping and sanitize gating all flow from the parts pipeline.
+`placement: 'free'` opts out of wall snapping; `worktopOverhang` and
+`finishedBack` cover island-style looks. builders.test iterates PRESETS.
+
+Adding a NON-cabinet catalog item (appliance/furniture/light) still means:
+`ItemKind` + `CatalogDef` (catalog.ts — appliances also set
+`appliance: {mount, cutout?/niche?}`), a builder in itemMeshes.ts
+`BUILDERS`, a symbol case in symbols.ts, and a check of
+`snapsToWall`/`isWallMounted`/`isOverhead`.
 
 ## Gotchas
 
@@ -135,21 +176,22 @@ Coordinate conventions (easy to get wrong):
   is a one-time PROCEDURAL RoomEnvironment PMREM (no HDR assets) whose
   intensity = brightness × daylight × `ENV_FILL` so night goes dark. Fills are
   deliberately restrained vs the sun (`AMBIENT_DAY`, `ENV_FILL`) — raising
-  them washes the day scene out. Legacy `{night}` and
-  `{timeOfDay,…}` scenes migrate in `sanitizeDesign` (`sanitizeScene`).
+  them washes the day scene out.
 - `setWallLength` propagates movement through perpendicular neighbor walls
   using ORIGINAL edge directions (rectangles stay rectangles) — don't
   "simplify" it to post-move checks; test 'wall length edit' catches this.
-- GLB export (View3D.exportGLB) strips `isLight` objects and `Ground`, and
-  temporarily clears the selection tint so it doesn't bake into materials.
+- GLB export (View3D.exportGLB) strips `isLight` objects and `Ground`,
+  temporarily clears the selection tint so it doesn't bake into materials,
+  and snaps all open-front poses closed for the clone (snapshotPNG stays
+  as-posed — an opened drawer is staged content).
 - `window.__kp = {store, plan, view}` is exposed for tests/debugging — keep it.
 - Autosave key `kitchen-planner-design-v1`, parts library
-  `kitchen-planner-parts-v1`. `DESIGN_VERSION` is 3; bump + migrate in
-  `sanitizeDesign()` (store.ts) on schema changes — it is the single
-  validation/repair gate for autosave and file import, and it also drops
-  items whose defId resolves nowhere. The parts library migrates per element
-  on read (`Store.sharedLibrary()`): `type` marks v2 entries, `template`
-  marks v1.
+  `kitchen-planner-parts-v1`. `DESIGN_VERSION` is 5 and the gate is STRICT:
+  `sanitizeDesign()` (store.ts) returns null for any other version — no
+  migrations. It is the single validation/repair gate for autosave and file
+  import, and it also drops items whose defId resolves nowhere (custom part,
+  preset, or catalog). The parts library sanitizes per element on read
+  (`Store.sharedLibrary()`).
 - Items with non-rect footprints hit-test against the true polygon in the
   plan (`footprintPolygon` + `pointInPolygon`) but SNAP by bounding box —
   intentional simplification; a diagonal corner unit's square back still

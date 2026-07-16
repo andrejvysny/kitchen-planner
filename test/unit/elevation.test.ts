@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { catalogDef } from '../../src/model/catalog';
 import { wallElevation } from '../../src/model/elevation';
 import { snapItem } from '../../src/model/snapping';
 import { demoDesign, emptyDesign, Store } from '../../src/model/store';
@@ -20,19 +19,19 @@ describe('wallElevation', () => {
     const elev = wallElevation(store.design, topWall)!;
     expect(elev).not.toBeNull();
 
-    const kinds = elev.items.map((i) => store.defOf(i.defId).kind);
+    const ids = elev.items.map((i) => i.defId);
     // furniture backed onto the top wall shows up
-    expect(kinds).toContain('baseCabinet');
-    expect(kinds).toContain('wallCabinet');
-    expect(kinds).toContain('hood');
-    expect(kinds).toContain('outlet');
+    expect(ids).toContain('base-cabinet');
+    expect(ids).toContain('wall-cabinet');
+    expect(ids).toContain('hood');
+    expect(ids).toContain('outlet');
     // free-standing / ceiling items never do
-    expect(kinds).not.toContain('island');
-    expect(kinds).not.toContain('stool');
-    expect(kinds).not.toContain('pendant');
-    expect(kinds).not.toContain('spot');
+    expect(ids).not.toContain('island');
+    expect(ids).not.toContain('stool');
+    expect(ids).not.toContain('pendant');
+    expect(ids).not.toContain('spot');
     // the fridge lives on the right wall, not this one
-    expect(kinds).not.toContain('fridge');
+    expect(ids).not.toContain('fridge');
 
     // the window on this wall is reported with its sill/head heights
     expect(elev.openings).toHaveLength(1);
@@ -45,7 +44,7 @@ describe('wallElevation', () => {
     const store = new Store(demoDesign());
     const rightWall = store.design.corners[1].id; // (4.2,0)->(4.2,3.4)
     const elev = wallElevation(store.design, rightWall)!;
-    expect(elev.items.map((i) => store.defOf(i.defId).kind)).toContain('fridge');
+    expect(elev.items.map((i) => i.defId)).toContain('fridge');
   });
 
   it('maps an item to its along-wall position and floor-relative height band', () => {
@@ -58,7 +57,7 @@ describe('wallElevation', () => {
     // width maps to along-wall span, height to a floor-anchored band
     expect(row.halfW).toBeCloseTo(cab.w / 2);
     expect(row.z0).toBeCloseTo(0);
-    expect(row.z1).toBeCloseTo(catalogDef('base-cabinet').h);
+    expect(row.z1).toBeCloseTo(store.defOf('base-cabinet').h);
     // centre sits at the item's distance along the wall (roughly mid-wall)
     expect(row.center).toBeGreaterThan(0.5);
     expect(row.center).toBeLessThan(bottom.len - 0.5);

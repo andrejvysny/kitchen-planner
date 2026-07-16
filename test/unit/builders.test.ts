@@ -8,7 +8,9 @@ import {
   samplePart,
   toCatalogDef,
 } from '../../src/model/parts';
-import { deskBoards, migratePartV1 } from '../../src/model/partsMigrate';
+import { partPanels } from '../../src/model/panels';
+import { PRESETS } from '../../src/model/presets';
+import { deskBoards } from './fixtures';
 import type { BoardPartDef, CabinetPartDef, CustomPartDef, Design, Item, RoomStyle, Zone } from '../../src/model/types';
 import { buildItemGroup } from '../../src/view3d/itemMeshes';
 
@@ -61,13 +63,29 @@ describe('mesh builders', () => {
     });
   }
 
+  it('builds every cabinet preset through both the mesh and panel pipelines', () => {
+    for (const { part } of PRESETS) {
+      const def = toCatalogDef(part);
+      const group = buildItemGroup(itemFor(def), def, DESIGN, part);
+      expect(group.children.length).toBeGreaterThan(0);
+      const panels = partPanels(part, {
+        w: part.w,
+        d: part.d,
+        h: part.h,
+        elevation: part.elevation,
+      });
+      expect(panels.length).toBeGreaterThan(0);
+      expect(new Set(panels.map((p) => p.id)).size).toBe(panels.length);
+    }
+  });
+
   it('builds every custom part type', () => {
     const parts: CustomPartDef[] = [
       samplePart(),
       newCabinetPart(),
       newBoardPart(),
-      { ...newFreeformPart(), boards: deskBoards({ drawers: 3, panelLegs: 0 }, { w: 1.4, d: 0.7, h: 0.75 }) },
-      { ...newFreeformPart(), boards: deskBoards({ drawers: 0, panelLegs: 1 }, { w: 1.2, d: 0.6, h: 0.72 }) },
+      { ...newFreeformPart(), boards: deskBoards(3, { w: 1.4, d: 0.7, h: 0.75 }) },
+      { ...newFreeformPart(), boards: deskBoards(0, { w: 1.2, d: 0.6, h: 0.72 }) },
     ];
     for (const p of parts) {
       const def = toCatalogDef(p);
@@ -139,35 +157,4 @@ describe('mesh builders', () => {
     expect(bounds.max.x).toBeCloseTo(1.2, 2);
   });
 
-  it('migrated v1 parts keep the v1 slab layout', () => {
-    const raw = {
-      id: 'p1',
-      name: 'Old cabinet',
-      template: 'cabinet',
-      w: 1.2,
-      d: 0.42,
-      h: 0.75,
-      elevation: 0,
-      color: '#e6dfd0',
-      accentColor: '#c9a87c',
-      options: { drawers: 1, doors: 2, shelves: 1, plinth: 0, worktop: 1 },
-    };
-    const part = migratePartV1(raw)!;
-    expect(part.type).toBe('cabinet');
-    const def = toCatalogDef(part);
-    const group = buildItemGroup(itemFor(def), def, DESIGN, part);
-    const bounds = new Box3().setFromObject(group);
-    expect(bounds.max.y).toBeCloseTo(0.75, 2);
-    expect(bounds.max.x).toBeCloseTo(1.2 / 2 + 0.01, 2);
-    // 1 drawer front + 2 door fronts + groove strips + niche + carcass + worktop
-    const boxes = group.children.length;
-    expect(boxes).toBeGreaterThanOrEqual(12);
-
-    const desk = migratePartV1({ ...raw, template: 'desk', options: { drawers: 2, panelLegs: 0 } })!;
-    expect(desk.type).toBe('freeform');
-    const dg = buildItemGroup(itemFor(toCatalogDef(desk)), toCatalogDef(desk), DESIGN, desk);
-    const db = new Box3().setFromObject(dg);
-    expect(db.max.y).toBeCloseTo(0.75, 2);
-    expect(db.min.y).toBeCloseTo(0, 2);
-  });
 });

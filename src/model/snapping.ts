@@ -113,6 +113,8 @@ export function snapItem(
   let edgeSnapped = false;
   for (const o of store.design.items) {
     if (o.id === itemId) continue;
+    // attached appliances overlap their hosts — they'd feed the snap back
+    if (o.attach) continue;
     if (!angleClose(o.rotation, rotation)) continue;
     const oDepth = o.x * depthAxis.x + o.y * depthAxis.y;
     if (Math.abs(oDepth - myDepthPos) > (d + o.d) / 2 + 0.4) continue; // different run
@@ -157,7 +159,7 @@ export function snapItem(
   // ---- center alignment for free-standing items ----
   if (!wallId) {
     for (const o of store.design.items) {
-      if (o.id === itemId) continue;
+      if (o.id === itemId || o.attach) continue;
       if (Math.abs(o.x - x) < ALIGN_SNAP_DIST) {
         x = o.x;
         guides.push({ a: { x: o.x, y: Math.min(o.y, y) }, b: { x: o.x, y: Math.max(o.y, y) } });
@@ -165,7 +167,7 @@ export function snapItem(
       }
     }
     for (const o of store.design.items) {
-      if (o.id === itemId) continue;
+      if (o.id === itemId || o.attach) continue;
       if (Math.abs(o.y - y) < ALIGN_SNAP_DIST) {
         y = o.y;
         guides.push({ a: { x: Math.min(o.x, x), y: o.y }, b: { x: Math.max(o.x, x), y: o.y } });

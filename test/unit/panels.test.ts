@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { cabinetPanels, partPanels, type Panel, type PartDims } from '../../src/model/panels';
 import { newBoardPart, newCabinetPart, newFreeformPart, samplePart } from '../../src/model/parts';
-import { deskBoards } from '../../src/model/partsMigrate';
 import type { CabinetPartDef } from '../../src/model/types';
+import { deskBoards } from './fixtures';
 
 const dimsOf = (p: { w: number; d: number; h: number; elevation: number }): PartDims => ({
   w: p.w,
@@ -45,7 +45,20 @@ describe('partPanels (manufacturing IR)', () => {
     // 1 drawer front + 2 pair doors
     expect(roles('front')).toHaveLength(3);
     expect(roles('niche').length).toBeGreaterThanOrEqual(5);
-    expect(roles('shelf')).toHaveLength(1);
+    // one shelf in the open niche + the default auto shelf behind the door pair
+    expect(roles('shelf')).toHaveLength(2);
+    // hollow shell: left/right/bottom/top/back — real boards, not a solid block
+    expect(roles('carcass').map((p) => p.id).sort()).toEqual([
+      'carcass.back',
+      'carcass.bottom',
+      'carcass.left',
+      'carcass.right',
+      'carcass.top',
+    ]);
+    // 3 stacked zones → 2 divider boards
+    expect(roles('divider')).toHaveLength(2);
+    // the drawer front pulls a real box: 2 sides + back + bottom
+    expect(roles('drawerBox')).toHaveLength(4);
     // every front is a real board with the standard thickness
     for (const f of roles('front')) {
       expect(f.shape.kind).toBe('box');
@@ -105,7 +118,7 @@ describe('partPanels (manufacturing IR)', () => {
 
   it('freeform: one panel per board, slots/tints/grooves preserved', () => {
     const part = newFreeformPart();
-    part.boards = deskBoards({ drawers: 2, panelLegs: 0 }, { w: 1.4, d: 0.7, h: 0.75 });
+    part.boards = deskBoards(2, { w: 1.4, d: 0.7, h: 0.75 });
     Object.assign(part, { w: 1.4, d: 0.7, h: 0.75 });
     const panels = partPanels(part, dimsOf(part));
     expect(panels).toHaveLength(part.boards.length);
@@ -117,6 +130,70 @@ describe('partPanels (manufacturing IR)', () => {
     const top = panels.find((p) => p.boardId === 'top')!;
     expect(top.slot).toBe('accent');
     expect(top.finish).toBe('wood');
+  });
+
+  it('worktop panels carry the counter slot', () => {
+    const part = samplePart(); // worktop: true
+    const top = partPanels(part, dimsOf(part)).find((p) => p.role === 'worktop')!;
+    expect(top.slot).toBe('counter');
+  });
+
+  it('worktopOverhang extends the slab per edge; default stays snug', () => {
+    const part = newCabinetPart(); // rect, worktop: true
+    const dflt = cabinetPanels(part, dimsOf(part)).find((p) => p.role === 'worktop')!;
+    if (dflt.shape.kind !== 'box') throw new Error('expected box');
+    expect(dflt.shape.w).toBeCloseTo(part.w + 0.02);
+    expect(dflt.shape.d).toBeCloseTo(part.d + 0.02);
+    expect(dflt.z).toBeCloseTo(0.005);
+
+    part.worktopOverhang = { front: 0.15, back: 0.03, sides: 0.03 };
+    const island = cabinetPanels(part, dimsOf(part)).find((p) => p.role === 'worktop')!;
+    if (island.shape.kind !== 'box') throw new Error('expected box');
+    expect(island.shape.w).toBeCloseTo(part.w + 0.06);
+    expect(island.shape.d).toBeCloseTo(part.d + 0.18);
+    expect(island.z).toBeCloseTo(0.06); // front-heavy overhang shifts the slab forward
+  });
+
+  it('finishedBack emits a real back board flush with the carcass', () => {
+    const part = newCabinetPart();
+    part.finishedBack = true;
+    const panels = cabinetPanels(part, dimsOf(part));
+    const back = panels.find((p) => p.id === 'back')!;
+    expect(back.role).toBe('panel');
+    if (back.shape.kind !== 'box') throw new Error('expected box');
+    expect(back.shape.w).toBeCloseTo(part.w);
+    expect(back.shape.d).toBeCloseTo(0.018);
+    expect(back.z).toBeCloseTo(-part.d / 2 + 0.009);
+    delete part.finishedBack;
+    expect(cabinetPanels(part, dimsOf(part)).some((p) => p.id === 'back')).toBe(false);
+  });
+
+  it('motion: doors hinge on the leaf side, pairs on outer edges, drawers slide', () => {
+    const single = newCabinetPart();
+    single.face = { kind: 'leaf', fill: 'door', hinge: 'right' };
+    const door = cabinetPanels(single, dimsOf(single)).find((p) => p.role === 'front')!;
+    expect(door.motion).toEqual({ unit: door.id, kind: 'hinge', side: 'right' });
+
+    const dflt = newCabinetPart();
+    dflt.face = { kind: 'leaf', fill: 'door' };
+    const d0 = cabinetPanels(dflt, dimsOf(dflt)).find((p) => p.role === 'front')!;
+    expect(d0.motion?.side).toBe('left'); // default hinge
+
+    const pair = newCabinetPart();
+    pair.face = { kind: 'leaf', fill: 'doorPair' };
+    const fronts = cabinetPanels(pair, dimsOf(pair)).filter((p) => p.role === 'front');
+    expect(fronts.map((p) => p.motion?.side)).toEqual(['left', 'right']);
+
+    const dr = newCabinetPart(); // 2 drawers by default
+    const panels = cabinetPanels(dr, dimsOf(dr));
+    const dFront = panels.find((p) => p.role === 'front')!;
+    expect(dFront.motion?.kind).toBe('slide');
+    // travel derives from the cavity depth the generator computed
+    expect(dFront.motion?.travel).toBeGreaterThan(0.3);
+    expect(dFront.motion?.travel).toBeLessThan(dr.d);
+    // the box boards ride the same unit as their front
+    const boxes = panels.filter((p) => p.role === 'drawerBox' && p.motion?.unit === dFront.id);
+    expect(boxes.length).toBe(4);
   });
 
   it('a flat cut list is derivable: every panel has finite dimensions', () => {

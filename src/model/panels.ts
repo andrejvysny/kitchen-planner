@@ -1,6 +1,15 @@
+import {
+  BACK_T,
+  CARCASS_T,
+  defaultInterior,
+  DRAWER_BOTTOM_T,
+  DRAWER_SIDE_T,
+  drawerBoxDims,
+  resolveInterior,
+} from './interior';
 import { footprintPolygon } from './parts';
 import type { BoardPartDef, CabinetPartDef, CustomPartDef, FreeformPartDef, Point, Zone } from './types';
-import { walkZones } from './zones';
+import { walkSplits, walkZones, type ZoneRect } from './zones';
 
 /**
  * The panel list is the single geometric truth for custom parts: a pure,
@@ -24,6 +33,7 @@ export type PanelShape =
 
 export type PanelRole =
   | 'carcass'
+  | 'divider'
   | 'plinth'
   | 'worktop'
   | 'front'
@@ -32,7 +42,24 @@ export type PanelRole =
   | 'glass'
   | 'niche'
   | 'shelf'
+  | 'drawerBox'
   | 'board';
+
+/**
+ * How a panel moves for the open-preview — and which hardware it implies.
+ * Geometric truth (the hinge side is a drilling datum, the slide travel
+ * derives from the cavity depth only the generator knows); the ANGLE/pose is
+ * cosmetic and lives in the mesh layer + ephemeral view state.
+ */
+export interface PanelMotion {
+  /** all panels moving together share it (the owning front's id) */
+  unit: string;
+  kind: 'hinge' | 'slide';
+  /** hinge only: the edge carrying the hinges */
+  side?: 'left' | 'right' | 'top' | 'bottom';
+  /** slide only: extension in meters (≈ cavity depth × 0.9) */
+  travel?: number;
+}
 
 export interface Panel {
   /** stable within the part, e.g. 'z0-1.front2' */
@@ -43,13 +70,16 @@ export interface Panel {
   y: number;
   z: number;
   rotY: number;
-  /** colour slot — the renderer/exporter resolves it against the part/item */
-  slot: 'front' | 'accent' | 'plinth' | 'glass';
+  /** colour slot — the renderer/exporter resolves it against the part/item;
+   * 'counter' follows the room worktop style (per-item override wins) */
+  slot: 'front' | 'accent' | 'plinth' | 'glass' | 'counter';
   finish: 'matte' | 'wood';
   /** shade factor on the resolved colour (carcass darkening, leg tint) */
   tint?: number;
   /** handleless fronts carry a routed groove along this edge (decoration) */
   groove?: 'top' | 'bottom';
+  /** doors/drawers: how this panel opens in the 3D preview */
+  motion?: PanelMotion;
   /** freeform only: the source board, for preview picking */
   boardId?: string;
 }
@@ -59,6 +89,21 @@ export interface PartDims {
   d: number;
   h: number;
   elevation: number;
+}
+
+/**
+ * The front face the zone tree lays out on, from the cabinet's body math
+ * (single source — the studio canvas and any host-anchor math reuse it).
+ */
+export function cabinetFaceSize(part: CabinetPartDef): { faceW: number; faceH: number } {
+  const wallMounted = part.elevation > 0.3;
+  const topT = part.worktop ? WORKTOP_T : 0;
+  const y0 = !wallMounted && part.plinth ? PLINTH_H : 0;
+  const fp = part.footprint;
+  let faceW = part.w;
+  if (fp.kind === 'chamfer') faceW = fp.face === 'angled' ? Math.hypot(fp.cx, fp.cz) : part.w - fp.cx;
+  else if (fp.kind === 'cornerL') faceW = part.w - fp.nw;
+  return { faceW: Math.max(0.1, faceW), faceH: Math.max(0.1, part.h - y0 - topT) };
 }
 
 type Place = (lx: number, lz: number) => { x: number; z: number };
@@ -103,8 +148,50 @@ interface FaceOpts {
   groove: 'top' | 'bottom';
   /** interior depth available behind the face */
   nicheD: number;
-  /** emit per-zone carcass blocks behind closed zones (rect cabinets) */
-  carcass: boolean;
+  /** true when a hollow shell + dividers back this face (rect cabinets) */
+  shell: boolean;
+}
+
+/** A leaf's usable cavity between shell/divider boards, face-local. */
+export interface Cavity {
+  x0: number;
+  w: number;
+  y0: number;
+  h: number;
+}
+
+/**
+ * Inset a zone rect by the boards that bound it: full carcass thickness at
+ * the shell (or on faces without a shell), half at a shared divider — so the
+ * cut list counts every board exactly once and shelf widths are true.
+ * Exported for the interior editor: its canvas lays out in exactly this box.
+ */
+export function zoneCavity(r: ZoneRect, faceW: number, faceH: number, shell: boolean): Cavity {
+  const eps = 1e-4;
+  const at = (outer: boolean): number => (!shell || outer ? CARCASS_T : CARCASS_T / 2);
+  const l = at(r.x < eps);
+  const rt = at(r.x + r.w > faceW - eps);
+  const b = at(r.y < eps);
+  const t = at(r.y + r.h > faceH - eps);
+  return { x0: r.x + l, w: r.w - l - rt, y0: r.y + b, h: r.h - b - t };
+}
+
+/**
+ * The box interior elements lay out in, per fill: open niches sit inside
+ * their accent lining, closed fills inside the carcass cavity. The interior
+ * editor and facePanels share this — WYSIWYG down to the millimetre.
+ */
+export function interiorBox(
+  r: ZoneRect,
+  faceW: number,
+  faceH: number,
+  fill: string,
+  shell: boolean
+): Cavity {
+  if (fill === 'open') {
+    return { x0: r.x + 0.015, w: r.w - 0.03, y0: r.y + 0.015, h: r.h - 0.03 };
+  }
+  return zoneCavity(r, faceW, faceH, shell);
 }
 
 /** Panels for a zone tree laid onto one face: x across it, y up, fronts ending at zFront. */
@@ -119,35 +206,74 @@ function facePanels(
   rotY: number,
   o: FaceOpts
 ): void {
-  // interior blocks share the classic carcass depth: inset FRONT_T behind the fronts
+  // interior space shares the classic carcass depth: inset FRONT_T behind the fronts
   const cd = o.nicheD - FRONT_T;
   const zc = zFront - FRONT_T - cd / 2;
-  const front = (id: string, w: number, h: number, lx: number, y: number): void => {
+  // usable cavity depth ends at the back board
+  const cavD = cd - BACK_T;
+  const zCav = zc + BACK_T / 2;
+  const acc: Partial<Panel> = { slot: 'accent', finish: 'wood' };
+  const front = (id: string, w: number, h: number, lx: number, y: number, motion?: PanelMotion): void => {
     out.push(
       boxPanel(id, 'front', w, h, FRONT_T, lx, y, zFront - FRONT_T / 2, place, rotY, {
         groove: o.groove,
+        motion,
       })
     );
+  };
+  /** one physical drawer box (sides/back/bottom) at cavity coords */
+  const drawerBox = (
+    id: string,
+    cav: Cavity,
+    boxY: number,
+    boxH: number,
+    unit: string
+  ): { boxW: number; boxD: number; travel: number } | null => {
+    const dims = drawerBoxDims(cav.w, boxH, cavD);
+    if (!dims) return null;
+    const motion: PanelMotion = { unit, kind: 'slide', travel: dims.travel };
+    const xc = cav.x0 + cav.w / 2 - faceW / 2;
+    const zBoxC = zFront - FRONT_T - 0.005 - dims.boxD / 2;
+    const y = y0 + boxY;
+    const rest: Partial<Panel> = { ...acc, motion };
+    out.push(
+      boxPanel(`${id}.side-l`, 'drawerBox', DRAWER_SIDE_T, dims.sideH, dims.boxD, xc - dims.boxW / 2 + DRAWER_SIDE_T / 2, y, zBoxC, place, rotY, rest),
+      boxPanel(`${id}.side-r`, 'drawerBox', DRAWER_SIDE_T, dims.sideH, dims.boxD, xc + dims.boxW / 2 - DRAWER_SIDE_T / 2, y, zBoxC, place, rotY, rest),
+      boxPanel(`${id}.back`, 'drawerBox', dims.boxW - DRAWER_SIDE_T * 2, dims.sideH, DRAWER_SIDE_T, xc, y, zBoxC - dims.boxD / 2 + DRAWER_SIDE_T / 2, place, rotY, rest),
+      boxPanel(`${id}.bottom`, 'drawerBox', dims.boxW, DRAWER_BOTTOM_T, dims.boxD, xc, y, zBoxC, place, rotY, rest)
+    );
+    return dims;
   };
   for (const r of walkZones(face, faceW, faceH)) {
     const zid = `z${r.path.join('-') || 'r'}`;
     const xc = r.x + r.w / 2 - faceW / 2;
     const yb = y0 + r.y;
     const leaf = r.leaf;
-    if (o.carcass && leaf.fill !== 'open') {
-      out.push(boxPanel(`${zid}.carcass`, 'carcass', r.w, r.h, cd, xc, yb, zc, place, rotY, { tint: 0.92 }));
-    }
+    const cav = zoneCavity(r, faceW, faceH, o.shell);
     if (leaf.fill === 'drawers') {
       const n = Math.max(1, leaf.drawers ?? 1);
       const fh = (r.h - GAP * (n + 1)) / n;
       for (let i = 0; i < n; i++) {
-        front(`${zid}.front${i}`, r.w - GAP * 2, fh, xc, yb + GAP + i * (fh + GAP));
+        const fy = yb + GAP + i * (fh + GAP);
+        const unit = `${zid}.front${i}`;
+        // every drawer front pulls a real box — the cut list needs its boards
+        const dims = drawerBox(`${zid}.dbox${i}`, cav, fy - y0 + 0.01, Math.max(0.05, fh - 0.03), unit);
+        front(unit, r.w - GAP * 2, fh, xc, fy, {
+          unit,
+          kind: 'slide',
+          travel: dims?.travel ?? cavD * 0.9,
+        });
       }
     } else if (leaf.fill === 'door' || leaf.fill === 'doorPair') {
       let i = 0;
-      splitFronts(r.w, leaf.fill === 'doorPair' ? 2 : 1, (dx, fw) =>
-        front(`${zid}.front${i++}`, fw, r.h - GAP, xc + dx, yb + GAP / 2)
-      );
+      splitFronts(r.w, leaf.fill === 'doorPair' ? 2 : 1, (dx, fw) => {
+        const unit = `${zid}.front${i}`;
+        // pairs hinge on their outer edges; single doors carry the leaf's side
+        const side =
+          leaf.fill === 'doorPair' ? (i === 0 ? 'left' : 'right') : (leaf.hinge ?? 'left');
+        i++;
+        front(unit, fw, r.h - GAP, xc + dx, yb + GAP / 2, { unit, kind: 'hinge', side });
+      });
     } else if (leaf.fill === 'panel') {
       out.push(
         boxPanel(`${zid}.panel`, 'panel', r.w - GAP * 2, r.h - GAP, FRONT_T, xc, yb + GAP / 2, zFront - FRONT_T / 2, place, rotY)
@@ -165,9 +291,19 @@ function facePanels(
         boxPanel(`${zid}.frame3`, 'frame', s, fh - s * 2, FRONT_T, xc + fw / 2 - s / 2, yg + s, zf, place, rotY),
         boxPanel(`${zid}.glass`, 'glass', fw - s * 2, fh - s * 2, 0.006, xc, yg + s, zf, place, rotY, { slot: 'glass' })
       );
+    } else if (leaf.fill === 'appliance') {
+      // empty appliance niche: a carcass-toned housing an oven slides into —
+      // no front; the appliance item itself renders separately
+      const hous: Partial<Panel> = { tint: 0.92 };
+      out.push(
+        boxPanel(`${zid}.niche-back`, 'niche', r.w, r.h, 0.012, xc, yb, zFront - o.nicheD + 0.02, place, rotY, hous),
+        boxPanel(`${zid}.niche-left`, 'niche', 0.015, r.h, cd, xc - r.w / 2 + 0.0075, yb, zc, place, rotY, hous),
+        boxPanel(`${zid}.niche-right`, 'niche', 0.015, r.h, cd, xc + r.w / 2 - 0.0075, yb, zc, place, rotY, hous),
+        boxPanel(`${zid}.niche-bottom`, 'niche', r.w, 0.015, cd, xc, yb, zc, place, rotY, hous),
+        boxPanel(`${zid}.niche-top`, 'niche', r.w, 0.015, cd, xc, yb + r.h - 0.015, zc, place, rotY, hous)
+      );
     } else {
-      // open niche: a real accent-wood box, visible from the front
-      const acc: Partial<Panel> = { slot: 'accent', finish: 'wood' };
+      // open niche: a real accent-wood lining, visible from the front
       out.push(
         boxPanel(`${zid}.niche-back`, 'niche', r.w, r.h, 0.012, xc, yb, zFront - o.nicheD + 0.02, place, rotY, acc),
         boxPanel(`${zid}.niche-left`, 'niche', 0.015, r.h, cd, xc - r.w / 2 + 0.0075, yb, zc, place, rotY, acc),
@@ -175,10 +311,46 @@ function facePanels(
         boxPanel(`${zid}.niche-bottom`, 'niche', r.w, 0.015, cd, xc, yb, zc, place, rotY, acc),
         boxPanel(`${zid}.niche-top`, 'niche', r.w, 0.015, cd, xc, yb + r.h - 0.015, zc, place, rotY, acc)
       );
-      const n = Math.max(0, leaf.shelves ?? 1);
-      for (let i = 0; i < n; i++) {
-        const sy = yb + ((i + 1) * r.h) / (n + 1);
-        out.push(boxPanel(`${zid}.shelf${i}`, 'shelf', r.w - 0.03, 0.02, cd - 0.02, xc, sy - 0.01, zc, place, rotY, acc));
+    }
+    // interior elements (shelves / internal drawers) behind closed fronts,
+    // glass and inside open niches — resolved to exact positions so the 3D
+    // view, the editor and the cut list all see the same boards
+    if (['door', 'doorPair', 'glass', 'open'].includes(leaf.fill)) {
+      const box = interiorBox(r, faceW, faceH, leaf.fill, o.shell);
+      const exc = xc; // shelves stay zone-centred inside asymmetric cavities
+      const elements = resolveInterior(leaf.interior ?? defaultInterior(leaf.fill), box.h);
+      let si = 0;
+      let bi = 0;
+      for (const e of elements) {
+        if (e.kind === 'shelf') {
+          out.push(
+            boxPanel(
+              `${zid}.shelf${si++}`,
+              'shelf',
+              box.w,
+              CARCASS_T,
+              cavD - 0.01,
+              exc,
+              y0 + box.y0 + e.y - CARCASS_T / 2,
+              zCav,
+              place,
+              rotY,
+              acc
+            )
+          );
+        } else {
+          const id = `${zid}.ib${bi++}`;
+          const dims = drawerBox(id, box, box.y0 + e.y, e.h, id);
+          if (dims) {
+            // internal drawers carry their own small front board
+            out.push(
+              boxPanel(`${id}.front`, 'drawerBox', dims.boxW, e.h + 0.02, FRONT_T, exc, y0 + box.y0 + e.y - 0.01, zFront - FRONT_T - GAP - FRONT_T / 2, place, rotY, {
+                ...acc,
+                motion: { unit: id, kind: 'slide', travel: dims.travel },
+              })
+            );
+          }
+        }
       }
     }
   }
@@ -191,7 +363,17 @@ function insetEdge(poly: Point[], i: number, j: number, outward: Point, amount: 
   }
 }
 
-export function cabinetPanels(part: CabinetPartDef, dims: PartDims): Panel[] {
+/** cutout rects (host-local plan coords, +y front) as prism hole polygons */
+function cutoutHoles(ctx: HostContext | undefined): Point[][] {
+  return (ctx?.cutouts ?? []).map((c) => [
+    { x: c.x - c.w / 2, y: c.y - c.d / 2 },
+    { x: c.x + c.w / 2, y: c.y - c.d / 2 },
+    { x: c.x + c.w / 2, y: c.y + c.d / 2 },
+    { x: c.x - c.w / 2, y: c.y + c.d / 2 },
+  ]);
+}
+
+export function cabinetPanels(part: CabinetPartDef, dims: PartDims, ctx?: HostContext): Panel[] {
   const { w, d, h } = dims;
   const out: Panel[] = [];
   const wallMounted = dims.elevation > 0.3;
@@ -200,21 +382,84 @@ export function cabinetPanels(part: CabinetPartDef, dims: PartDims): Panel[] {
   const y0 = hasPlinth ? PLINTH_H : 0;
   const bodyH = h - y0 - topT;
   if (bodyH <= 0.05) return out;
-  const opts: FaceOpts = { groove: wallMounted ? 'bottom' : 'top', nicheD: d, carcass: true };
+  const opts: FaceOpts = { groove: wallMounted ? 'bottom' : 'top', nicheD: d, shell: true };
 
   const fpPoly = footprintPolygon(part, w, d);
   if (!fpPoly) {
     if (hasPlinth) {
       out.push(boxPanel('plinth', 'plinth', w - 0.06, PLINTH_H, d - 0.05, 0, 0, -0.02, AT, 0, { slot: 'plinth' }));
     }
+    // hollow carcass: one shared shell + one divider board per zone boundary —
+    // the same boards a shop would cut, so the panel list IS the cut list
+    const cd = d - FRONT_T;
+    const zc = -FRONT_T / 2;
+    const shell: Partial<Panel> = { tint: 0.92 };
+    out.push(
+      boxPanel('carcass.left', 'carcass', CARCASS_T, bodyH, cd, -w / 2 + CARCASS_T / 2, y0, zc, AT, 0, shell),
+      boxPanel('carcass.right', 'carcass', CARCASS_T, bodyH, cd, w / 2 - CARCASS_T / 2, y0, zc, AT, 0, shell),
+      boxPanel('carcass.bottom', 'carcass', w - CARCASS_T * 2, CARCASS_T, cd, 0, y0, zc, AT, 0, shell),
+      boxPanel('carcass.top', 'carcass', w - CARCASS_T * 2, CARCASS_T, cd, 0, y0 + bodyH - CARCASS_T, zc, AT, 0, shell),
+      boxPanel('carcass.back', 'carcass', w - CARCASS_T * 2, bodyH - CARCASS_T * 2, BACK_T, 0, y0 + CARCASS_T, -d / 2 + BACK_T / 2, AT, 0, shell)
+    );
+    for (const b of walkSplits(part.face, w, bodyH)) {
+      const id = `div.${b.path.join('-') || 'r'}.${b.index}`;
+      if (b.dir === 'v') {
+        out.push(boxPanel(id, 'divider', CARCASS_T, b.len, cd, b.x - w / 2, y0 + b.y, zc, AT, 0, shell));
+      } else {
+        out.push(boxPanel(id, 'divider', b.len, CARCASS_T, cd, b.x + b.len / 2 - w / 2, y0 + b.y - CARCASS_T / 2, zc, AT, 0, shell));
+      }
+    }
     facePanels(out, part.face, w, bodyH, y0, d / 2, AT, 0, opts);
-    if (topT) {
+    if (part.finishedBack) {
       out.push(
-        boxPanel('worktop', 'worktop', w + 0.02, topT, d + 0.02, 0, h - topT, 0.005, AT, 0, {
-          slot: 'accent',
-          finish: 'wood',
-        })
+        boxPanel('back', 'panel', w, bodyH, FRONT_T, 0, y0, -d / 2 + FRONT_T / 2, AT, 0)
       );
+    }
+    if (topT) {
+      // overhang extends the slab beyond the carcass, per edge (default snug)
+      const ov = part.worktopOverhang ?? { front: 0.015, back: 0.005, sides: 0.01 };
+      const holes = cutoutHoles(ctx);
+      if (holes.length) {
+        // a sink/hob cutout turns the slab into a prism with real holes —
+        // exactly what a CNC cut list needs
+        out.push({
+          id: 'worktop',
+          role: 'worktop',
+          shape: {
+            kind: 'prism',
+            outline: [
+              { x: -w / 2 - ov.sides, y: -d / 2 - ov.back },
+              { x: w / 2 + ov.sides, y: -d / 2 - ov.back },
+              { x: w / 2 + ov.sides, y: d / 2 + ov.front },
+              { x: -w / 2 - ov.sides, y: d / 2 + ov.front },
+            ],
+            holes,
+            h: topT,
+          },
+          x: 0,
+          y: h - topT,
+          z: 0,
+          rotY: 0,
+          slot: 'counter',
+          finish: 'wood',
+        });
+      } else {
+        out.push(
+          boxPanel(
+            'worktop',
+            'worktop',
+            w + ov.sides * 2,
+            topT,
+            d + ov.front + ov.back,
+            0,
+            h - topT,
+            (ov.front - ov.back) / 2,
+            AT,
+            0,
+            { slot: 'counter', finish: 'wood' }
+          )
+        );
+      }
     }
     return out;
   }
@@ -282,11 +527,16 @@ export function cabinetPanels(part: CabinetPartDef, dims: PartDims): Panel[] {
     });
     const id = `f${fi++}`;
     if (f.content === 'zones') {
-      facePanels(out, part.face, faceW, bodyH, y0, 0, place, ry, { ...opts, nicheD: Math.min(0.3, d), carcass: false });
+      facePanels(out, part.face, faceW, bodyH, y0, 0, place, ry, { ...opts, nicheD: Math.min(0.3, d), shell: false });
     } else if (f.content === 'door') {
       out.push(
         boxPanel(`${id}.front`, 'front', faceW - GAP * 2, bodyH - GAP, FRONT_T, 0, y0 + GAP / 2, -FRONT_T / 2, place, ry, {
           groove: opts.groove,
+          motion: {
+            unit: `${id}.front`,
+            kind: 'hinge',
+            side: fp.kind === 'cornerL' && fp.notch === 'right' ? 'right' : 'left',
+          },
         })
       );
     } else {
@@ -299,19 +549,24 @@ export function cabinetPanels(part: CabinetPartDef, dims: PartDims): Panel[] {
     out.push({
       id: 'worktop',
       role: 'worktop',
-      shape: { kind: 'prism', outline: fpPoly.map((p) => ({ x: p.x * 1.01, y: p.y * 1.01 })), h: topT },
+      shape: {
+        kind: 'prism',
+        outline: fpPoly.map((p) => ({ x: p.x * 1.01, y: p.y * 1.01 })),
+        holes: cutoutHoles(ctx),
+        h: topT,
+      },
       x: 0,
       y: h - topT,
       z: 0,
       rotY: 0,
-      slot: 'accent',
+      slot: 'counter',
       finish: 'wood',
     });
   }
   return out;
 }
 
-export function boardPanels(part: BoardPartDef, dims: PartDims): Panel[] {
+export function boardPanels(part: BoardPartDef, dims: PartDims, ctx?: HostContext): Panel[] {
   const outline = footprintPolygon(part, dims.w, dims.d);
   if (!outline || outline.length < 3) return [];
   const sx = dims.w / (part.w || 1);
@@ -328,6 +583,9 @@ export function boardPanels(part: BoardPartDef, dims: PartDims): Panel[] {
       { x: x - hw, y: y + hd },
     ];
   });
+  // appliance cutouts arrive in INSTANCE-local meters — appended after the
+  // def-space holes were scaled, never scaled themselves
+  holes.push(...cutoutHoles(ctx));
   return [
     {
       id: 'slab',
@@ -371,9 +629,14 @@ export function freeformPanels(part: FreeformPartDef, dims: PartDims): Panel[] {
   });
 }
 
+/** Per-instance host context: cutouts appliances take out of this item's worktop. */
+export interface HostContext {
+  cutouts: { x: number; y: number; w: number; d: number }[];
+}
+
 /** Every physical panel of a custom part, at the given instance dimensions. */
-export function partPanels(part: CustomPartDef, dims: PartDims): Panel[] {
-  if (part.type === 'cabinet') return cabinetPanels(part, dims);
-  if (part.type === 'board') return boardPanels(part, dims);
+export function partPanels(part: CustomPartDef, dims: PartDims, ctx?: HostContext): Panel[] {
+  if (part.type === 'cabinet') return cabinetPanels(part, dims, ctx);
+  if (part.type === 'board') return boardPanels(part, dims, ctx);
   return freeformPanels(part, dims);
 }

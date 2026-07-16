@@ -87,7 +87,9 @@ export function wallElevation(design: Design, wallId: string): WallElevation | n
   const wantRot = rotationFromInward(g.inward);
 
   const items: WallElevationItem[] = [];
+  const memberIds = new Set<string>();
   for (const it of design.items) {
+    if (it.attach) continue; // mounted appliances follow their host below
     const pr = projectOnWall(g, { x: it.x, y: it.y });
     if (pr.t < -0.3 || pr.t > g.len + 0.3) continue; // beyond the wall span
     if (pr.side <= 0) continue; // outside the room (behind the wall)
@@ -95,6 +97,7 @@ export function wallElevation(design: Design, wallId: string): WallElevation | n
     const backGap = pr.side - it.d / 2 - t / 2;
     if (backGap < -0.05 || backGap > BACK_GAP) continue; // not hugging this wall
     if (!angleClose(it.rotation, wantRot, FACE_TOL)) continue; // faces elsewhere
+    memberIds.add(it.id);
     items.push({
       id: it.id,
       defId: it.defId,
@@ -106,6 +109,23 @@ export function wallElevation(design: Design, wallId: string): WallElevation | n
       depth: pr.side,
     });
   }
+  // mounted appliances belong to whichever wall their HOST belongs to —
+  // their own back sits nowhere near it (a sink is centred on the cabinet)
+  for (const it of design.items) {
+    if (!it.attach || !memberIds.has(it.attach.hostId)) continue;
+    const pr = projectOnWall(g, { x: it.x, y: it.y });
+    items.push({
+      id: it.id,
+      defId: it.defId,
+      center: clamp(pr.t, 0, g.len),
+      halfW: it.w / 2,
+      z0: it.elevation,
+      z1: it.elevation + it.h,
+      color: it.color,
+      depth: pr.side,
+    });
+  }
+
   // against-wall (small side) first so nearer items paint over them
   items.sort((a, b) => a.depth - b.depth);
 

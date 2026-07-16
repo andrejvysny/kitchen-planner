@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { toCatalogDef } from '../../model/parts';
 import type { CustomPartDef, Design, Item } from '../../model/types';
 import { buildItemGroup } from '../../view3d/itemMeshes';
+import { collectMotionUnits, setFrontPoses } from '../../view3d/partMeshes';
 
 /**
  * Minimal Design wrapping the fixed preview room. The studio previews a single
@@ -25,6 +26,9 @@ const PREVIEW_DESIGN = {
  * meshes tagged with `userData.boardId` (freeform board picking).
  */
 export class StudioPreview {
+  /** "Doors open" preview toggle — studio-local, never persisted */
+  frontsOpen = false;
+
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -144,8 +148,13 @@ export class StudioPreview {
       elevation: part.elevation,
       color: part.color,
     };
+    // worktop panels follow the room worktop style; in the studio the part's
+    // accent stands in for it so the swatch stays live
+    PREVIEW_DESIGN.room.counterColor = part.accentColor;
     this.meshGroup = buildItemGroup(fake, toCatalogDef(part), PREVIEW_DESIGN, part);
     this.meshGroup.position.y = part.elevation > 0.3 ? 0.6 : 0;
+    // studio-local open preview: re-applied (snapped) after every rebuild
+    setFrontPoses(collectMotionUnits(this.meshGroup), () => this.frontsOpen, true);
     if (selectedBoardId) {
       this.meshGroup.traverse((o) => {
         let owner: THREE.Object3D | null = o;

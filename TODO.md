@@ -1,3 +1,24 @@
+# Cabinet Model Unification — TODO
+
+Plan: ~/.claude/plans/context-this-is-wobbly-finch.md
+Each phase ends green: `npx tsc --noEmit && npm run build && npm run test:unit && node test/interact.mjs`
+
+- [x] Phase 1: WS1 plumbing — Store.partOf, placement/finishedBack/worktopOverhang, Panel slot 'counter', cabinetTreeFromCounts → zones.ts (146 unit, 62/62 E2E)
+- [x] Phase 2: preset cut — presets.ts replaces baseCabinet/baseDrawers/island/pantry/wallCabinet/shelf; forkPartForItem + "Customize part…" (141 unit, 63/63 E2E)
+- [x] Phase 3: DESIGN_VERSION 5 strict gate, partsMigrate.ts + migrate.test.ts deleted, CLAUDE.md updated (127 unit, 64/64 E2E)
+- [x] Phase 4: interior model + hollow carcass — LeafZone.interior/hinge, interior.ts resolveInterior/drawerBoxDims, shell + dividers + real drawer boxes, zoneCanvas steppers (139 unit, 64/64 E2E)
+- [x] Phase 5: openable fronts — Panel.motion in IR, OpenFronts view state + 'pose' event, pivot groups, 3D dblclick + topbar + studio toggles, GLB exports closed (143 unit, 66/66 E2E)
+- [x] Phase 6: interior drill-in editor (dblclick zone) + hinge picker (143 unit, 67/67 E2E)
+- [x] Phase 7: appliance substrate — Item.attach, ZoneFill 'appliance', attach.ts (pose/sync/hosting/findHost), partPanels HostContext cutouts (150 unit, 67/67 E2E)
+- [x] Phase 8: counter appliances — appl-sink/appl-hob replace base-sink/base-hob; drag/place/cascade/dup lifecycle; snapItem skips attached (154 unit, 68/68 E2E)
+- [x] Phase 9: zone appliances — appl-oven/appl-micro replace base-oven/oven-tower; applianceTowerPart in demo (154 unit, 69/69 E2E)
+- [x] Phase 10: dishwasher/fridge/hood → Appliances (mount floor/wall), hasWorktop deleted, docs sweep (154 unit, 69/69 E2E)
+
+All phases complete. Uncommitted on master. No pre-v5 design compatibility (by decision).
+Deferred: hollow prism carcass for chamfer/cornerL (pre-export), glass-front motion units, continuous worktop runs, manufacturing export itself.
+
+---
+
 # Part Studio v2 — TODO
 
 Plan: ~/.claude/plans/act-as-senior-frontend-synchronous-melody.md

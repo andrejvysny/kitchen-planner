@@ -3,12 +3,12 @@ import {
   COUNTER_COLORS,
   FLOOR_COLORS,
   FRONT_COLORS,
-  hasWorktop,
   LIGHT_COLORS,
   WALL_COLORS,
   type CatalogDef,
 } from '../model/catalog';
 import { footprintPolygon, toCatalogDef } from '../model/parts';
+import { hasPreset, PRESETS } from '../model/presets';
 import {
   COUNTER_MATERIALS,
   FLOOR_MATERIALS,
@@ -18,6 +18,7 @@ import {
   WALL_MATERIALS,
   type MaterialDef,
 } from '../model/materials';
+import { navInput, setNavInput } from '../model/navPref';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../model/sky';
 import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
 import type { Item, Selection, WallVisMode } from '../model/types';
@@ -26,6 +27,7 @@ import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
 import type { ElevationView } from '../plan2d/elevation';
 import { materialSwatch } from '../view3d/textures';
+import { isMac, NAV_INPUTS, type NavInput } from '../view3d/wheelInput';
 import type { View3D, CamPreset } from '../view3d/view3d';
 import { PartStudio } from './partstudio';
 
@@ -35,6 +37,7 @@ const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
 /** defId → catalog section title, so placed items list under the same type group they were placed from. */
 const CATALOG_GROUP = new Map<string, string>();
 for (const s of CATALOG) for (const d of s.items) CATALOG_GROUP.set(d.id, s.title);
+for (const e of PRESETS) CATALOG_GROUP.set(e.part.id, e.section);
 
 /** Display order of the components-outline groups. */
 const OUTLINE_ORDER = ['Doors & windows', ...CATALOG.map((s) => s.title), 'My parts'];
@@ -89,6 +92,42 @@ export class UI {
     });
     this.updateUndoButtons();
     this.updateInfo();
+  }
+
+  /* ================= nav input ================= */
+
+  /**
+   * Wheel-reading preference (KITCHENP-13). Mouse-vs-trackpad cannot be decided
+   * from the DOM in every case — a high-resolution wheel is indistinguishable
+   * from a two-finger swipe — so "Auto" is a good guess and this is the manual
+   * override. macOS-only: elsewhere the wheel always zooms, so it would be a
+   * no-op control.
+   */
+  private wireNavInput(): void {
+    if (!isMac(navigator.platform, navigator.userAgent)) return;
+    const group = $('#navinput-group');
+    const btn = $('#btn-navinput');
+    group.hidden = false;
+    const LABELS: Record<NavInput, string> = {
+      auto: 'Nav: Auto',
+      mouse: 'Nav: Mouse',
+      trackpad: 'Nav: Trackpad',
+    };
+    const HINTS: Record<NavInput, string> = {
+      auto: 'Detect mouse vs trackpad automatically — click if the wheel pans when it should zoom',
+      mouse: 'Wheel always zooms',
+      trackpad: 'Two-finger swipe pans, +Shift orbits, pinch zooms',
+    };
+    const refresh = () => {
+      btn.textContent = LABELS[navInput()];
+      btn.title = HINTS[navInput()];
+    };
+    btn.addEventListener('click', () => {
+      const next = NAV_INPUTS[(NAV_INPUTS.indexOf(navInput()) + 1) % NAV_INPUTS.length];
+      setNavInput(next);
+      refresh();
+    });
+    refresh();
   }
 
   /* ================= sidebar tabs ================= */
@@ -157,7 +196,7 @@ export class UI {
       tile.tabIndex = 0;
       tile.title = `Click, then click in the plan to place — ${def.label.toLowerCase()}`;
       const canvas = document.createElement('canvas');
-      const tilePart = this.store.customPartById(def.id);
+      const tilePart = this.store.partOf(def.id);
       renderThumbnail(
         canvas,
         def.kind,
@@ -197,6 +236,10 @@ export class UI {
     let first = true;
     for (const section of CATALOG) {
       const grid = addSection(section.title);
+      // built-in cabinet presets lead their sections; legacy defs follow
+      for (const e of PRESETS) {
+        if (e.section === section.title) addTile(grid, toCatalogDef(e.part));
+      }
       for (const def of section.items) addTile(grid, def);
       if (first) {
         first = false;
@@ -261,7 +304,10 @@ export class UI {
     }
     for (const it of this.store.design.items) {
       const def = this.store.defOf(it.defId);
-      const group = def.kind === 'custom' ? 'My parts' : (CATALOG_GROUP.get(it.defId) ?? 'Other');
+      // preset ids group under their catalog section, not "My parts" —
+      // checked first because presets also read as kind 'custom'
+      const group =
+        CATALOG_GROUP.get(it.defId) ?? (def.kind === 'custom' ? 'My parts' : 'Other');
       add(group, {
         label: def.label,
         sel: { kind: 'item', id: it.id },
@@ -719,8 +765,28 @@ export class UI {
 
   private renderItemProps(root: HTMLElement, item: Item): void {
     const def = this.store.defOf(item.defId);
+    // presets are parts too, but read as built-ins to the user
+    const isOwnPart = !!this.store.customPartById(item.defId);
     root.appendChild(this.el(`<h2 class="props-title">${def.label}</h2>`));
-    root.appendChild(this.el(`<p class="props-sub">${def.kind === 'custom' ? 'Custom part' : 'Catalog item'}</p>`));
+    root.appendChild(this.el(`<p class="props-sub">${isOwnPart ? 'Custom part' : 'Catalog item'}</p>`));
+
+    // mounted appliances: pose is derived from the host — say so, offer Detach
+    if (item.attach) {
+      const host = this.store.itemById(item.attach.hostId);
+      const hostLabel = host ? this.store.defOf(host.defId).label : '?';
+      const mount = this.section(root, 'Mounting');
+      mount.appendChild(
+        this.el(
+          `<p class="props-sub">Mounted ${item.attach.kind === 'zone' ? 'in a niche of' : 'on'} <b>${hostLabel}</b> — moves with it</p>`
+        )
+      );
+      const row = this.el(`<div class="btn-row"><button class="btn">Detach</button></div>`);
+      row.querySelector('button')!.addEventListener('click', () => {
+        this.store.setAttachment(item.id, undefined);
+        this.store.commit();
+      });
+      mount.appendChild(row);
+    }
 
     // dimensions — freeform, no catalog limits (KITCHENP-7). Every dimension is
     // always editable; only a small positive floor guards against degenerate geometry.
@@ -734,33 +800,35 @@ export class UI {
     dimRow('Width', 'w');
     dimRow('Depth', 'd');
     dimRow('Height', 'h');
-    // Off-floor placement is likewise freeform for every item (floor at 0, no ceiling cap).
-    this.numberRow(dims, 'Off floor', Math.round(item.elevation * 100), 'cm', (v) =>
-      this.store.updateItem(item.id, { elevation: Math.max(0, v / 100) }), { min: 0 });
+    if (!item.attach) {
+      // Off-floor placement is likewise freeform for every item (floor at 0, no ceiling cap).
+      this.numberRow(dims, 'Off floor', Math.round(item.elevation * 100), 'cm', (v) =>
+        this.store.updateItem(item.id, { elevation: Math.max(0, v / 100) }), { min: 0 });
 
-    // position
-    const pos = this.section(root, 'Position');
-    this.numberRow(pos, 'X', Math.round(item.x * 100), 'cm', (v) =>
-      this.store.updateItem(item.id, { x: v / 100 }), { cls: 'pos-x' });
-    this.numberRow(pos, 'Y', Math.round(item.y * 100), 'cm', (v) =>
-      this.store.updateItem(item.id, { y: v / 100 }), { cls: 'pos-y' });
-    const rotRow = this.el(`<div class="prop-row"><label>Rotate</label>
-      <div class="stepper"><button title="Rotate left">⟲</button><input type="number" data-cls="rot" step="15" value="${displayDeg(item.rotation)}"><button title="Rotate right">⟳</button></div>
-      <span class="unit">°</span></div>`);
-    const [ccw, cw] = Array.from(rotRow.querySelectorAll('button'));
-    const rotInput = rotRow.querySelector('input') as HTMLInputElement;
-    const rotate = (rad: number) => {
-      this.store.updateItem(item.id, { rotation: rad }, { structural: false });
-      rotInput.value = String(displayDeg(rad));
-      this.store.commit();
-    };
-    ccw.addEventListener('click', () => rotate(item.rotation - Math.PI / 2));
-    cw.addEventListener('click', () => rotate(item.rotation + Math.PI / 2));
-    rotInput.addEventListener('change', () => {
-      const v = Number(rotInput.value);
-      if (Number.isFinite(v)) rotate((v * Math.PI) / 180);
-    });
-    pos.appendChild(rotRow);
+      // position
+      const pos = this.section(root, 'Position');
+      this.numberRow(pos, 'X', Math.round(item.x * 100), 'cm', (v) =>
+        this.store.updateItem(item.id, { x: v / 100 }), { cls: 'pos-x' });
+      this.numberRow(pos, 'Y', Math.round(item.y * 100), 'cm', (v) =>
+        this.store.updateItem(item.id, { y: v / 100 }), { cls: 'pos-y' });
+      const rotRow = this.el(`<div class="prop-row"><label>Rotate</label>
+        <div class="stepper"><button title="Rotate left">⟲</button><input type="number" data-cls="rot" step="15" value="${displayDeg(item.rotation)}"><button title="Rotate right">⟳</button></div>
+        <span class="unit">°</span></div>`);
+      const [ccw, cw] = Array.from(rotRow.querySelectorAll('button'));
+      const rotInput = rotRow.querySelector('input') as HTMLInputElement;
+      const rotate = (rad: number) => {
+        this.store.updateItem(item.id, { rotation: rad }, { structural: false });
+        rotInput.value = String(displayDeg(rad));
+        this.store.commit();
+      };
+      ccw.addEventListener('click', () => rotate(item.rotation - Math.PI / 2));
+      cw.addEventListener('click', () => rotate(item.rotation + Math.PI / 2));
+      rotInput.addEventListener('change', () => {
+        const v = Number(rotInput.value);
+        if (Number.isFinite(v)) rotate((v * Math.PI) / 180);
+      });
+      pos.appendChild(rotRow);
+    }
 
     // parametric options
     if (def.params?.length) {
@@ -803,7 +871,7 @@ export class UI {
       }
 
       // per-item worktop finish for anything topped with a counter slab
-      const part = this.store.customPartById(item.defId);
+      const part = this.store.partOf(item.defId);
 
       // custom parts expose an accent (wood-tone) slot — bindable per instance
       if (part) {
@@ -813,7 +881,8 @@ export class UI {
         this.swatchRow(accent, COUNTER_COLORS, resolveColor(this.store.design, item.accentColor ?? part.accentColor), (c) =>
           this.store.updateItem(item.id, { accentColor: c }));
       }
-      const withWorktop = part ? part.type === 'cabinet' && part.worktop : hasWorktop(def);
+      // worktops live on cabinet parts now — nothing else carries one
+      const withWorktop = part ? part.type === 'cabinet' && part.worktop : false;
       if (withWorktop) {
         const counter = this.section(root, 'Worktop');
         this.materialRow(counter, COUNTER_MATERIALS, item.counterMaterial, (id) =>
@@ -854,13 +923,23 @@ export class UI {
     });
     actions.appendChild(row);
 
-    if (def.kind === 'custom') {
+    if (this.store.customPartById(item.defId)) {
       const editRow = this.el(`<div class="btn-row"><button class="btn">Edit part template…</button></div>`);
       editRow.querySelector('button')!.addEventListener('click', () => {
         const part = this.store.customPartById(item.defId);
         if (part) this.studio.open(part);
       });
       actions.appendChild(editRow);
+    } else if (hasPreset(item.defId)) {
+      // fork the preset into "My parts" so just this instance becomes editable
+      const custRow = this.el(`<div class="btn-row"><button class="btn">Customize part…</button></div>`);
+      custRow.querySelector('button')!.addEventListener('click', () => {
+        const fork = this.store.forkPartForItem(item.id);
+        if (!fork) return;
+        this.store.commit();
+        this.studio.open(fork);
+      });
+      actions.appendChild(custRow);
     }
   }
 
@@ -1029,6 +1108,15 @@ export class UI {
     });
     this.store.on('history', refreshDay);
     refreshDay();
+
+    // door/drawer open-preview: pure view state, never part of the design
+    const openBtn = $('#btn-openfronts');
+    const refreshOpen = () => openBtn.classList.toggle('active', this.store.openFronts.allOpen);
+    openBtn.addEventListener('click', () => this.store.openFronts.setAll(!this.store.openFronts.allOpen));
+    this.store.on('pose', refreshOpen);
+    refreshOpen();
+
+    this.wireNavInput();
 
     $('#btn-new').addEventListener('click', () => {
       if (!confirm('Start a new design? Your current design will be replaced (Undo can restore it).')) return;

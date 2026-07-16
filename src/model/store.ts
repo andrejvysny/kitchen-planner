@@ -1,17 +1,21 @@
 import { catalogDef, defaultParams, hasCatalogDef, type CatalogDef } from './catalog';
+import { hasPreset, presetPart } from './presets';
 import { clamp, dist, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
 import { hasMaterial } from './materials';
-import { samplePart, sanitizePart, toCatalogDef } from './parts';
+import { applianceTowerPart, samplePart, sanitizePart, toCatalogDef } from './parts';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from './sky';
-import { migrateDesignV1, migratePartV1 } from './partsMigrate';
-import type { ChangeInfo, Corner, CustomPartDef, Design, DesignVar, Item, Opening, Point, Selection, WallVisMode } from './types';
+import type { Attachment, ChangeInfo, Corner, CustomPartDef, Design, DesignVar, Item, Opening, Point, Selection, WallVisMode } from './types';
 import { uid } from './types';
+import { syncAttachments } from './attach';
+import { OpenFronts } from './openFronts';
 import { detach, isVarRef, refId, toVarRef, VAR_FALLBACK } from './variables';
 
 type EventMap = {
   change: ChangeInfo;
   selection: Selection;
   history: void;
+  /** ephemeral open-front poses changed — apply without rebuild */
+  pose: void;
 };
 
 type Handler<T> = (payload: T) => void;
@@ -21,11 +25,14 @@ const AUTOSAVE_KEY = 'kitchen-planner-design-v1';
 export class Store {
   design: Design;
   selection: Selection = { kind: 'none' };
+  /** ephemeral door/drawer open-preview state — like selection, never saved */
+  readonly openFronts = new OpenFronts();
 
   private handlers: { [K in keyof EventMap]: Handler<EventMap[K]>[] } = {
     change: [],
     selection: [],
     history: [],
+    pose: [],
   };
 
   private undoStack: string[] = [];
@@ -35,6 +42,7 @@ export class Store {
   constructor(design: Design) {
     this.design = design;
     this.lastCommitted = JSON.stringify(design);
+    this.openFronts.onChange = () => this.emit('pose', undefined);
   }
 
   /* ---------------- events ---------------- */
@@ -102,6 +110,7 @@ export class Store {
     this.design = normalizeDesign(JSON.parse(json));
     this.lastCommitted = json;
     this.select({ kind: 'none' });
+    this.saveSharedLibrary(); // undoing a part fork/save must not orphan it in the library
     this.autosave();
     this.notify({ structural: true });
     this.emit('history', undefined);
@@ -113,6 +122,8 @@ export class Store {
     this.design = normalizeDesign(design);
     this.lastCommitted = JSON.stringify(this.design);
     this.select({ kind: 'none' });
+    this.openFronts.clear(); // stale poses must not leak across designs
+    this.saveSharedLibrary();
     this.autosave();
     this.notify({ structural: true });
     this.emit('history', undefined);
@@ -174,9 +185,17 @@ export class Store {
     return this.design.customParts.find((p) => p.id === id);
   }
 
+  /**
+   * Resolve any defId to its part def — a design-local custom part first
+   * (deliberately shadowing a same-id preset), then the built-in presets.
+   */
+  partOf(defId: string): CustomPartDef | undefined {
+    return this.customPartById(defId) ?? presetPart(defId);
+  }
+
   /** Resolve any defId — built-in catalog entry or user-created part. */
   defOf(defId: string): CatalogDef {
-    const part = this.customPartById(defId);
+    const part = this.partOf(defId);
     return part ? toCatalogDef(part) : catalogDef(defId);
   }
 
@@ -395,7 +414,7 @@ export class Store {
       params: defaultParams(def),
     };
     // instances of user parts start at the part's configured elevation
-    const part = this.customPartById(def.id);
+    const part = this.partOf(def.id);
     if (part) item.elevation = part.elevation;
     // bind new items to the configured default variables where applicable
     const { defaultFrontVar, defaultAccentVar } = this.design;
@@ -416,8 +435,28 @@ export class Store {
     const idx = this.design.customParts.findIndex((p) => p.id === part.id);
     if (idx >= 0) this.design.customParts[idx] = part;
     else this.design.customParts.push(part);
+    // a def edit can remove a worktop or an appliance niche — attachments
+    // that no longer resolve detach to the world instead of dangling
+    syncAttachments(this.design);
     this.saveSharedLibrary();
     this.notify({ structural: true });
+  }
+
+  /**
+   * Clone the item's resolved part (preset or shared custom part) into
+   * design.customParts and repoint just this instance at the copy — the
+   * "Customize part…" flow. Caller commits.
+   */
+  forkPartForItem(itemId: string): CustomPartDef | undefined {
+    const it = this.itemById(itemId);
+    const src = it && this.partOf(it.defId);
+    if (!it || !src) return undefined;
+    const copy = JSON.parse(JSON.stringify(src)) as CustomPartDef;
+    copy.id = uid('part');
+    copy.name = `${src.name} (custom)`.slice(0, 32);
+    this.upsertCustomPart(copy);
+    this.updateItem(itemId, { defId: copy.id });
+    return copy;
   }
 
   /** Delete a part and any placed instances of it. */
@@ -448,14 +487,7 @@ export class Store {
       if (!raw) return [samplePart()];
       const parsed: unknown = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [samplePart()];
-      // v1 entries carry `template`, v2 carry `type` — migrate per element
-      const parts = parsed
-        .map((p) => {
-          const rec = p as Record<string, unknown> | null;
-          if (rec && typeof rec.template === 'string') return migratePartV1(rec);
-          return sanitizePart(p);
-        })
-        .filter((p): p is CustomPartDef => !!p);
+      const parts = parsed.map(sanitizePart).filter((p): p is CustomPartDef => !!p);
       return parts.length ? parts : [samplePart()];
     } catch {
       return [samplePart()];
@@ -477,7 +509,38 @@ export class Store {
     const it = this.itemById(id);
     if (!it) return;
     Object.assign(it, patch);
+    const touchesPose = ['x', 'y', 'rotation', 'elevation', 'w', 'd', 'h'].some((k) => k in patch);
+    if (touchesPose) {
+      // moving an ATTACHED item re-anchors it on its host (world → host-local)
+      if (it.attach?.kind === 'counter' && ('x' in patch || 'y' in patch)) {
+        const host = this.itemById(it.attach.hostId);
+        if (host) {
+          const c = Math.cos(host.rotation);
+          const s = Math.sin(host.rotation);
+          const dx = it.x - host.x;
+          const dy = it.y - host.y;
+          it.attach.u = dx * c + dy * s;
+          it.attach.v = -dx * s + dy * c;
+        }
+      }
+      // moving a HOST carries its appliances; either way the caches resettle
+      if (it.attach || this.design.items.some((o) => o.attach && o.attach.hostId === id)) {
+        syncAttachments(this.design);
+        // a moved cutout changes the host's panel list — must rebuild
+        info = { ...info, structural: true };
+      }
+    }
     this.notify(info);
+  }
+
+  /** Attach/detach an appliance; poses resettle immediately. */
+  setAttachment(id: string, attach: Item['attach']): void {
+    const it = this.itemById(id);
+    if (!it) return;
+    if (attach) it.attach = attach;
+    else delete it.attach;
+    syncAttachments(this.design);
+    this.notify({ structural: true, transient: true });
   }
 
   updateItemLight(id: string, patch: Partial<NonNullable<Item['light']>>): void {
@@ -488,8 +551,13 @@ export class Store {
   }
 
   deleteItem(id: string): void {
-    this.design.items = this.design.items.filter((i) => i.id !== id);
-    if (this.selection.kind === 'item' && this.selection.id === id) this.select({ kind: 'none' });
+    // deleting a host takes its mounted appliances with it (one undo step)
+    const doomed = new Set([id]);
+    for (const i of this.design.items) {
+      if (i.attach && i.attach.hostId === id) doomed.add(i.id);
+    }
+    this.design.items = this.design.items.filter((i) => !doomed.has(i.id));
+    if (this.selection.kind === 'item' && doomed.has(this.selection.id)) this.select({ kind: 'none' });
     this.notify({ structural: true });
   }
 
@@ -501,7 +569,18 @@ export class Store {
     // offset the copy sideways (along its width axis) so it lands next to the original
     copy.x += Math.cos(it.rotation) * (it.w + 0.02);
     copy.y += Math.sin(it.rotation) * (it.w + 0.02);
+    // duplicated appliances detach (their anchor spot is taken); duplicated
+    // hosts bring rehomed copies of their mounted appliances along
+    delete copy.attach;
     this.design.items.push(copy);
+    for (const child of [...this.design.items]) {
+      if (!child.attach || child.attach.hostId !== id) continue;
+      const cc: Item = JSON.parse(JSON.stringify(child));
+      cc.id = uid('i');
+      cc.attach = { ...child.attach, hostId: copy.id } as Item['attach'];
+      this.design.items.push(cc);
+    }
+    syncAttachments(this.design);
     this.notify({ structural: true });
     return copy;
   }
@@ -600,7 +679,7 @@ export class Store {
       const def = this.defOf(it.defId);
       if (def.opening || def.marker) continue;
       if (slot === 'front') it.color = ref;
-      else if (this.customPartById(it.defId)) it.accentColor = ref;
+      else if (this.partOf(it.defId)) it.accentColor = ref;
       else continue;
       n++;
     }
@@ -680,26 +759,31 @@ export function normalizeDesign(d: Design): Design {
   return d;
 }
 
-export const DESIGN_VERSION = 4;
+export const DESIGN_VERSION = 5;
 
-/** Validate + repair a design parsed from storage or a file. Returns null when unusable. */
+/**
+ * Validate + repair a design parsed from storage or a file. Returns null when
+ * unusable — including ANY design from before the v5 preset cut (no migration
+ * path; callers fall back to a fresh design).
+ */
 export function sanitizeDesign(raw: unknown): Design | null {
   if (!raw || typeof raw !== 'object') return null;
   const d = raw as Record<string, unknown>;
-  if (typeof d.version !== 'number' || d.version > DESIGN_VERSION) return null;
+  if (typeof d.version !== 'number' || d.version !== DESIGN_VERSION) return null;
   if (!Array.isArray(d.corners) || d.corners.length < 3) return null;
   const base = emptyDesign();
   if (!Array.isArray(d.openings)) d.openings = [];
   if (!Array.isArray(d.items)) d.items = [];
   if (!Array.isArray(d.customParts)) d.customParts = [];
-  // v≤3 → 4 is additive: designs simply gain an empty variables registry
   d.variables = sanitizeVariables(d.variables);
-  if (d.version < 2) migrateDesignV1(d);
   d.customParts = (d.customParts as unknown[]).map(sanitizePart).filter(Boolean);
   // items whose defId resolves nowhere would crash the render loop
   const partIds = new Set((d.customParts as CustomPartDef[]).map((p) => p.id));
   d.items = (d.items as Item[]).filter(
-    (i) => i && typeof i.defId === 'string' && (partIds.has(i.defId) || hasCatalogDef(i.defId))
+    (i) =>
+      i &&
+      typeof i.defId === 'string' &&
+      (partIds.has(i.defId) || hasPreset(i.defId) || hasCatalogDef(i.defId))
   );
   // material ids must resolve in the built-in library — unknown ones are dropped;
   // rotation flags only persist as literal `true`
@@ -737,7 +821,43 @@ export function sanitizeDesign(raw: unknown): Design | null {
   d.wallVisibility = sanitizeWallVisibility(d.wallVisibility);
   if (d.ceilingVisibility !== 'show' && d.ceilingVisibility !== 'hide') delete d.ceilingVisibility;
   d.version = DESIGN_VERSION;
-  return normalizeDesign(d as unknown as Design);
+  const design = normalizeDesign(d as unknown as Design);
+  sanitizeAttachments(design);
+  return design;
+}
+
+/**
+ * Drop malformed/unresolvable appliance attachments (the item survives,
+ * detached at its cached pose), then refresh every attached pose cache.
+ * One appliance per zone niche: later claimants detach deterministically.
+ */
+function sanitizeAttachments(design: Design): void {
+  const ids = new Map(design.items.map((i) => [i.id, i]));
+  const claimedZones = new Set<string>();
+  for (const it of design.items) {
+    const a = it.attach as Attachment | undefined;
+    if (!a) continue;
+    const host = typeof a.hostId === 'string' ? ids.get(a.hostId) : undefined;
+    const shapeOk =
+      !!host &&
+      host !== it &&
+      !host.attach &&
+      ((a.kind === 'counter' && Number.isFinite(a.u) && Number.isFinite(a.v)) ||
+        (a.kind === 'zone' && Array.isArray(a.path) && a.path.every((n: unknown) => Number.isInteger(n) && (n as number) >= 0)));
+    if (!shapeOk) {
+      delete it.attach;
+      continue;
+    }
+    if (a.kind === 'zone') {
+      const key = `${a.hostId}:${a.path.join('-')}`;
+      if (claimedZones.has(key)) {
+        delete it.attach;
+        continue;
+      }
+      claimedZones.add(key);
+    }
+  }
+  syncAttachments(design);
 }
 
 /** Drop malformed variables; keep only valid material ids and literal `true` rot flags. */
@@ -775,25 +895,11 @@ const finite = (v: unknown, fb: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fb;
 
 /**
- * Coerce/clamp a scene; migrates the v1 {night} and v2 {timeOfDay,…} shapes.
- * Always builds a fresh object so retired fields never linger in autosave.
+ * Coerce/clamp a scene. Always builds a fresh object so retired fields never
+ * linger in autosave.
  */
 function sanitizeScene(rawIn: unknown): Design['scene'] {
   const raw = (rawIn && typeof rawIn === 'object' ? { ...rawIn } : {}) as Record<string, unknown>;
-  // legacy scenes: derive the sun from the old time-of-day arc so the look is preserved
-  if (
-    typeof raw.sunAzimuth !== 'number' &&
-    (typeof raw.timeOfDay === 'number' || typeof raw.night === 'boolean')
-  ) {
-    const t =
-      typeof raw.timeOfDay === 'number' ? ((raw.timeOfDay % 24) + 24) % 24 : raw.night ? 22 : 13;
-    const night = t < 6 || t > 20;
-    const p = Math.min(1, Math.max(0, (t - 6) / 14));
-    raw.sunAzimuth = Math.round(95 + 170 * p); // old east→west sweep
-    raw.sunElevation = night ? defaultScene().sunElevation : Math.round(Math.sin(p * Math.PI) * 60);
-    raw.night = night;
-    // old strength/colour/exposure/env tweaks are intentionally dropped — reset to auto
-  }
   const base = defaultScene();
   return {
     sunAzimuth: wrap360(finite(raw.sunAzimuth, base.sunAzimuth)),
@@ -813,7 +919,7 @@ export function defaultScene(): Design['scene'] {
 export function emptyDesign(): Design {
   const c = (x: number, y: number): Corner => ({ id: uid('c'), x, y });
   return normalizeDesign({
-    version: 4,
+    version: 5,
     corners: [c(0, 0), c(4, 0), c(4, 3), c(0, 3)],
     openings: [],
     items: [],
@@ -843,9 +949,12 @@ export function demoDesign(): Design {
   const t = 0.1; // wall thickness
   const backY = (depth: number) => t / 2 + depth / 2; // back flush against the top wall
 
+  // design-local custom parts the demo places (besides the shared library)
+  const demoParts: CustomPartDef[] = [];
   const items: Item[] = [];
   const add = (defId: string, x: number, y: number, rotation = 0, patch: Partial<Item> = {}) => {
-    const def = catalogDef(defId);
+    const part = presetPart(defId) ?? demoParts.find((p) => p.id === defId);
+    const def = part ? toCatalogDef(part) : catalogDef(defId);
     const it: Item = {
       id: uid('i'),
       defId,
@@ -869,13 +978,24 @@ export function demoDesign(): Design {
 
   const SAGE = '#8a9683';
 
-  // Worktop run along the top wall (y = 0), left to right.
+  // Worktop run along the top wall (y = 0), left to right. Sink and hob are
+  // appliances mounted INTO the cabinet worktops beneath them.
   add('base-drawers', 0.45, backY(0.6), 0, { w: 0.8, color: SAGE });
-  add('base-sink', 1.25, backY(0.6), 0, { color: SAGE });
-  add('base-hob', 1.95, backY(0.6), 0, { color: SAGE });
+  const sinkHost = add('base-cabinet', 1.25, backY(0.6), 0, { w: 0.8, color: SAGE });
+  const sinkAppl = add('appl-sink', 1.25, backY(0.6));
+  sinkAppl.attach = { kind: 'counter', hostId: sinkHost.id, u: 0, v: -0.03 };
+  const hobHost = add('base-drawers', 1.95, backY(0.6), 0, { color: SAGE });
+  const hobAppl = add('appl-hob', 1.95, backY(0.6));
+  hobAppl.attach = { kind: 'counter', hostId: hobHost.id, u: 0, v: 0 };
   add('base-cabinet', 2.55, backY(0.6), 0, { color: SAGE });
   add('dishwasher', 3.15, backY(0.6));
-  add('oven-tower', 3.78, backY(0.6), 0, { color: SAGE });
+  // appliance tower: a custom part carried BY THIS DESIGN (not the shared
+  // library — a user's own library wouldn't contain it) + a zone-mounted oven
+  const tower = applianceTowerPart();
+  demoParts.push(tower);
+  const towerItem = add(tower.id, 3.78, backY(0.6), 0, { color: SAGE });
+  const ovenAppl = add('appl-oven', 3.78, backY(0.6));
+  ovenAppl.attach = { kind: 'zone', hostId: towerItem.id, path: [1] };
 
   // Fridge on the right wall (faces left, rotation +90°).
   add('fridge', 4.2 - t / 2 - 0.35, 1.2, Math.PI / 2);
@@ -884,7 +1004,8 @@ export function demoDesign(): Design {
   add('backsplash', 1.75, t / 2 + 0.01, 0, { w: 3.4 });
   add('wall-shelf', 0.32, backY(0.25), 0, { w: 0.5 });
   add('hood', 1.95, backY(0.45));
-  add('wall-cabinet', 2.85, backY(0.35), 0, { w: 1.2, color: SAGE, params: { doors: 2 } });
+  add('wall-cabinet', 2.55, backY(0.35), 0, { color: SAGE });
+  add('wall-cabinet', 3.15, backY(0.35), 0, { color: SAGE });
   add('strip', 2.85, 0.1, 0, { w: 1.2, elevation: 1.42 });
 
   // Utilities sketched on the wall: water at the sink, outlets above the worktop.
@@ -910,12 +1031,12 @@ export function demoDesign(): Design {
     { id: uid('o'), wallId: c3.id, type: 'door', offset: 0.85, width: 0.95, height: 2.05, sill: 0 },
   ];
 
-  return normalizeDesign({
-    version: 4,
+  const demo = normalizeDesign({
+    version: 5,
     corners: [c1, c2, c3, c4],
     openings,
     items,
-    customParts: Store.sharedLibrary(),
+    customParts: [...Store.sharedLibrary(), ...demoParts],
     variables: [],
     room: {
       wallColor: '#f4f1ea',
@@ -926,4 +1047,6 @@ export function demoDesign(): Design {
     },
     scene: defaultScene(),
   });
+  syncAttachments(demo); // settle the sink/hob poses onto their hosts
+  return demo;
 }

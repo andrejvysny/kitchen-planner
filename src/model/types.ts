@@ -69,6 +69,8 @@ export interface Item {
   light?: LightProps;
   /** parametric options, e.g. { drawers: 3, doors: 2 } — keys defined per catalog entry */
   params?: Record<string, number>;
+  /** appliances only: host-local mounting anchor */
+  attach?: Attachment;
 }
 
 export interface RoomStyle {
@@ -123,17 +125,49 @@ export interface PartBase {
   color: string;
   /** colour slot 'accent' — wood tone for tops, niches, wood boards */
   accentColor: string;
+  /** 'free' = never snaps to walls (islands); absent = wall-hugging */
+  placement?: 'free';
 }
 
-export type ZoneFill = 'door' | 'doorPair' | 'drawers' | 'open' | 'panel' | 'glass';
+export type ZoneFill = 'door' | 'doorPair' | 'drawers' | 'open' | 'panel' | 'glass' | 'appliance';
+
+/**
+ * How an appliance item is mounted on a host item. Anchors are HOST-LOCAL
+ * (they survive host moves/rotations); the item's x/y/rotation/elevation stay
+ * the authoritative world-pose cache, recomputed by syncAttachments
+ * (src/model/attach.ts) whenever the host changes.
+ */
+export type Attachment =
+  /** sits on/in the host worktop: u along the host width from its center, v along depth (+v = front) */
+  | { kind: 'counter'; hostId: string; u: number; v: number }
+  /** slotted into an 'appliance' zone leaf of the host cabinet */
+  | { kind: 'zone'; hostId: string; path: number[] };
+
+/** One concrete interior element; `y` is meters up from the cavity bottom. */
+export type InteriorElement =
+  | { kind: 'shelf'; y: number }
+  /** internal drawer box (behind a door / in an open zone), box height h */
+  | { kind: 'drawerBox'; y: number; h: number };
+
+/**
+ * Zone interior, two-level: 'auto' holds parametric counts that resolve to
+ * evenly-spaced elements (src/model/interior.ts resolveInterior — the ONLY
+ * bridge; the panel generator and editors all consume the resolved form),
+ * 'custom' holds explicit elements with exact positions.
+ */
+export type Interior =
+  | { mode: 'auto'; shelves: number; innerDrawers: number }
+  | { mode: 'custom'; elements: InteriorElement[] };
 
 export interface LeafZone {
   kind: 'leaf';
   fill: ZoneFill;
   /** fill 'drawers': stacked fronts, 1..5 */
   drawers?: number;
-  /** fill 'open': interior shelves, 0..4 */
-  shelves?: number;
+  /** shelves / internal drawers inside the cavity; missing = per-fill default */
+  interior?: Interior;
+  /** fill 'door': hinge side (drilling datum); missing = 'left' */
+  hinge?: 'left' | 'right' | 'top' | 'bottom';
 }
 
 export interface SplitZone {
@@ -154,11 +188,22 @@ export type Footprint =
   /** L footprint (blind corner); the notched return front gets a single face2 slab */
   | { kind: 'cornerL'; notch: 'left' | 'right'; nw: number; nd: number; face2: 'panel' | 'door' };
 
+/** Worktop overhang beyond the carcass, per edge (m). Absent = snug default. */
+export interface WorktopOverhang {
+  front: number;
+  back: number;
+  sides: number;
+}
+
 export interface CabinetPartDef extends PartBase {
   type: 'cabinet';
   footprint: Footprint;
   plinth: boolean;
   worktop: boolean;
+  /** rect footprints only; polygon worktops keep their snug outline */
+  worktopOverhang?: WorktopOverhang;
+  /** emit a finished back board (visible islands) instead of bare carcass */
+  finishedBack?: boolean;
   face: Zone;
 }
 
@@ -222,7 +267,7 @@ export interface DesignVar {
 }
 
 export interface Design {
-  version: 4;
+  version: 5;
   corners: Corner[];
   openings: Opening[];
   items: Item[];

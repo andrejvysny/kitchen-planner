@@ -1,9 +1,8 @@
 import { FRONT_COLORS, OAK, type CatalogDef } from './catalog';
 import { clamp, polygonBounds, polygonIsSimple, signedArea } from './geometry';
-import { cabinetTreeFromCounts } from './partsMigrate';
-import type { Board, BoardPartDef, CabinetPartDef, CustomPartDef, FreeformPartDef, Point } from './types';
+import type { Board, BoardPartDef, CabinetPartDef, CustomPartDef, FreeformPartDef, Point, WorktopOverhang } from './types';
 import { uid } from './types';
-import { sanitizeZone } from './zones';
+import { cabinetTreeFromCounts, sanitizeZone } from './zones';
 
 /**
  * Custom parts are user-created components (Part Studio). Three types:
@@ -79,12 +78,6 @@ export function newFreeformPart(): FreeformPartDef {
 
 /** Present a custom part as a CatalogDef so the rest of the app treats it uniformly. */
 export function toCatalogDef(part: CustomPartDef): CatalogDef {
-  const resize: CatalogDef['resize'] =
-    part.type === 'board'
-      ? { w: [0.2, 4.0], d: [0.1, 2.0], h: [0.012, 0.08] }
-      : part.type === 'freeform'
-        ? { w: [0.2, 4.0], d: [0.1, 2.0], h: [0.1, 2.6] }
-        : { w: [0.2, 3.5], d: [0.2, 1.4], h: [0.2, 2.6] };
   return {
     id: part.id,
     kind: 'custom',
@@ -94,8 +87,7 @@ export function toCatalogDef(part: CustomPartDef): CatalogDef {
     h: part.h,
     elevation: part.elevation,
     color: part.color,
-    resize,
-    elevAdjust: [0, 2.2],
+    placement: part.placement,
   };
 }
 
@@ -229,10 +221,22 @@ export function sanitizePart(raw: unknown): CustomPartDef | null {
   part.elevation = clamp(Number(part.elevation) || 0, 0, 2.2);
   if (typeof part.color !== 'string') part.color = FRONT_COLORS[2];
   if (typeof part.accentColor !== 'string') part.accentColor = OAK;
+  if (part.placement !== 'free') delete part.placement;
   if (part.type === 'cabinet') {
     part.face = sanitizeZone(part.face);
     if (typeof part.plinth !== 'boolean') part.plinth = true;
     if (typeof part.worktop !== 'boolean') part.worktop = false;
+    if (part.finishedBack !== true) delete part.finishedBack;
+    const ov = part.worktopOverhang as Partial<WorktopOverhang> | undefined;
+    if (ov && typeof ov === 'object') {
+      part.worktopOverhang = {
+        front: clamp(Number(ov.front) || 0, 0, 0.4),
+        back: clamp(Number(ov.back) || 0, 0, 0.4),
+        sides: clamp(Number(ov.sides) || 0, 0, 0.4),
+      };
+    } else {
+      delete part.worktopOverhang;
+    }
     const fp = part.footprint as { kind?: string } | undefined;
     if (!fp || !['rect', 'chamfer', 'cornerL'].includes(fp.kind ?? '')) {
       part.footprint = { kind: 'rect' };
@@ -272,6 +276,40 @@ export function sanitizePart(raw: unknown): CustomPartDef | null {
     }
   }
   return part;
+}
+
+/**
+ * A tall cabinet with two appliance niches (oven + compact) between doors —
+ * the part that replaces the old hardcoded "Appliance tower" kind. Seeded
+ * into designs that place it (demo) and offered in the shared library.
+ */
+export function applianceTowerPart(): CabinetPartDef {
+  return {
+    id: uid('part'),
+    name: 'Appliance tower',
+    type: 'cabinet',
+    w: 0.6,
+    d: 0.6,
+    h: 2.2,
+    elevation: 0,
+    color: FRONT_COLORS[2],
+    accentColor: OAK,
+    footprint: { kind: 'rect' },
+    plinth: true,
+    worktop: false,
+    face: {
+      kind: 'split',
+      dir: 'h',
+      // bottom door / oven niche / compact niche / top door
+      weights: [0.34, 0.29, 0.19, 0.18],
+      children: [
+        { kind: 'leaf', fill: 'door' },
+        { kind: 'leaf', fill: 'appliance' },
+        { kind: 'leaf', fill: 'appliance' },
+        { kind: 'leaf', fill: 'door' },
+      ],
+    },
+  };
 }
 
 /** A sample part so the "My parts" section shows what's possible. */

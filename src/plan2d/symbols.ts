@@ -54,9 +54,10 @@ function roundRect(
   ctx.roundRect(x, y, w, h, r);
 }
 
-/** true when the kind is drawn dashed (mounted above the counter plane) */
+/** true when the kind is drawn dashed (mounted above the counter plane);
+ * preset/custom cabinets use the elevation heuristic in the plan instead */
 export function isOverhead(kind: ItemKind): boolean {
-  return ['wallCabinet', 'shelf', 'hood', 'pendant', 'spot', 'strip'].includes(kind);
+  return ['hood', 'pendant', 'spot', 'strip'].includes(kind);
 }
 
 export function drawPlanSymbol(
@@ -105,22 +106,10 @@ export function drawPlanSymbol(
 
   ctx.lineWidth = hair;
   switch (kind) {
-    case 'custom':
-    case 'baseCabinet':
-    case 'wallCabinet':
-    case 'pantry': {
+    case 'custom': {
       // front stripe + door split
       line(ctx, -hw, hd - 0.05, hw, hd - 0.05);
       line(ctx, 0, -hd, 0, hd);
-      if (kind === 'pantry') line(ctx, -hw, -hd, hw, hd);
-      break;
-    }
-    case 'baseDrawers':
-    case 'island': {
-      line(ctx, -hw, hd - 0.05, hw, hd - 0.05);
-      for (let i = 1; i <= 2; i++) {
-        line(ctx, -hw + 0.05, -hd + (d - 0.1) * (i / 3) + 0.05, hw - 0.05, -hd + (d - 0.1) * (i / 3) + 0.05);
-      }
       break;
     }
     case 'sink': {
@@ -152,15 +141,6 @@ export function drawPlanSymbol(
     case 'fridge': {
       line(ctx, -hw, -hd, hw, hd);
       line(ctx, hw, -hd, -hw, hd);
-      break;
-    }
-    case 'ovenTower': {
-      line(ctx, -hw, -hd, hw, hd);
-      ctx.strokeRect(-hw + 0.1, -hd + 0.1, w - 0.2, d - 0.2);
-      break;
-    }
-    case 'shelf': {
-      line(ctx, -hw, 0, hw, 0);
       break;
     }
     case 'hood': {

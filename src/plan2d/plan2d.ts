@@ -15,7 +15,9 @@ import { nearestWall, snapItem, type Guide } from '../model/snapping';
 import type { Store } from '../model/store';
 import type { CustomPartDef, Item, Opening, Point } from '../model/types';
 import { resolveColor } from '../model/variables';
-import { isMac, isTrackpadWheel, type WheelLike } from '../view3d/wheelInput';
+import { resolveDevice } from '../model/navPref';
+import { isMac, type WheelLike } from '../view3d/wheelInput';
+import { findHost } from '../model/attach';
 import { drawPlanSymbol, isOverhead } from './symbols';
 
 const INK = '#3a3934';
@@ -340,7 +342,7 @@ export class Plan2D {
     const sel = this.store.selection;
     if (sel.kind !== 'item') return null;
     const it = this.store.itemById(sel.id);
-    if (!it) return null;
+    if (!it || it.attach) return null; // attached items derive their rotation
     const h = this.rotateHandlePos(it);
     const hs = this.toScreen(h);
     if (Math.hypot(hs.x - s.x, hs.y - s.y) < 9) return it.id;
@@ -370,12 +372,12 @@ export class Plan2D {
 
   /** The item's true plan outline (custom parts only), in item-local coords. */
   private footprintOf(it: Item): Point[] | null {
-    const part = this.store.customPartById(it.defId);
+    const part = this.store.partOf(it.defId);
     return part ? footprintPolygon(part, it.w, it.d) : null;
   }
 
   private partOf(it: Item): CustomPartDef | undefined {
-    return this.store.customPartById(it.defId);
+    return this.store.partOf(it.defId);
   }
 
   /** all items under the point, top-most first (reverse of draw order) */
@@ -520,6 +522,19 @@ export class Plan2D {
       if (!keep) this.setArmed(null);
       return;
     }
+    // hosted appliances only place ONTO a host (worktop / free niche)
+    const mount = def.appliance?.mount;
+    if (mount === 'counter' || mount === 'zone') {
+      const hit = findHost(this.store.design, def, w, null);
+      if (!hit) return;
+      const item = this.store.addItem(def, w.x, w.y, 0);
+      this.store.setAttachment(item.id, hit.attach);
+      this.store.select({ kind: 'item', id: item.id });
+      this.store.commit();
+      if (!keep) this.setArmed(null);
+      this.drag = { type: 'item', id: item.id, ox: 0, oy: 0, moved: false };
+      return;
+    }
     const snapped = snapItem(this.store, def, null, w.x, w.y, 0);
     if ((def.marker || isWallMounted(def)) && !snapped.wallId) return; // markers need a wall
     const item = this.store.addItem(def, snapped.x, snapped.y, snapped.rotation);
@@ -627,6 +642,19 @@ export class Plan2D {
         if (!it) return;
         d.moved = true;
         const def = this.store.defOf(it.defId);
+        // hosted appliances hop between hosts; off-host they detach and roam
+        const mount = def.appliance?.mount;
+        if (mount === 'counter' || mount === 'zone') {
+          const p = { x: w.x - d.ox, y: w.y - d.oy };
+          const hit = findHost(this.store.design, def, p, it.id);
+          if (hit) {
+            this.store.setAttachment(it.id, hit.attach);
+          } else {
+            if (it.attach) this.store.setAttachment(it.id, undefined);
+            this.store.updateItem(it.id, { x: p.x, y: p.y }, { structural: false, transient: true });
+          }
+          return;
+        }
         const res = snapItem(this.store, def, it.id, w.x - d.ox, w.y - d.oy, it.rotation);
         this.guides = res.guides;
         this.store.updateItem(
@@ -674,6 +702,15 @@ export class Plan2D {
         const near = nearestWall(this.store, w, 0.6);
         this.ghostOpening = near ? { wallId: near.wall.id, t: near.t, valid: true } : null;
         this.ghost = null;
+      } else if (
+        this.armedDef.appliance?.mount === 'counter' ||
+        this.armedDef.appliance?.mount === 'zone'
+      ) {
+        // hosted appliances preview on their would-be host, red off-host
+        const hit = findHost(this.store.design, this.armedDef, w, null);
+        this.ghost = { x: w.x, y: w.y, rotation: 0, valid: !!hit };
+        this.ghostOpening = null;
+        this.guides = [];
       } else {
         const res = snapItem(this.store, this.armedDef, null, w.x, w.y, 0);
         const needWall = this.armedDef.marker || isWallMounted(this.armedDef);
@@ -746,7 +783,7 @@ export class Plan2D {
     e.preventDefault();
     // macOS trackpad: a two-finger swipe pans, a pinch (ctrl+wheel) zooms at the
     // cursor. Mouse wheel and every non-mac platform keep classic scroll-zoom.
-    if (!e.ctrlKey && this.isMac && isTrackpadWheel(e as unknown as WheelLike)) {
+    if (!e.ctrlKey && this.isMac && resolveDevice(e as unknown as WheelLike) === 'trackpad') {
       this.panX -= e.deltaX; // negate so the plan follows the fingers
       this.panY -= e.deltaY;
       this.requestDraw();
@@ -789,6 +826,8 @@ export class Plan2D {
     const layer = (it: Item): number => {
       const def = this.store.defOf(it.defId);
       if (def.kind === 'backsplash') return 0;
+      // mounted appliances paint above their host cabinets and worktops
+      if (it.attach) return 3;
       if (def.marker) return 3;
       if (def.kind === 'custom') {
         // worktop boards sit above base units but below overhead items
@@ -914,8 +953,8 @@ export class Plan2D {
       });
       ctx.restore();
 
-      if (selected) {
-        // rotation handle
+      if (selected && !it.attach) {
+        // rotation handle (attached appliances follow their host)
         const h = this.rotateHandlePos(it);
         ctx.strokeStyle = ACCENT;
         ctx.lineWidth = hair;
@@ -948,7 +987,7 @@ export class Plan2D {
       ctx.globalAlpha = this.ghost.valid ? 0.55 : 0.3;
       ctx.translate(this.ghost.x, this.ghost.y);
       ctx.rotate(this.ghost.rotation);
-      const armedPart = this.store.customPartById(this.armedDef.id);
+      const armedPart = this.store.partOf(this.armedDef.id);
       drawPlanSymbol(ctx, this.armedDef.kind, this.armedDef.w, this.armedDef.d, {
         color: this.ghost.valid ? this.armedDef.color : '#d66',
         selected: false,

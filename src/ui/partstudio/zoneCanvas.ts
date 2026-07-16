@@ -1,5 +1,13 @@
-import { fmtCm } from '../../model/geometry';
-import type { CabinetPartDef, LeafZone, Zone, ZoneFill } from '../../model/types';
+import { clamp, fmtCm } from '../../model/geometry';
+import {
+  defaultInterior,
+  MAX_AUTO_DRAWERS,
+  MAX_AUTO_SHELVES,
+  MAX_INTERIOR_ELEMENTS,
+  resolveInterior,
+} from '../../model/interior';
+import { cabinetFaceSize, interiorBox, type Cavity } from '../../model/panels';
+import type { CabinetPartDef, Interior, InteriorElement, LeafZone, Zone, ZoneFill } from '../../model/types';
 import {
   countLeaves,
   MAX_DEPTH,
@@ -8,9 +16,11 @@ import {
   normalizeZones,
   setDivider,
   splitZone,
+  walkSplits,
   walkZones,
   zoneAtPath,
   zoneAtPoint,
+  type SplitBoundary,
 } from '../../model/zones';
 
 const INK = '#3a3934';
@@ -24,40 +34,30 @@ const FILL_LABELS: Record<ZoneFill, string> = {
   open: 'Open',
   panel: 'Panel',
   glass: 'Glass',
+  appliance: 'Appliance',
 };
+
+/** The leaf's interior with the per-fill default applied. */
+function interiorOf(leaf: LeafZone): Interior | undefined {
+  return leaf.interior ?? defaultInterior(leaf.fill);
+}
 
 function leafCaption(leaf: LeafZone): string {
   if (leaf.fill === 'drawers') return `${leaf.drawers ?? 1} drawer${(leaf.drawers ?? 1) > 1 ? 's' : ''}`;
-  if (leaf.fill === 'open') return `open · ${leaf.shelves ?? 0} shelf${(leaf.shelves ?? 0) === 1 ? '' : 's'}`;
+  const interior = interiorOf(leaf);
+  if (leaf.fill === 'open') {
+    if (interior?.mode === 'custom') return 'open · custom';
+    const n = interior?.mode === 'auto' ? interior.shelves : 0;
+    return `open · ${n} shelf${n === 1 ? '' : 's'}`;
+  }
+  if (interior?.mode === 'custom') return `${FILL_LABELS[leaf.fill].toLowerCase()} · custom`;
   return FILL_LABELS[leaf.fill].toLowerCase();
 }
 
-/** The front face the zones live on (matches the mesh builder's body math). */
-export function faceSize(part: CabinetPartDef): { faceW: number; faceH: number } {
-  const wallMounted = part.elevation > 0.3;
-  const topT = part.worktop ? 0.035 : 0;
-  const y0 = !wallMounted && part.plinth ? 0.1 : 0;
-  const fp = part.footprint;
-  let faceW = part.w;
-  if (fp.kind === 'chamfer') faceW = fp.face === 'angled' ? Math.hypot(fp.cx, fp.cz) : part.w - fp.cx;
-  else if (fp.kind === 'cornerL') faceW = part.w - fp.nw;
-  return { faceW: Math.max(0.1, faceW), faceH: Math.max(0.1, part.h - y0 - topT) };
-}
+/** The front face the zones live on — shared body math from the panel generator. */
+export const faceSize = cabinetFaceSize;
 
-interface DividerLine {
-  path: number[];
-  index: number;
-  dir: 'h' | 'v';
-  /** face coords of the divider segment */
-  x: number;
-  y: number;
-  len: number;
-  /** rect of the owning split, for drag fractions */
-  rx: number;
-  ry: number;
-  rw: number;
-  rh: number;
-}
+type DividerLine = SplitBoundary;
 
 /**
  * Front-elevation zone editor: click a zone, split/merge via the toolbar,
@@ -72,6 +72,10 @@ export class ZoneCanvas {
   private onChange: () => void;
   private drag: DividerLine | null = null;
   selection: number[] | null = null;
+  /** leaf being edited in interior drill-in mode (null = zone mode) */
+  interiorPath: number[] | null = null;
+  private elemSel: number | null = null;
+  private elemDrag: number | null = null;
 
   constructor(container: HTMLElement, part: CabinetPartDef, onChange: () => void) {
     this.part = part;
@@ -105,6 +109,10 @@ export class ZoneCanvas {
   }
 
   handleEscape(): boolean {
+    if (this.interiorPath) {
+      this.exitInterior();
+      return true;
+    }
     if (this.selection) {
       this.selection = null;
       this.renderToolbar();
@@ -114,7 +122,133 @@ export class ZoneCanvas {
     return false;
   }
 
+  /* ---------------- interior drill-in mode ---------------- */
+
+  private interiorLeaf(): LeafZone | null {
+    if (!this.interiorPath) return null;
+    const z = zoneAtPath(this.part.face, this.interiorPath);
+    return z && z.kind === 'leaf' ? z : null;
+  }
+
+  /** The edited leaf's interior box (face-local) — same math as the panels. */
+  private interiorCavity(): Cavity | null {
+    const leaf = this.interiorLeaf();
+    if (!leaf || !this.interiorPath) return null;
+    const { faceW, faceH } = faceSize(this.part);
+    const key = this.interiorPath.join(',');
+    for (const r of walkZones(this.part.face, faceW, faceH)) {
+      if (r.path.join(',') === key) {
+        return interiorBox(r, faceW, faceH, leaf.fill, this.part.footprint.kind === 'rect');
+      }
+    }
+    return null;
+  }
+
+  private enterInterior(path: number[]): void {
+    const z = zoneAtPath(this.part.face, path);
+    if (!z || z.kind !== 'leaf' || !['door', 'doorPair', 'glass', 'open'].includes(z.fill)) return;
+    this.interiorPath = path;
+    this.elemSel = null;
+    this.renderToolbar();
+    this.draw();
+  }
+
+  private exitInterior(): void {
+    this.interiorPath = null;
+    this.elemSel = null;
+    this.elemDrag = null;
+    this.renderToolbar();
+    this.draw();
+  }
+
+  /** The currently-resolved elements of the drilled-in leaf. */
+  private interiorElements(): InteriorElement[] {
+    const leaf = this.interiorLeaf();
+    const cav = this.interiorCavity();
+    if (!leaf || !cav) return [];
+    const interior = leaf.interior ?? defaultInterior(leaf.fill);
+    if (interior?.mode === 'custom') return interior.elements;
+    return resolveInterior(interior, cav.h);
+  }
+
+  /** First edit converts the parametric interior into explicit elements. */
+  private ensureCustom(): Extract<Interior, { mode: 'custom' }> {
+    const leaf = this.interiorLeaf()!;
+    const cav = this.interiorCavity()!;
+    const cur = leaf.interior ?? defaultInterior(leaf.fill);
+    if (cur?.mode === 'custom') {
+      leaf.interior = cur;
+      return cur;
+    }
+    const custom: Extract<Interior, { mode: 'custom' }> = {
+      mode: 'custom',
+      elements: resolveInterior(cur, cav.h),
+    };
+    leaf.interior = custom;
+    return custom;
+  }
+
+  /** Sort + clamp elements back into canonical form after a gesture. */
+  private canonicalizeInterior(): void {
+    const leaf = this.interiorLeaf();
+    const cav = this.interiorCavity();
+    if (!leaf || !cav || leaf.interior?.mode !== 'custom') return;
+    const selected = this.elemSel !== null ? leaf.interior.elements[this.elemSel] : null;
+    leaf.interior = { mode: 'custom', elements: resolveInterior(leaf.interior, cav.h) };
+    this.elemSel = selected ? leaf.interior.elements.indexOf(selected) : null;
+    if (this.elemSel === -1) this.elemSel = null;
+  }
+
+  private addElement(kind: 'shelf' | 'drawerBox'): void {
+    const cav = this.interiorCavity();
+    if (!cav) return;
+    const custom = this.ensureCustom();
+    if (custom.elements.length >= MAX_INTERIOR_ELEMENTS) return;
+    // drop the new element into the largest free vertical gap
+    const tops = custom.elements
+      .map((e) => (e.kind === 'drawerBox' ? e.y + e.h : e.y))
+      .sort((a, b) => a - b);
+    let gapStart = 0;
+    let best = { start: 0, size: 0 };
+    for (const t of [...tops, cav.h]) {
+      if (t - gapStart > best.size) best = { start: gapStart, size: t - gapStart };
+      gapStart = t;
+    }
+    const y = best.start + best.size / 2;
+    custom.elements.push(kind === 'shelf' ? { kind, y } : { kind, y: Math.max(0.01, y - 0.075), h: 0.15 });
+    this.canonicalizeInterior();
+    this.elemSel = custom.elements.length - 1;
+    this.changed();
+  }
+
+  private deleteElement(): void {
+    const leaf = this.interiorLeaf();
+    if (!leaf || this.elemSel === null) return;
+    const custom = this.ensureCustom();
+    custom.elements.splice(this.elemSel, 1);
+    this.elemSel = null;
+    this.changed();
+  }
+
+  private resetToEven(): void {
+    const leaf = this.interiorLeaf();
+    if (!leaf) return;
+    const els = this.interiorElements();
+    leaf.interior = {
+      mode: 'auto',
+      shelves: els.filter((e) => e.kind === 'shelf').length,
+      innerDrawers: els.filter((e) => e.kind === 'drawerBox').length,
+    };
+    this.elemSel = null;
+    this.changed();
+  }
+
   handleDelete(): boolean {
+    if (this.interiorPath) {
+      if (this.elemSel === null) return false;
+      this.deleteElement();
+      return true;
+    }
     if (!this.selection?.length) return false;
     this.merge();
     return true;
@@ -141,7 +275,7 @@ export class ZoneCanvas {
     if (!leaf) return;
     leaf.fill = fill;
     if (fill === 'drawers' && !leaf.drawers) leaf.drawers = 2;
-    if (fill === 'open' && leaf.shelves === undefined) leaf.shelves = 1;
+    if (leaf.interior === undefined) leaf.interior = defaultInterior(fill);
     this.part.face = normalizeZones(this.part.face);
     this.changed();
   }
@@ -168,6 +302,10 @@ export class ZoneCanvas {
       tb.appendChild(b);
       return b;
     };
+    if (this.interiorPath) {
+      this.renderInteriorToolbar(btn);
+      return;
+    }
     const canSplit =
       !!leaf &&
       countLeaves(this.part.face) < MAX_LEAVES &&
@@ -206,11 +344,112 @@ export class ZoneCanvas {
       plus.addEventListener('click', () => apply(get() + 1));
       tb.appendChild(holder);
     };
+    if (leaf.fill === 'door') {
+      // hinge side = drilling datum; persisted on the leaf, drives the open preview
+      const hinges: [NonNullable<LeafZone['hinge']>, string, string][] = [
+        ['left', '◀', 'Hinge on the left edge'],
+        ['right', '▶', 'Hinge on the right edge'],
+        ['top', '▲', 'Top-hung flap'],
+        ['bottom', '▼', 'Bottom-hung flap'],
+      ];
+      for (const [side, label, title] of hinges) {
+        btn(
+          label,
+          title,
+          () => {
+            leaf.hinge = side;
+            this.part.face = normalizeZones(this.part.face);
+            this.changed();
+          },
+          false,
+          (leaf.hinge ?? 'left') === side
+        );
+      }
+    }
     if (leaf.fill === 'drawers') {
       stepper('Drawers', () => leaf.drawers ?? 2, (v) => (leaf.drawers = v), 1, 5);
     }
-    if (leaf.fill === 'open') {
-      stepper('Shelves', () => leaf.shelves ?? 1, (v) => (leaf.shelves = v), 0, 4);
+    if (['door', 'doorPair', 'glass', 'open'].includes(leaf.fill)) {
+      btn('Interior…', 'Edit shelves and internal drawers (double-click the zone)', () =>
+        this.enterInterior(this.selection!)
+      );
+      const interior = interiorOf(leaf);
+      if (interior?.mode === 'custom') {
+        const chip = document.createElement('span');
+        chip.className = 'studio-caption';
+        chip.textContent = 'custom interior';
+        tb.appendChild(chip);
+      } else {
+        // parametric counts write the auto interior; exact positions come later
+        const auto = (): Extract<Interior, { mode: 'auto' }> => {
+          const cur = interiorOf(leaf);
+          if (cur?.mode === 'auto') {
+            leaf.interior = cur;
+            return cur;
+          }
+          const fresh: Interior = { mode: 'auto', shelves: 0, innerDrawers: 0 };
+          leaf.interior = fresh;
+          return fresh;
+        };
+        stepper('Shelves', () => (interiorOf(leaf)?.mode === 'auto' ? (interiorOf(leaf) as { shelves: number }).shelves : 0), (v) => (auto().shelves = v), 0, MAX_AUTO_SHELVES);
+        stepper('Inner drawers', () => (interiorOf(leaf)?.mode === 'auto' ? (interiorOf(leaf) as { innerDrawers: number }).innerDrawers : 0), (v) => (auto().innerDrawers = v), 0, MAX_AUTO_DRAWERS);
+      }
+    }
+  }
+
+  private renderInteriorToolbar(
+    btn: (label: string, title: string, fn: () => void, disabled?: boolean, active?: boolean) => HTMLButtonElement
+  ): void {
+    const tb = this.toolbar;
+    const leaf = this.interiorLeaf();
+    const cav = this.interiorCavity();
+    if (!leaf || !cav) {
+      this.exitInterior();
+      return;
+    }
+    btn('← Done', 'Back to the zone layout (Esc)', () => this.exitInterior());
+    const sep = document.createElement('span');
+    sep.className = 'zone-toolbar-sep';
+    tb.appendChild(sep);
+    const els = this.interiorElements();
+    btn('＋ Shelf', 'Add a shelf in the largest free gap', () => this.addElement('shelf'), els.length >= MAX_INTERIOR_ELEMENTS);
+    btn('＋ Drawer', 'Add an internal drawer box', () => this.addElement('drawerBox'), els.length >= MAX_INTERIOR_ELEMENTS);
+    btn('Delete', 'Remove the selected element (Delete)', () => this.deleteElement(), this.elemSel === null);
+    btn('Reset to even', 'Back to even auto-spacing with the same counts', () => this.resetToEven());
+
+    const sel = this.elemSel !== null ? els[this.elemSel] : null;
+    if (sel) {
+      // edits go through ensureCustom so an auto interior converts first;
+      // indices survive because conversion preserves the resolved order
+      const cmInput = (label: string, value: number, apply: (el: InteriorElement, m: number) => void) => {
+        const holder = document.createElement('span');
+        holder.className = 'zone-stepper';
+        holder.innerHTML = `<label>${label}</label><input type="number" step="1" style="width:56px">`;
+        const input = holder.querySelector('input') as HTMLInputElement;
+        input.value = String(Math.round(value * 100));
+        input.addEventListener('change', () => {
+          const custom = this.ensureCustom();
+          const el = this.elemSel !== null ? custom.elements[this.elemSel] : null;
+          if (!el) return;
+          apply(el, clamp(Number(input.value) / 100, 0, cav.h));
+          this.canonicalizeInterior();
+          this.changed();
+        });
+        tb.appendChild(holder);
+      };
+      cmInput('Y', sel.y, (el, v) => (el.y = v));
+      if (sel.kind === 'drawerBox') {
+        cmInput('H', sel.h, (el, v) => {
+          if (el.kind === 'drawerBox') el.h = clamp(v, 0.06, 0.4);
+        });
+      }
+    } else {
+      const hint = document.createElement('span');
+      hint.className = 'studio-caption';
+      const mode = (leaf.interior ?? defaultInterior(leaf.fill))?.mode ?? 'auto';
+      hint.textContent =
+        mode === 'custom' ? 'custom · drag shelves and drawers' : 'auto · drag an element to customize';
+      tb.appendChild(hint);
     }
   }
 
@@ -238,39 +477,60 @@ export class ZoneCanvas {
 
   private dividers(): DividerLine[] {
     const { faceW, faceH } = this.view();
-    const out: DividerLine[] = [];
-    const visit = (z: Zone, x: number, y: number, w: number, h: number, path: number[]): void => {
-      if (z.kind === 'leaf') return;
-      const total = z.weights.reduce((s, v) => s + v, 0) || 1;
-      let off = 0;
-      for (let i = 0; i < z.children.length; i++) {
-        const frac = (z.weights[i] ?? 0) / total;
-        const cx = z.dir === 'v' ? x + off * w : x;
-        const cy = z.dir === 'h' ? y + off * h : y;
-        const cw = z.dir === 'v' ? frac * w : w;
-        const chh = z.dir === 'h' ? frac * h : h;
-        if (i > 0) {
-          out.push(
-            z.dir === 'v'
-              ? { path, index: i - 1, dir: 'v', x: cx, y, len: h, rx: x, ry: y, rw: w, rh: h }
-              : { path, index: i - 1, dir: 'h', x, y: cy, len: w, rx: x, ry: y, rw: w, rh: h }
-          );
-        }
-        visit(z.children[i], cx, cy, cw, chh, [...path, i]);
-        off += frac;
-      }
-    };
-    visit(this.part.face, 0, 0, faceW, faceH, []);
-    return out;
+    // shared with the panel generator — the lines dragged here are exactly
+    // the divider boards the carcass emits
+    return walkSplits(this.part.face, faceW, faceH);
   }
 
   /* ---------------- pointers ---------------- */
+
+  /** Interior-mode view: the cavity fills the canvas. */
+  private interiorView(): { scale: number; ox: number; oy: number; cav: Cavity } | null {
+    const cav = this.interiorCavity();
+    if (!cav) return null;
+    const cw = this.canvas.clientWidth || 400;
+    const ch = this.canvas.clientHeight || 400;
+    const scale = Math.min((cw * 0.7) / cav.w, (ch * 0.7) / cav.h);
+    return { scale, ox: (cw - cav.w * scale) / 2, oy: (ch + cav.h * scale) / 2, cav };
+  }
+
+  /** pointer → cavity-local coords (x right from cavity left, y up from its bottom) */
+  private toCavity(e: MouseEvent): { x: number; y: number } | null {
+    const v = this.interiorView();
+    if (!v) return null;
+    const r = this.canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left - v.ox) / v.scale, y: (v.oy - (e.clientY - r.top)) / v.scale };
+  }
+
+  /** index of the interior element under the pointer, topmost first */
+  private hitElement(p: { x: number; y: number }, tol: number): number | null {
+    const els = this.interiorElements();
+    for (let i = els.length - 1; i >= 0; i--) {
+      const e = els[i];
+      const within =
+        e.kind === 'shelf'
+          ? Math.abs(p.y - e.y) < tol
+          : p.y > e.y - tol && p.y < e.y + e.h + tol;
+      if (within) return i;
+    }
+    return null;
+  }
 
   private onDown(e: PointerEvent): void {
     try {
       this.canvas.setPointerCapture(e.pointerId);
     } catch {
       /* synthetic events (tests) have no active pointer */
+    }
+    if (this.interiorPath) {
+      const p = this.toCavity(e);
+      const v = this.interiorView();
+      if (!p || !v) return;
+      this.elemSel = this.hitElement(p, 8 / v.scale);
+      this.elemDrag = this.elemSel;
+      this.renderToolbar();
+      this.draw();
+      return;
     }
     const f = this.toFace(e);
     const v = this.view();
@@ -292,6 +552,27 @@ export class ZoneCanvas {
   }
 
   private onMove(e: PointerEvent): void {
+    if (this.interiorPath) {
+      if (this.elemDrag !== null) {
+        const p = this.toCavity(e);
+        const cav = this.interiorCavity();
+        if (!p || !cav) return;
+        const custom = this.ensureCustom();
+        const el = custom.elements[this.elemDrag];
+        if (!el) return;
+        const snapped = Math.round(p.y * 100) / 100; // 1 cm snap
+        if (el.kind === 'shelf') el.y = clamp(snapped, 0, cav.h);
+        else el.y = clamp(snapped - el.h / 2, 0, cav.h - el.h);
+        this.onChange();
+        this.draw();
+        return;
+      }
+      const p = this.toCavity(e);
+      const v = this.interiorView();
+      const over = p && v ? this.hitElement(p, 8 / v.scale) : null;
+      this.canvas.style.cursor = over !== null ? 'ns-resize' : 'default';
+      return;
+    }
     if (this.drag) {
       const f = this.toFace(e);
       const d = this.drag;
@@ -316,14 +597,26 @@ export class ZoneCanvas {
   }
 
   private onUp(e: PointerEvent): void {
+    if (this.elemDrag !== null) {
+      try {
+        this.canvas.releasePointerCapture(e.pointerId);
+      } catch {
+        /* synthetic events */
+      }
+      this.elemDrag = null;
+      this.canonicalizeInterior();
+      this.changed();
+      return;
+    }
     if (!this.drag) return;
     this.canvas.releasePointerCapture(e.pointerId);
     this.drag = null;
     this.changed();
   }
 
-  /** Double-click a divider: equalize the whole split. */
+  /** Double-click: equalize a divider, or drill into a leaf's interior. */
   private onDblClick(e: MouseEvent): void {
+    if (this.interiorPath) return;
     const r = this.canvas.getBoundingClientRect();
     const v = this.view();
     const f = { x: (e.clientX - r.left - v.ox) / v.scale, y: (v.oy - (e.clientY - r.top)) / v.scale };
@@ -341,6 +634,8 @@ export class ZoneCanvas {
       }
       return;
     }
+    const z = zoneAtPoint(this.part.face, v.faceW, v.faceH, f.x, f.y);
+    if (z) this.enterInterior(z.path);
   }
 
   /* ---------------- drawing ---------------- */
@@ -358,6 +653,11 @@ export class ZoneCanvas {
     ctx.clearRect(0, 0, cw, ch);
     ctx.fillStyle = '#f4f3f0';
     ctx.fillRect(0, 0, cw, ch);
+
+    if (this.interiorPath) {
+      this.drawInterior(ctx, cw, ch);
+      return;
+    }
 
     const v = this.view();
     const rects = walkZones(this.part.face, v.faceW, v.faceH);
@@ -404,14 +704,20 @@ export class ZoneCanvas {
         ctx.lineTo(a.x + wpx / 2, a.y + hpx - 8);
         ctx.stroke();
       } else if (r.leaf.fill === 'open') {
-        const n = Math.max(1, r.leaf.shelves ?? 1);
+        // dashed lines at the RESOLVED element positions — same math as the panels
+        const elements = resolveInterior(interiorOf(r.leaf), Math.max(0, r.h - 0.03));
         ctx.setLineDash([4, 3]);
-        for (let i = 1; i <= n; i++) {
-          const y = a.y + (hpx * i) / (n + 1);
+        for (const el of elements) {
+          const ey = 0.015 + el.y + (el.kind === 'drawerBox' ? el.h : 0);
+          const y = a.y + hpx - ((ey) / r.h) * hpx;
           ctx.beginPath();
           ctx.moveTo(a.x + 8, y);
           ctx.lineTo(a.x + wpx - 8, y);
           ctx.stroke();
+          if (el.kind === 'drawerBox') {
+            const yb2 = a.y + hpx - ((0.015 + el.y) / r.h) * hpx;
+            ctx.strokeRect(a.x + 8, y, wpx - 16, yb2 - y);
+          }
         }
         ctx.setLineDash([]);
       }
@@ -437,6 +743,70 @@ export class ZoneCanvas {
     ctx.rotate(-Math.PI / 2);
     ctx.fillText(fmtCm(v.faceH), 0, 0);
     ctx.restore();
-    ctx.fillText('cabinet front — click a zone, drag the lines between zones', cw / 2, ch - 12);
+    ctx.fillText(
+      'cabinet front — click a zone, drag the lines between zones, double-click for its interior',
+      cw / 2,
+      ch - 12
+    );
+  }
+
+  /** Interior drill-in: the cavity full-frame, elements draggable. */
+  private drawInterior(ctx: CanvasRenderingContext2D, cw: number, ch: number): void {
+    const v = this.interiorView();
+    const leaf = this.interiorLeaf();
+    if (!v || !leaf) return;
+    const { cav, scale, ox, oy } = v;
+    const sx = (x: number) => ox + x * scale;
+    const sy = (y: number) => oy - y * scale;
+
+    ctx.font = '11.5px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // cavity outline (the space between carcass boards)
+    ctx.fillStyle = '#faf9f6';
+    ctx.fillRect(sx(0), sy(cav.h), cav.w * scale, cav.h * scale);
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 1.6;
+    ctx.strokeRect(sx(0), sy(cav.h), cav.w * scale, cav.h * scale);
+
+    const els = this.interiorElements();
+    els.forEach((e, i) => {
+      const active = i === this.elemSel;
+      ctx.strokeStyle = active ? ACCENT : SOFT;
+      ctx.fillStyle = active ? '#dcebe6' : this.part.accentColor;
+      if (e.kind === 'shelf') {
+        const t = Math.max(2, 0.018 * scale);
+        ctx.globalAlpha = 0.9;
+        ctx.fillRect(sx(0.01), sy(e.y) - t / 2, (cav.w - 0.02) * scale, t);
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = active ? 2 : 1;
+        ctx.strokeRect(sx(0.01), sy(e.y) - t / 2, (cav.w - 0.02) * scale, t);
+        ctx.fillStyle = active ? ACCENT : SOFT;
+        ctx.fillText(`shelf · ${Math.round(e.y * 100)} cm`, sx(cav.w / 2), sy(e.y) - 10);
+      } else {
+        ctx.globalAlpha = 0.55;
+        ctx.fillRect(sx(0.02), sy(e.y + e.h), (cav.w - 0.04) * scale, e.h * scale);
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = active ? 2 : 1;
+        ctx.strokeRect(sx(0.02), sy(e.y + e.h), (cav.w - 0.04) * scale, e.h * scale);
+        ctx.fillStyle = active ? ACCENT : INK;
+        ctx.fillText(
+          `drawer · ${Math.round(e.h * 100)} cm @ ${Math.round(e.y * 100)} cm`,
+          sx(cav.w / 2),
+          sy(e.y + e.h / 2)
+        );
+      }
+    });
+
+    // cavity dimensions + hint
+    ctx.fillStyle = SOFT;
+    ctx.fillText(fmtCm(cav.w), sx(cav.w / 2), sy(0) + 14);
+    ctx.save();
+    ctx.translate(sx(0) - 12, sy(cav.h / 2));
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText(fmtCm(cav.h), 0, 0);
+    ctx.restore();
+    ctx.fillText(`${leafCaption(leaf)} — interior · drag to move, Esc when done`, cw / 2, ch - 12);
   }
 }

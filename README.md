@@ -45,8 +45,12 @@ Click a catalog item, then click in the plan (or directly in the 3D view).
 Items automatically rotate to face away from the nearest wall and sit flush
 against it, snap edge-to-edge into runs, and show live clearance dimensions
 (cm) to the nearest corners while you drag. `Shift`-click places several.
-Everything is **parametric** — dimensions, drawer counts, door counts, hob
-zones, sink bowls, shelf counts, appliance stacks — via the properties panel.
+Everything is **parametric**: every cabinet is a zone-tree part (customize
+one instance via *Customize part…*), and appliances are separate products —
+a sink or hob drops INTO a worktop (cutting a real hole in it), an oven
+slides into an appliance niche, and they all move with their host cabinet.
+Double-click any door or drawer in 3D (or hit *Open fronts*) to preview it
+open — shelves, internal drawers and drawer boxes are really in there.
 
 **4 · Light it.**
 Pendants, ceiling spots and LED strips are real light sources with shadows.
@@ -60,9 +64,12 @@ part types cover essentially any furniture:
 - **Cabinet** — a carcass whose front you split into **zones**, Mozaik-style:
   click a zone, split it horizontally or vertically, drag the dividers to
   resize (cm-snapped, double-click to equalize), and fill each zone with a
-  door, door pair, drawer stack, open oak niche, panel or glass door.
-  Footprints go beyond rectangles: angled ends, diagonal corner units and
-  L-shaped blind corners. Plinth, worktop and wall-mounting are toggles.
+  door, door pair, drawer stack, open oak niche, panel, glass door or an
+  appliance niche. Double-click a zone to edit its interior (shelves and
+  internal drawers, dragged to exact positions); doors get a hinge-side
+  picker. Footprints go beyond rectangles: angled ends, diagonal corner
+  units and L-shaped blind corners. Plinth, worktop (with per-edge overhang)
+  and wall-mounting are toggles.
 - **Worktop / board** — draw any outline (L/U presets included) with the same
   corner-and-midpoint editing as the room, add rectangular cutouts for sinks
   and hobs, set thickness and height off the floor. Great for continuous
@@ -74,7 +81,10 @@ part types cover essentially any furniture:
 
 Saved parts appear under *My parts*, can be edited later (✎ on the tile) or
 duplicated as variants, and are kept in a shared library so new designs start
-with them. Designs saved by older versions migrate automatically.
+with them. Cabinet interiors are configurable too: shelf/inner-drawer
+steppers on any zone, or double-click a zone for the drill-in editor with
+exact centimetre positions. (Note: the v5 preset rework dropped
+compatibility with designs saved by older versions.)
 
 ## Export
 
@@ -116,12 +126,15 @@ responsible for materials and lighting:
 src/
   model/            pure data + logic, no rendering
     types.ts          Design, Item, Opening, Corner, CustomPartDef (3 types)
-    catalog.ts        built-in parametric catalog + color palettes
+    catalog.ts        appliances/furniture/lights/markers + color palettes
+    presets.ts        built-in cabinets as readonly zone-tree part defs
     parts.ts          part factories, CatalogDef adapter, footprints, sanitize
     zones.ts          cabinet zone-tree math (split/merge/walk/normalize)
+    interior.ts       shelf/drawer-box layout (parametric → exact positions)
     panels.ts         part → panel list IR (every physical board; the basis
                       for rendering today and manufacturing export tomorrow)
-    partsMigrate.ts   v1 template parts → v2 model migration
+    attach.ts         appliance hosting (anchors, cutouts, niche occupancy)
+    openFronts.ts     ephemeral open-door/drawer preview state
     store.ts          state, events, undo/redo, autosave, all mutations
     snapping.ts       wall / edge-to-edge / alignment snapping (shared 2D+3D)
     geometry.ts       polygon & vector math
@@ -130,9 +143,9 @@ src/
     symbols.ts        architectural plan symbols (also used as catalog icons)
   view3d/
     view3d.ts         Three.js scene, room shell, lighting, picking, GLB export
-    itemMeshes.ts     procedural mesh builders for every catalog kind
+    itemMeshes.ts     procedural meshes for appliances/furniture/lights
     meshKit.ts        shared mesh vocabulary (slabs, plinths, prisms…)
-    partMeshes.ts     custom-part builders (zone cabinets, boards, freeform)
+    partMeshes.ts     panel list → meshes + openable-front pivot groups
   ui/
     ui.ts             catalog, properties panel, toolbar, shortcuts
     partstudio/       Part Studio: type picker, zone canvas, polygon canvas,

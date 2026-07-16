@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { catalogDef, hasWorktop } from '../../src/model/catalog';
+import { catalogDef } from '../../src/model/catalog';
 import {
   COUNTER_MATERIALS,
   FLOOR_MATERIALS,
@@ -14,6 +14,7 @@ import {
   WALL_MATERIALS,
 } from '../../src/model/materials';
 import { newCabinetPart, toCatalogDef } from '../../src/model/parts';
+import { presetPart } from '../../src/model/presets';
 import { emptyDesign, sanitizeDesign } from '../../src/model/store';
 import type { Corner, Design, Item, RoomStyle } from '../../src/model/types';
 import { buildItemGroup } from '../../src/view3d/itemMeshes';
@@ -91,10 +92,15 @@ describe('material registry', () => {
     expect(overridesColor('nope')).toBe(false);
   });
 
-  it('hasWorktop flags exactly the counter-slab kinds', () => {
-    expect(hasWorktop(catalogDef('base-cabinet'))).toBe(true);
-    expect(hasWorktop(catalogDef('island'))).toBe(true);
-    expect(hasWorktop(catalogDef('wall-cabinet'))).toBe(false);
+  it('worktops live on cabinet parts; appliances mount into them', () => {
+    // preset cabinets answer via part.worktop — the kind list is gone
+    const base = presetPart('base-cabinet')!;
+    const wall = presetPart('wall-cabinet')!;
+    expect(base.type === 'cabinet' && base.worktop).toBe(true);
+    expect(wall.type === 'cabinet' && wall.worktop).toBe(false);
+    // counter appliances declare a cutout, not a worktop
+    expect(catalogDef('appl-sink').appliance?.cutout).toBeTruthy();
+    expect(catalogDef('dishwasher').appliance?.mount).toBe('floor');
   });
 
   it('counterFin: item override wins over the room worktop', () => {
@@ -131,7 +137,7 @@ describe('sanitizeDesign material validation', () => {
     };
     const bad = { ...item, id: 'i2', material: 'chrome-unicorn' };
     const d = sanitizeDesign({
-      version: 3,
+      version: 5,
       corners: base(),
       items: [item, bad],
       room: { floorMaterial: 'floor-oak', wallMaterial: 'bogus', counterMaterial: 'marble-light' },
@@ -162,7 +168,7 @@ describe('sanitizeDesign material validation', () => {
     };
     const bad = { ...item, id: 'i2', counterMaterial: 'unobtanium', materialRot: 1 as unknown as boolean };
     const d = sanitizeDesign({
-      version: 3,
+      version: 5,
       corners: base(),
       items: [item, bad],
       room: {
@@ -184,7 +190,7 @@ describe('sanitizeDesign material validation', () => {
   });
 
   it('designs without material fields stay untouched', () => {
-    const d = sanitizeDesign({ version: 3, corners: base() });
+    const d = sanitizeDesign({ version: 5, corners: base() });
     expect(d!.room.floorMaterial).toBeUndefined();
     expect(d!.room.wallMaterial).toBeUndefined();
     expect(d!.room.counterMaterial).toBeUndefined();
@@ -223,7 +229,8 @@ describe('textured materials (headless)', () => {
   });
 
   it('builds worktop items with a counter override + rotation headless', () => {
-    const def = catalogDef('base-cabinet');
+    const part = presetPart('base-cabinet')!;
+    const def = toCatalogDef(part);
     const item: Item = {
       id: 'i1',
       defId: def.id,
@@ -240,34 +247,29 @@ describe('textured materials (headless)', () => {
       counterMaterial: 'marble-dark',
       counterMaterialRot: true,
     };
-    const colorsOf = (g: THREE.Group): Set<string> => {
-      const out = new Set<string>();
-      g.traverse((o) => {
-        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-        if (m?.color) out.add(`#${m.color.getHexString()}`);
-      });
-      return out;
-    };
     const marble = materialDef('marble-dark')!.color;
-    expect(colorsOf(buildItemGroup(item, def, DESIGN, undefined)).has(marble)).toBe(true);
-    // without the override (and no room material) nothing takes the marble tone
+    const worktopColorOf = (it: Item, p = part): string => {
+      let c = '';
+      buildItemGroup(it, toCatalogDef(p), DESIGN, p).traverse((o) => {
+        if (o.userData.role === 'worktop') {
+          c = `#${((o as THREE.Mesh).material as THREE.MeshStandardMaterial).color.getHexString()}`;
+        }
+      });
+      return c;
+    };
+    // the worktop-role panel takes the instance counter material
+    expect(worktopColorOf(item)).toBe(marble);
+    // without the override (and no room material) it follows the room colour
     const plain: Item = { ...item, material: undefined, counterMaterial: undefined };
-    expect(colorsOf(buildItemGroup(plain, def, DESIGN, undefined)).has(marble)).toBe(false);
-    // custom cabinet: the worktop-role panel takes the instance counter material
-    const part = newCabinetPart();
-    const custom: Item = { ...item, defId: part.id, w: part.w, d: part.d, h: part.h };
-    const g = buildItemGroup(custom, toCatalogDef(part), DESIGN, part);
-    let worktopColor = '';
-    g.traverse((o) => {
-      if (o.userData.role === 'worktop') {
-        worktopColor = `#${((o as THREE.Mesh).material as THREE.MeshStandardMaterial).color.getHexString()}`;
-      }
-    });
-    expect(worktopColor).toBe(marble);
+    expect(worktopColorOf(plain)).toBe(ROOM.counterColor);
+    // same behaviour on a user-created cabinet part
+    const custom = newCabinetPart();
+    expect(worktopColorOf({ ...item, defId: custom.id }, custom)).toBe(marble);
   });
 
-  it('builds a textured catalog item and a textured custom-part fallback headless', () => {
-    const def = catalogDef('base-cabinet');
+  it('builds a textured preset cabinet and a textured custom-part fallback headless', () => {
+    const part = presetPart('base-cabinet')!;
+    const def = toCatalogDef(part);
     const item: Item = {
       id: 'i1',
       defId: def.id,
@@ -280,11 +282,10 @@ describe('textured materials (headless)', () => {
       elevation: 0,
       color: def.color,
       material: 'wenge',
-      params: { doors: 2 },
     };
-    const group = buildItemGroup(item, def, DESIGN, undefined);
+    const group = buildItemGroup(item, def, DESIGN, part);
     expect(group.children.length).toBeGreaterThan(0);
-    const glass = buildItemGroup({ ...item, material: 'glass' }, def, DESIGN, undefined);
+    const glass = buildItemGroup({ ...item, material: 'glass' }, def, DESIGN, part);
     expect(glass.children.length).toBeGreaterThan(0);
   });
 });

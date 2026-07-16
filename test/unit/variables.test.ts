@@ -59,17 +59,17 @@ describe('variables — resolveFinish / resolveColor', () => {
   });
 });
 
-describe('variables — sanitizeDesign migration & repair', () => {
-  it('adds an empty variables registry to a v3 design (v3 → v4)', () => {
-    const d = sanitizeDesign({ version: 3, corners: CORNERS })!;
+describe('variables — sanitizeDesign repair', () => {
+  it('a design without a variables field gets an empty registry', () => {
+    const d = sanitizeDesign({ version: 5, corners: CORNERS })!;
     expect(d).not.toBeNull();
-    expect(d.version).toBe(4);
+    expect(d.version).toBe(5);
     expect(d.variables).toEqual([]);
   });
 
   it('drops malformed variables and unknown material ids', () => {
     const d = sanitizeDesign({
-      version: 4,
+      version: 5,
       corners: CORNERS,
       variables: [
         { id: 'ok', name: 'Ok', color: '#fff', material: 'oak', materialRot: true },
@@ -88,7 +88,7 @@ describe('variables — sanitizeDesign migration & repair', () => {
 
   it('detaches dangling var refs on items and room to the fallback', () => {
     const d = sanitizeDesign({
-      version: 4,
+      version: 5,
       corners: CORNERS,
       variables: [{ id: 'live', name: 'Live', color: '#abcdef' }],
       items: [
@@ -111,7 +111,7 @@ describe('variables — sanitizeDesign migration & repair', () => {
 
 describe('variables — store mutations', () => {
   function store(): Store {
-    return new Store(sanitizeDesign({ version: 4, corners: CORNERS })!);
+    return new Store(sanitizeDesign({ version: 5, corners: CORNERS })!);
   }
 
   it('addVariable then bind an item and resolve live', () => {

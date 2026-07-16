@@ -1,3 +1,4 @@
 node_modules/
 dist/
 WORKFLOW.md
+.DS_Store

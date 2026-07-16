@@ -661,6 +661,99 @@ await page.evaluate((c) => {
 }, navA);
 await page.waitForTimeout(200);
 
+// 17d. wheel = zoom, swipe = pan (KITCHENP-13). These dispatch synthetic wheel
+// events on purpose: Playwright's trusted mouse.wheel() emits a textbook
+// deltaY 120 / wheelDeltaY -120 notch, which the old %120 heuristic already got
+// right — that is exactly why this bug shipped past a green E2E run. A real
+// macOS mouse notch goes through the OS acceleration curve and lands as a small
+// delta whose wheelDeltaY is NOT a multiple of 120, which the old code read as a
+// two-finger swipe and panned. `accel` reproduces that; `swipe` is the trackpad
+// it must not break. Runs on macOS CI only, since the trackpad remap is mac-gated.
+const isMacRun = await page.evaluate(() => /mac/i.test(navigator.platform));
+const sendWheel = (sel, init) =>
+  page.evaluate(
+    ([s, i]) => {
+      document.querySelector(s).dispatchEvent(
+        new WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: 300, clientY: 300, ...i })
+      );
+    },
+    [sel, init]
+  );
+// An accelerated mouse notch: vertical, whole-pixel, no clean 120 multiple.
+const accel = { deltaX: 0, deltaY: 12 };
+// A two-finger swipe: sub-pixel with sideways drift.
+const swipe = { deltaX: 0.5, deltaY: 2.5 };
+
+if (isMacRun) {
+  const setNav = (mode) => page.evaluate((m) => window.__kp.setNavInput(m), mode);
+  const plan2d = () => page.evaluate(() => ({ zoom: window.__kp.plan.zoom, panY: window.__kp.plan.panY }));
+
+  // --- 2D plan ---
+  await setNav('auto');
+  const z0 = await plan2d();
+  await sendWheel('#canvas2d', accel);
+  await page.waitForTimeout(150);
+  const z1 = await plan2d();
+  results.push(['2D accelerated mouse notch zooms', Math.abs(z1.zoom - z0.zoom) > 0.5]);
+
+  await setNav('auto');
+  const p0 = await plan2d();
+  await sendWheel('#canvas2d', swipe);
+  await page.waitForTimeout(150);
+  const p1 = await plan2d();
+  results.push([
+    '2D trackpad swipe still pans',
+    Math.abs(p1.panY - p0.panY) > 0.5 && Math.abs(p1.zoom - p0.zoom) < 1e-6,
+  ]);
+
+  // --- 3D ---
+  await setNav('auto');
+  const c0 = await cam3d();
+  await sendWheel('#canvas3d', accel);
+  await page.waitForTimeout(150);
+  const c1 = await cam3d();
+  results.push(['3D accelerated mouse notch zooms', Math.abs(c1.dist - c0.dist) > 1e-3]);
+
+  await setNav('auto');
+  const c2 = await cam3d();
+  await sendWheel('#canvas3d', swipe);
+  await page.waitForTimeout(150);
+  const c3 = await cam3d();
+  results.push([
+    '3D trackpad swipe still pans',
+    navMoved(c2.tgt, c3.tgt) > 1e-4 && Math.abs(c2.dist - c3.dist) < 1e-3,
+  ]);
+
+  // --- the manual override, which is the guaranteed fix for a high-resolution
+  // wheel that Auto cannot tell apart from a trackpad ---
+  await setNav('mouse');
+  const m0 = await plan2d();
+  await sendWheel('#canvas2d', swipe); // trackpad-shaped, but forced to mouse
+  await page.waitForTimeout(150);
+  const m1 = await plan2d();
+  // A 2.5px delta is a small dolly, so assert only that zoom moved — the pan
+  // path is the one that provably never touches zoom.
+  results.push(['Nav: Mouse forces zoom on swipe-shaped deltas', Math.abs(m1.zoom - m0.zoom) > 1e-6]);
+
+  await setNav('trackpad');
+  const t0 = await plan2d();
+  await sendWheel('#canvas2d', accel); // mouse-shaped, but forced to trackpad
+  await page.waitForTimeout(150);
+  const t1 = await plan2d();
+  results.push([
+    'Nav: Trackpad forces pan on notch-shaped deltas',
+    Math.abs(t1.panY - t0.panY) > 0.5 && Math.abs(t1.zoom - t0.zoom) < 1e-6,
+  ]);
+
+  // the toggle cycles and persists
+  await setNav('auto');
+  await page.click('#btn-navinput');
+  const navLabel = await page.textContent('#btn-navinput');
+  const navStored = await page.evaluate(() => localStorage.getItem('kitchen-planner-nav-v1'));
+  results.push(['nav toggle cycles + persists', navLabel === 'Nav: Mouse' && navStored === 'mouse']);
+  await setNav('auto');
+}
+
 // 17b. per-item worktop material: chip in the "Worktop" props section paints the counter slab
 const worktopChip = await page.evaluate(() => {
   const sec = [...document.querySelectorAll('.prop-section')].find(
@@ -821,12 +914,36 @@ const { readFileSync } = await import('fs');
 const buf = readFileSync(path);
 results.push(['glb export magic', buf.length > 2000 && buf.toString('ascii', 0, 4) === 'glTF']);
 
-// 21. a partial autosave (missing items/openings/room/scene) is repaired on load
+// 21. a pre-v5 autosave has no migration path: the app resets to a fresh
+// design instead of crashing or half-loading it. A partial v5 payload is
+// still repaired in place.
 await page.evaluate(() => {
   localStorage.setItem(
     'kitchen-planner-design-v1',
     JSON.stringify({
       version: 1,
+      corners: [
+        { id: 'a', x: 0, y: 0 },
+        { id: 'b', x: 3, y: 0 },
+        { id: 'c', x: 3, y: 2 },
+      ],
+    })
+  );
+});
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+const resetFresh = await page.evaluate(() => {
+  const d = window.__kp.store.design;
+  // the old 3-corner v1 payload must NOT survive — demo design loads instead
+  return d.version === 5 && d.corners.length === 4 && d.items.length > 0;
+});
+results.push(['pre-v5 autosave resets to a fresh design', resetFresh]);
+
+await page.evaluate(() => {
+  localStorage.setItem(
+    'kitchen-planner-design-v1',
+    JSON.stringify({
+      version: 5,
       corners: [
         { id: 'a', x: 0, y: 0 },
         { id: 'b', x: 3, y: 0 },
@@ -847,7 +964,7 @@ const repaired = await page.evaluate(() => {
     d.corners.length === 3
   );
 });
-results.push(['corrupt autosave repaired on load', repaired]);
+results.push(['partial v5 autosave repaired on load', repaired]);
 
 // 22. per-wall visibility override forces wall groups shown/hidden in 3D
 const wallVis = async (mode) => {
@@ -999,6 +1116,250 @@ results.push([
   'variable binding + value persist across reload',
   persisted.hasVar && persisted.cabBound && persisted.wallBound,
 ]);
+
+// 25. "Customize part…" forks a preset into My parts and repoints the instance.
+const customizeScenario = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const item = st.addItem(st.defOf('base-cabinet'), 1.5, 1.5, 0);
+  st.commit();
+  st.select({ kind: 'item', id: item.id });
+  return { itemId: item.id, partsBefore: st.design.customParts.length };
+});
+await page.waitForTimeout(300);
+const custBtn = page.locator('#props-inner button', { hasText: 'Customize part…' });
+const custVisible = await custBtn.count();
+await custBtn.click();
+await page.waitForTimeout(400);
+const studioOpen = await page.locator('.studio-save').count();
+await page.click('.studio-save');
+await page.waitForTimeout(400);
+const customized = await page.evaluate((arg) => {
+  const st = window.__kp.store;
+  const item = st.itemById(arg.itemId);
+  return {
+    forked: !!item && item.defId !== 'base-cabinet',
+    partsGrew: st.design.customParts.length === arg.partsBefore + 1,
+    resolves: !!item && !!st.partOf(item.defId),
+  };
+}, customizeScenario);
+results.push([
+  'customize forks the preset into My parts for this instance only',
+  custVisible === 1 && studioOpen === 1 && customized.forked && customized.partsGrew && customized.resolves,
+]);
+await page.evaluate((id) => {
+  const st = window.__kp.store;
+  st.deleteItem(id);
+  st.commit();
+}, customizeScenario.itemId);
+
+// 26. open-front preview: toggling a door rotates its pivot group WITHOUT a
+// geometry rebuild, never touches the design, and the topbar master works.
+const openScenario = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const item = st.addItem(st.defOf('base-cabinet'), 2.5, 1.0, 0);
+  st.commit();
+  const entry = window.__kp.view.items.get(item.id);
+  const unitGroup = (() => {
+    let found = null;
+    entry.group.traverse((o) => {
+      if (!found && o.userData.motionUnit) found = o;
+    });
+    return found;
+  })();
+  const designJson = JSON.stringify(st.design);
+  st.openFronts.toggle(item.id, unitGroup.userData.motionUnit);
+  return {
+    itemId: item.id,
+    unit: unitGroup.userData.motionUnit,
+    uuidBefore: entry.group.uuid,
+    baseRot: unitGroup.rotation.y,
+    designUntouched: JSON.stringify(st.design) === designJson,
+  };
+});
+await page.waitForTimeout(1200); // let the lerp settle
+const opened = await page.evaluate((arg) => {
+  const entry = window.__kp.view.items.get(arg.itemId);
+  let rot = 0;
+  entry.group.traverse((o) => {
+    if (o.userData.motionUnit === arg.unit) rot = o.rotation.y;
+  });
+  return { uuidAfter: entry.group.uuid, rot };
+}, openScenario);
+const OPEN_ANGLE = Math.PI * 0.55;
+results.push([
+  'dblclick-style toggle opens a door without rebuild or design change',
+  openScenario.designUntouched &&
+    opened.uuidAfter === openScenario.uuidBefore &&
+    Math.abs(Math.abs(opened.rot - openScenario.baseRot) - OPEN_ANGLE) < 0.05,
+]);
+
+await page.click('#btn-openfronts'); // master open
+await page.waitForTimeout(1200);
+const masterOpen = await page.evaluate((arg) => {
+  const st = window.__kp.store;
+  let anyOpen = false;
+  for (const [, entry] of window.__kp.view.items) {
+    entry.group.traverse((o) => {
+      if (o.userData.motionUnit && Math.abs(o.userData.openT - 1) < 0.01) anyOpen = true;
+    });
+  }
+  return { all: st.openFronts.allOpen, anyOpen };
+}, null);
+await page.click('#btn-openfronts'); // close again
+await page.waitForTimeout(1200);
+const masterClosed = await page.evaluate(() => !window.__kp.store.openFronts.allOpen);
+results.push(['topbar Open fronts master toggle works', masterOpen.all && masterOpen.anyOpen && masterClosed]);
+await page.evaluate((id) => {
+  const st = window.__kp.store;
+  st.deleteItem(id);
+  st.commit();
+}, openScenario.itemId);
+
+// 27. interior drill-in editor: dblclick a zone → add a drawer → the part's
+// interior becomes explicit custom elements with exact positions.
+await page.click('.cat-new');
+await page.waitForTimeout(300);
+await page.click('.studio-card[data-type="cabinet"]');
+await page.waitForTimeout(400);
+{
+  const zc = await page.locator('.zone-canvas').boundingBox();
+  // default new cabinet = 2-drawer stack zone; split first so we get a door zone
+  await page.mouse.click(zc.x + zc.width / 2, zc.y + zc.height / 2);
+  await page.waitForTimeout(200);
+  await page.click('.zone-toolbar button:has-text("Door")');
+  await page.waitForTimeout(200);
+  await page.mouse.dblclick(zc.x + zc.width / 2, zc.y + zc.height / 2);
+  await page.waitForTimeout(300);
+}
+const interiorToolbar = await page.locator('.zone-toolbar button', { hasText: '← Done' }).count();
+await page.click('.zone-toolbar button:has-text("＋ Drawer")');
+await page.waitForTimeout(200);
+await page.click('.zone-toolbar button:has-text("← Done")');
+await page.waitForTimeout(200);
+await page.click('.studio-save');
+await page.waitForTimeout(400);
+const interiorSaved = await page.evaluate(() => {
+  const parts = window.__kp.store.design.customParts;
+  const part = parts[parts.length - 1];
+  if (part.type !== 'cabinet') return { ok: false };
+  const leaf = part.face.kind === 'leaf' ? part.face : null;
+  const interior = leaf?.interior;
+  return {
+    ok:
+      !!interior &&
+      interior.mode === 'custom' &&
+      interior.elements.some((e) => e.kind === 'drawerBox') &&
+      interior.elements.every((e) => Number.isFinite(e.y)),
+    partId: part.id,
+  };
+});
+results.push(['interior drill-in adds an explicit drawer box', interiorToolbar === 1 && interiorSaved.ok]);
+if (interiorSaved.partId) {
+  await page.evaluate((id) => {
+    const st = window.__kp.store;
+    st.deleteCustomPart(id);
+    st.commit();
+  }, interiorSaved.partId);
+}
+
+// 28. counter appliance lifecycle: sink mounts on a cabinet, follows the host,
+// cuts a hole in its worktop, dies with the host, and undo restores both.
+const applScenario = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const host = st.addItem(st.defOf('base-cabinet'), 2.6, 1.4, 0);
+  st.updateItem(host.id, { w: 0.8 });
+  const sink = st.addItem(st.defOf('appl-sink'), 2.6, 1.4, 0);
+  st.setAttachment(sink.id, { kind: 'counter', hostId: host.id, u: 0, v: 0 });
+  st.commit();
+  const sinkItem = st.itemById(sink.id);
+  // the host's worktop panel is now a prism with a hole
+  let worktopIsPrism = false;
+  const entry = window.__kp.view.items.get(host.id);
+  entry.group.traverse((o) => {
+    if (o.userData.role === 'worktop' && o.geometry?.type === 'ExtrudeGeometry') worktopIsPrism = true;
+  });
+  return {
+    hostId: host.id,
+    sinkId: sink.id,
+    mounted: sinkItem.elevation > 0.85 && !!sinkItem.attach,
+    worktopIsPrism,
+  };
+});
+const applFollow = await page.evaluate((arg) => {
+  const st = window.__kp.store;
+  st.updateItem(arg.hostId, { x: 3.0 });
+  st.commit();
+  return Math.abs(st.itemById(arg.sinkId).x - 3.0) < 1e-6;
+}, applScenario);
+const applCascade = await page.evaluate((arg) => {
+  const st = window.__kp.store;
+  st.deleteItem(arg.hostId);
+  st.commit();
+  const gone = !st.itemById(arg.hostId) && !st.itemById(arg.sinkId);
+  st.undo();
+  const restored = !!st.itemById(arg.hostId) && !!st.itemById(arg.sinkId)?.attach;
+  st.deleteItem(arg.hostId);
+  st.commit();
+  return gone && restored;
+}, applScenario);
+results.push([
+  'sink mounts into a worktop, follows and dies with its host',
+  applScenario.mounted && applScenario.worktopIsPrism && applFollow && applCascade,
+]);
+
+// 29. zone appliance: the demo tower hosts an oven in its niche; the niche is
+// sized by the zone tree and a second claimant is rejected by the sanitizer.
+const zoneAppl = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const oven = st.design.items.find((i) => i.defId === 'appl-oven' && i.attach?.kind === 'zone');
+  // this runs on the post-step-21 state (3-corner repaired design) — place fresh
+  const tower = st.design.customParts.find((p) => p.name === 'Appliance tower');
+  if (oven) return { fromDemo: true, sized: oven.w > 0.4 && oven.h > 0.4 };
+  return { fromDemo: false, hasTowerPart: !!tower };
+});
+const zoneApplFresh = await page.evaluate(() => {
+  const st = window.__kp.store;
+  // build a tower part + host + oven in the current design
+  const part = {
+    id: 'tower-e2e',
+    name: 'Tower E2E',
+    type: 'cabinet',
+    w: 0.6,
+    d: 0.6,
+    h: 2.2,
+    elevation: 0,
+    color: '#8a9683',
+    accentColor: '#c9a87c',
+    footprint: { kind: 'rect' },
+    plinth: true,
+    worktop: false,
+    face: {
+      kind: 'split',
+      dir: 'h',
+      weights: [0.5, 0.3, 0.2],
+      children: [
+        { kind: 'leaf', fill: 'door' },
+        { kind: 'leaf', fill: 'appliance' },
+        { kind: 'leaf', fill: 'door' },
+      ],
+    },
+  };
+  st.upsertCustomPart(part);
+  const host = st.addItem(st.defOf('tower-e2e'), 2.0, 1.0, 0);
+  const oven = st.addItem(st.defOf('appl-oven'), 2.0, 1.0, 0);
+  st.setAttachment(oven.id, { kind: 'zone', hostId: host.id, path: [1] });
+  st.commit();
+  const o = st.itemById(oven.id);
+  const sized = !!o.attach && o.w > 0.5 && o.elevation > 0.9; // niche starts above the bottom door
+  // move the host — the oven rides along
+  st.updateItem(host.id, { x: 2.6 });
+  const follows = Math.abs(st.itemById(oven.id).x - 2.6) < 1e-6;
+  st.deleteItem(host.id);
+  st.deleteCustomPart('tower-e2e');
+  st.commit();
+  return sized && follows;
+});
+results.push(['oven slots into an appliance niche and rides the tower', zoneApplFresh]);
 
 let pass = 0;
 for (const [name, ok] of results) {

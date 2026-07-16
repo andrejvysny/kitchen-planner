@@ -16,19 +16,17 @@ export const COUNTER_COLORS = ['#c9a87c', '#e8e5de', '#3a3835', '#8b6748', '#f2f
 /** fixture light colours: warm white → neutral → cool → amber / tints */
 export const LIGHT_COLORS = ['#ffb46b', '#ffd9a0', '#fff4e0', '#ffffff', '#dfeaff', '#ff7a3c', '#7ec8ff'];
 
+/**
+ * Cabinets live in src/model/presets.ts as zone-tree part defs; the catalog
+ * keeps only openings, appliances (until they become attachable components),
+ * loose furniture, lighting and wall markers.
+ */
 export type ItemKind =
-  | 'baseCabinet'
-  | 'baseDrawers'
   | 'sink'
   | 'hob'
   | 'oven'
   | 'dishwasher'
-  | 'island'
   | 'fridge'
-  | 'pantry'
-  | 'ovenTower'
-  | 'wallCabinet'
-  | 'shelf'
   | 'hood'
   | 'backsplash'
   | 'table'
@@ -43,6 +41,21 @@ export type ItemKind =
   | 'water'
   | 'outlet'
   | 'custom';
+
+/**
+ * How an appliance mounts and what it takes out of its host: counter
+ * appliances cut a hole in the host worktop, zone appliances need an
+ * 'appliance' niche of at least the given size. Appliances are BOUGHT
+ * products — their meshes stay bespoke builders and never enter panel lists;
+ * only their cutouts/niches touch the manufacturing truth.
+ */
+export interface ApplianceSpec {
+  mount: 'counter' | 'zone' | 'wall' | 'floor';
+  /** counter: worktop cutout size (m) */
+  cutout?: { w: number; d: number };
+  /** zone: minimum niche the product fits into */
+  niche?: { minW: number; minH: number };
+}
 
 export interface ParamDef {
   key: string;
@@ -64,18 +77,17 @@ export interface CatalogDef {
   h: number;
   elevation: number;
   color: string;
-  /** which dimensions the user may edit, with [min, max] in meters */
-  resize: { w?: [number, number]; d?: [number, number]; h?: [number, number] };
-  elevAdjust?: [number, number];
   /** integer options like number of drawers or doors */
   params?: ParamDef[];
-  /** base units carry a countertop slab on top */
-  counter?: boolean;
   light?: LightProps & { kind: 'point' | 'spot' | 'bar' };
   /** door/window pseudo-items are placed into walls, not on the floor */
   opening?: boolean;
   /** small utility markers (water, outlet) mounted on walls */
   marker?: boolean;
+  /** 'free' = never snaps to walls (from the part def, e.g. islands) */
+  placement?: 'free';
+  /** appliances: mounting behaviour + host requirements */
+  appliance?: ApplianceSpec;
 }
 
 export interface CatalogSection {
@@ -98,7 +110,6 @@ export const CATALOG: CatalogSection[] = [
         h: 2.05,
         elevation: 0,
         color: '#e8e2d5',
-        resize: { w: [0.6, 1.8], h: [1.8, 2.4] },
         opening: true,
       }),
       def({
@@ -110,7 +121,6 @@ export const CATALOG: CatalogSection[] = [
         h: 1.2,
         elevation: 0.9,
         color: '#ffffff',
-        resize: { w: [0.4, 3.0], h: [0.4, 2.0] },
         opening: true,
       }),
       def({
@@ -122,7 +132,6 @@ export const CATALOG: CatalogSection[] = [
         h: 0.25,
         elevation: 0.45,
         color: '#4f81a8',
-        resize: {},
         marker: true,
       }),
       def({
@@ -137,80 +146,64 @@ export const CATALOG: CatalogSection[] = [
         h: 0.086,
         elevation: 1.05,
         color: '#f2f1ec',
-        // width is driven by `gangs` (one 80 mm cell each), not resized directly
-        resize: {},
-        elevAdjust: [0.2, 1.6],
         params: [{ key: 'gangs', label: 'Sockets', min: 1, max: 4, def: 1, widthPer: 0.086 }],
         marker: true,
       }),
     ],
   },
+  // cabinet presets (src/model/presets.ts) render at the head of this section
+  { title: 'Base units', items: [] },
   {
-    title: 'Base units',
+    title: 'Appliances',
     items: [
       def({
-        id: 'base-cabinet',
-        kind: 'baseCabinet',
-        label: 'Base cabinet',
-        w: 0.6,
-        d: 0.6,
-        h: 0.9,
-        elevation: 0,
-        color: FRONT_COLORS[2],
-        resize: { w: [0.3, 1.2] },
-        params: [{ key: 'doors', label: 'Doors', min: 1, max: 2, def: 1 }],
-        counter: true,
-      }),
-      def({
-        id: 'base-drawers',
-        kind: 'baseDrawers',
-        label: 'Drawer unit',
-        w: 0.6,
-        d: 0.6,
-        h: 0.9,
-        elevation: 0,
-        color: FRONT_COLORS[2],
-        resize: { w: [0.3, 1.2] },
-        params: [{ key: 'drawers', label: 'Drawers', min: 2, max: 4, def: 3 }],
-        counter: true,
-      }),
-      def({
-        id: 'base-sink',
+        id: 'appl-sink',
         kind: 'sink',
-        label: 'Sink unit',
-        w: 0.8,
-        d: 0.6,
-        h: 0.9,
-        elevation: 0,
-        color: FRONT_COLORS[2],
-        resize: { w: [0.6, 1.2] },
+        label: 'Sink',
+        // mounts INTO a worktop: the basin hangs into the cutout, the faucet
+        // rises above; h is the above-counter part
+        w: 0.56,
+        d: 0.5,
+        h: 0.05,
+        elevation: 0.9,
+        color: STEEL,
         params: [{ key: 'bowls', label: 'Bowls', min: 1, max: 2, def: 1 }],
-        counter: true,
+        appliance: { mount: 'counter', cutout: { w: 0.5, d: 0.4 } },
       }),
       def({
-        id: 'base-hob',
+        id: 'appl-hob',
         kind: 'hob',
-        label: 'Hob unit',
-        w: 0.6,
-        d: 0.6,
-        h: 0.9,
-        elevation: 0,
-        color: FRONT_COLORS[2],
-        resize: { w: [0.6, 0.9] },
+        label: 'Hob',
+        w: 0.58,
+        d: 0.51,
+        h: 0.05,
+        elevation: 0.9,
+        color: APPLIANCE_BLACK,
         params: [{ key: 'burners', label: 'Zones', min: 2, max: 5, def: 4 }],
-        counter: true,
+        appliance: { mount: 'counter', cutout: { w: 0.54, d: 0.47 } },
       }),
       def({
-        id: 'base-oven',
+        id: 'appl-oven',
         kind: 'oven',
-        label: 'Oven unit',
-        w: 0.6,
-        d: 0.6,
-        h: 0.9,
-        elevation: 0,
-        color: FRONT_COLORS[2],
-        resize: {},
-        counter: true,
+        label: 'Oven',
+        // slots into an 'appliance' niche of a cabinet; the niche sizes it
+        w: 0.56,
+        d: 0.55,
+        h: 0.58,
+        elevation: 0.6,
+        color: APPLIANCE_BLACK,
+        appliance: { mount: 'zone', niche: { minW: 0.5, minH: 0.55 } },
+      }),
+      def({
+        id: 'appl-micro',
+        kind: 'oven',
+        label: 'Microwave / compact',
+        w: 0.56,
+        d: 0.5,
+        h: 0.36,
+        elevation: 1.0,
+        color: APPLIANCE_BLACK,
+        appliance: { mount: 'zone', niche: { minW: 0.5, minH: 0.34 } },
       }),
       def({
         id: 'dishwasher',
@@ -221,27 +214,8 @@ export const CATALOG: CatalogSection[] = [
         h: 0.9,
         elevation: 0,
         color: STEEL,
-        resize: {},
-        counter: true,
+        appliance: { mount: 'floor' },
       }),
-      def({
-        id: 'island',
-        kind: 'island',
-        label: 'Island',
-        w: 1.8,
-        d: 0.9,
-        h: 0.9,
-        elevation: 0,
-        color: FRONT_COLORS[0],
-        resize: { w: [0.9, 3.0], d: [0.6, 1.4] },
-        params: [{ key: 'drawers', label: 'Front drawers', min: 0, max: 4, def: 3 }],
-        counter: true,
-      }),
-    ],
-  },
-  {
-    title: 'Tall units',
-    items: [
       def({
         id: 'fridge',
         kind: 'fridge',
@@ -251,62 +225,7 @@ export const CATALOG: CatalogSection[] = [
         h: 1.9,
         elevation: 0,
         color: STEEL,
-        resize: { h: [1.4, 2.2] },
-      }),
-      def({
-        id: 'pantry',
-        kind: 'pantry',
-        label: 'Tall cabinet',
-        w: 0.6,
-        d: 0.6,
-        h: 2.2,
-        elevation: 0,
-        color: FRONT_COLORS[2],
-        resize: { w: [0.4, 1.2], h: [1.8, 2.5] },
-        params: [{ key: 'split', label: 'Sections', min: 1, max: 3, def: 2 }],
-      }),
-      def({
-        id: 'oven-tower',
-        kind: 'ovenTower',
-        label: 'Appliance tower',
-        w: 0.6,
-        d: 0.6,
-        h: 2.2,
-        elevation: 0,
-        color: FRONT_COLORS[2],
-        resize: { h: [1.8, 2.5] },
-        params: [{ key: 'appliances', label: 'Appliances', min: 1, max: 3, def: 2 }],
-      }),
-    ],
-  },
-  {
-    title: 'Wall units',
-    items: [
-      def({
-        id: 'wall-cabinet',
-        kind: 'wallCabinet',
-        label: 'Wall cabinet',
-        w: 0.6,
-        d: 0.35,
-        h: 0.7,
-        elevation: 1.45,
-        color: FRONT_COLORS[2],
-        resize: { w: [0.3, 1.6], h: [0.35, 1.3] },
-        elevAdjust: [0.9, 2.1],
-        params: [{ key: 'doors', label: 'Doors', min: 1, max: 3, def: 1 }],
-      }),
-      def({
-        id: 'wall-shelf',
-        kind: 'shelf',
-        label: 'Open shelves',
-        w: 0.8,
-        d: 0.25,
-        h: 0.55,
-        elevation: 1.45,
-        color: OAK,
-        resize: { w: [0.4, 2.0] },
-        elevAdjust: [0.9, 2.0],
-        params: [{ key: 'shelves', label: 'Shelves', min: 1, max: 3, def: 2 }],
+        appliance: { mount: 'floor' },
       }),
       def({
         id: 'hood',
@@ -317,9 +236,14 @@ export const CATALOG: CatalogSection[] = [
         h: 0.45,
         elevation: 1.55,
         color: APPLIANCE_BLACK,
-        resize: { w: [0.5, 0.9] },
-        elevAdjust: [1.35, 1.8],
+        appliance: { mount: 'wall' },
       }),
+    ],
+  },
+  { title: 'Tall units', items: [] },
+  {
+    title: 'Wall units',
+    items: [
       def({
         id: 'backsplash',
         kind: 'backsplash',
@@ -329,8 +253,6 @@ export const CATALOG: CatalogSection[] = [
         h: 0.55,
         elevation: 0.9,
         color: OAK,
-        resize: { w: [0.3, 4.0], h: [0.3, 1.5] },
-        elevAdjust: [0.8, 1.2],
       }),
     ],
   },
@@ -346,8 +268,6 @@ export const CATALOG: CatalogSection[] = [
         h: 0.3,
         elevation: 1.85,
         color: '#3f3e3b',
-        resize: {},
-        elevAdjust: [1.2, 2.3],
         light: { kind: 'point', on: true, intensity: 0.7, warmth: 0.75 },
       }),
       def({
@@ -359,7 +279,6 @@ export const CATALOG: CatalogSection[] = [
         h: 0.04,
         elevation: 2.5,
         color: '#e8e6e1',
-        resize: {},
         light: { kind: 'spot', on: true, intensity: 0.7, warmth: 0.55 },
       }),
       def({
@@ -371,8 +290,6 @@ export const CATALOG: CatalogSection[] = [
         h: 0.03,
         elevation: 1.42,
         color: '#f4f2ea',
-        resize: { w: [0.3, 3.0] },
-        elevAdjust: [0.05, 2.2],
         light: { kind: 'bar', on: true, intensity: 0.55, warmth: 0.7 },
       }),
     ],
@@ -389,7 +306,6 @@ export const CATALOG: CatalogSection[] = [
         h: 0.75,
         elevation: 0,
         color: OAK,
-        resize: { w: [0.7, 2.4], d: [0.6, 1.2] },
       }),
       def({
         id: 'chair',
@@ -400,7 +316,6 @@ export const CATALOG: CatalogSection[] = [
         h: 0.85,
         elevation: 0,
         color: '#f2f1ec',
-        resize: {},
       }),
       def({
         id: 'stool',
@@ -411,7 +326,6 @@ export const CATALOG: CatalogSection[] = [
         h: 0.68,
         elevation: 0,
         color: OAK,
-        resize: {},
       }),
       def({
         id: 'wood-plane',
@@ -425,8 +339,6 @@ export const CATALOG: CatalogSection[] = [
         h: 0.04,
         elevation: 0,
         color: OAK,
-        resize: { w: [0.05, 4.0], d: [0.05, 4.0], h: [0.01, 2.6] },
-        elevAdjust: [0, 2.5],
       }),
     ],
   },
@@ -454,7 +366,8 @@ export function defaultParams(def: CatalogDef): Record<string, number> | undefin
 
 /** True if the item should back up against walls when dragged near them. */
 export function snapsToWall(def: CatalogDef): boolean {
-  return !['table', 'chair', 'stool', 'pendant', 'spot', 'island', 'woodPlane'].includes(def.kind);
+  if (def.placement === 'free') return false;
+  return !['table', 'chair', 'stool', 'pendant', 'spot', 'woodPlane'].includes(def.kind);
 }
 
 /** Markers and backsplash hug the wall face exactly. */
@@ -462,7 +375,3 @@ export function isWallMounted(def: CatalogDef): boolean {
   return def.marker || def.kind === 'backsplash';
 }
 
-/** True if the builder tops the item with a counter slab (worktop finish applies). */
-export function hasWorktop(def: CatalogDef): boolean {
-  return ['baseCabinet', 'baseDrawers', 'sink', 'hob', 'oven', 'dishwasher', 'island'].includes(def.kind);
-}

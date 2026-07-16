@@ -1,9 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { isMac, isTrackpadWheel, wheelGesture, type WheelLike } from '../../src/view3d/wheelInput';
+import {
+  isMac,
+  isNavInput,
+  wheelEvidence,
+  wheelGesture,
+  WheelDevice,
+  type WheelLike,
+} from '../../src/view3d/wheelInput';
 
 function wheel(p: Partial<WheelLike>): WheelLike {
   return { deltaX: 0, deltaY: 0, deltaMode: 0, ctrlKey: false, shiftKey: false, ...p };
 }
+
+/** A macOS trackpad two-finger swipe: sub-pixel deltas, slight sideways drift. */
+const swipe = (p: Partial<WheelLike> = {}) => wheel({ deltaX: 0.5, deltaY: 2.5, ...p });
+/** A macOS mouse notch after the OS acceleration curve — the KITCHENP-13 case. */
+const acceleratedNotch = () => wheel({ deltaY: 12, wheelDeltaY: -36 });
+/** A textbook unaccelerated notch. */
+const notch = () => wheel({ deltaY: 100, wheelDeltaY: -120 });
 
 describe('isMac', () => {
   it('detects macOS platforms', () => {
@@ -16,41 +30,85 @@ describe('isMac', () => {
   });
 });
 
-describe('isTrackpadWheel', () => {
-  it('flags any horizontal component as trackpad', () => {
-    expect(isTrackpadWheel(wheel({ deltaX: 3, deltaY: 0 }))).toBe(true);
+describe('wheelEvidence', () => {
+  it('reads a horizontal component as trackpad (a wheel has one axis)', () => {
+    expect(wheelEvidence(wheel({ deltaX: 3, deltaY: 0 }))).toBe('trackpad');
   });
-  it('treats 120-multiple wheelDeltaY as a mouse notch', () => {
-    expect(isTrackpadWheel(wheel({ deltaY: 100, wheelDeltaY: 120 }))).toBe(false);
-    expect(isTrackpadWheel(wheel({ deltaY: 200, wheelDeltaY: -240 }))).toBe(false);
+  it('reads sub-pixel deltas as trackpad', () => {
+    expect(wheelEvidence(wheel({ deltaY: 4.5 }))).toBe('trackpad');
   });
-  it('treats non-120 wheelDeltaY as a trackpad swipe', () => {
-    expect(isTrackpadWheel(wheel({ deltaY: 12, wheelDeltaY: -36 }))).toBe(true);
+  it('reads a clean 120-multiple as a mouse notch', () => {
+    expect(wheelEvidence(notch())).toBe('mouse');
+    expect(wheelEvidence(wheel({ deltaY: 200, wheelDeltaY: -240 }))).toBe('mouse');
   });
-  it('falls back to fractional pixel deltas when wheelDeltaY is absent', () => {
-    expect(isTrackpadWheel(wheel({ deltaY: 4.5, deltaMode: 0 }))).toBe(true);
-    expect(isTrackpadWheel(wheel({ deltaY: 3, deltaMode: 1 }))).toBe(false); // line-mode mouse
+  it('admits an accelerated notch is ambiguous rather than calling it a trackpad', () => {
+    // The old %120 rule claimed 'trackpad' here and broke wheel-zoom on macOS.
+    expect(wheelEvidence(acceleratedNotch())).toBeNull();
+  });
+  it('admits an axis-locked integer swipe is ambiguous', () => {
+    expect(wheelEvidence(wheel({ deltaY: 2, wheelDeltaY: -6 }))).toBeNull();
+  });
+  it('does not treat line-mode integers as sub-pixel', () => {
+    expect(wheelEvidence(wheel({ deltaY: 3, deltaMode: 1 }))).toBeNull();
+  });
+});
+
+describe('WheelDevice', () => {
+  it('defaults to mouse so an unrecognised wheel still zooms', () => {
+    expect(new WheelDevice().classify(acceleratedNotch())).toBe('mouse');
+  });
+  it('resolves accelerated notches to mouse once a real notch is seen', () => {
+    const d = new WheelDevice();
+    expect(d.classify(notch())).toBe('mouse');
+    expect(d.classify(acceleratedNotch())).toBe('mouse');
+  });
+  it('latches trackpad so an axis-locked swipe mid-gesture still pans', () => {
+    const d = new WheelDevice();
+    expect(d.classify(swipe())).toBe('trackpad');
+    // Fingers straighten out: no horizontal drift, whole-pixel delta.
+    expect(d.classify(wheel({ deltaY: 2, wheelDeltaY: -6 }))).toBe('trackpad');
+  });
+  it('self-corrects when the device changes (last evidence wins)', () => {
+    const d = new WheelDevice();
+    d.classify(swipe());
+    expect(d.classify(notch())).toBe('mouse');
+    expect(d.classify(swipe())).toBe('trackpad');
+  });
+  it('forgets the latch on reset', () => {
+    const d = new WheelDevice();
+    d.classify(swipe());
+    d.reset();
+    expect(d.classify(acceleratedNotch())).toBe('mouse');
   });
 });
 
 describe('wheelGesture', () => {
-  it('maps pinch (ctrl+wheel) to zoom regardless of platform', () => {
-    expect(wheelGesture(wheel({ deltaY: 5, ctrlKey: true }), true)).toBe('zoom-pinch');
-    expect(wheelGesture(wheel({ deltaY: 5, ctrlKey: true }), false)).toBe('zoom-pinch');
+  it('maps pinch (ctrl+wheel) to zoom regardless of platform or device', () => {
+    expect(wheelGesture(wheel({ deltaY: 5, ctrlKey: true }), true, 'trackpad')).toBe('zoom-pinch');
+    expect(wheelGesture(wheel({ deltaY: 5, ctrlKey: true }), false, 'mouse')).toBe('zoom-pinch');
   });
   it('maps a two-finger swipe to pan on macOS', () => {
-    expect(wheelGesture(wheel({ deltaX: 8, deltaY: 2 }), true)).toBe('trackpad-pan');
+    expect(wheelGesture(swipe(), true, 'trackpad')).toBe('trackpad-pan');
   });
   it('maps a two-finger swipe + Shift to orbit on macOS', () => {
-    expect(wheelGesture(wheel({ deltaX: 8, deltaY: 2, shiftKey: true }), true)).toBe(
-      'trackpad-orbit'
-    );
+    expect(wheelGesture(swipe({ shiftKey: true }), true, 'trackpad')).toBe('trackpad-orbit');
   });
-  it('keeps mouse-wheel notches as zoom on macOS', () => {
-    expect(wheelGesture(wheel({ deltaY: 100, wheelDeltaY: 120 }), true)).toBe('mouse-zoom');
+  it('zooms for a mouse on macOS even when the delta looks trackpad-ish', () => {
+    expect(wheelGesture(acceleratedNotch(), true, 'mouse')).toBe('mouse-zoom');
+    expect(wheelGesture(swipe(), true, 'mouse')).toBe('mouse-zoom');
   });
   it('never remaps on non-macOS (defers to OrbitControls zoom)', () => {
-    expect(wheelGesture(wheel({ deltaX: 8, deltaY: 2 }), false)).toBe('mouse-zoom');
-    expect(wheelGesture(wheel({ deltaX: 8, deltaY: 2, shiftKey: true }), false)).toBe('mouse-zoom');
+    expect(wheelGesture(swipe(), false, 'trackpad')).toBe('mouse-zoom');
+    expect(wheelGesture(swipe({ shiftKey: true }), false, 'trackpad')).toBe('mouse-zoom');
+  });
+});
+
+describe('isNavInput', () => {
+  it('accepts the three modes and rejects junk', () => {
+    expect(isNavInput('auto')).toBe(true);
+    expect(isNavInput('mouse')).toBe(true);
+    expect(isNavInput('trackpad')).toBe(true);
+    expect(isNavInput('wheel')).toBe(false);
+    expect(isNavInput(null)).toBe(false);
   });
 });

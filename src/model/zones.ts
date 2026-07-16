@@ -1,4 +1,5 @@
 import { clamp } from './geometry';
+import { sanitizeInterior } from './interior';
 import type { LeafZone, Zone, ZoneFill } from './types';
 
 /**
@@ -12,7 +13,7 @@ export const MAX_LEAVES = 12;
 export const MAX_DEPTH = 4;
 export const MIN_FRAC = 0.08;
 
-const FILLS: ZoneFill[] = ['door', 'doorPair', 'drawers', 'open', 'panel', 'glass'];
+const FILLS: ZoneFill[] = ['door', 'doorPair', 'drawers', 'open', 'panel', 'glass', 'appliance'];
 
 /** A leaf's rectangle in face-local coords: x from left, y up from face bottom. */
 export interface ZoneRect {
@@ -38,6 +39,57 @@ export function walkZones(root: Zone, w: number, h: number): ZoneRect[] {
       const frac = (z.weights[i] ?? 0) / total;
       if (z.dir === 'v') visit(z.children[i], x + off * zw, y, frac * zw, zh, [...path, i]);
       else visit(z.children[i], x, y + off * zh, zw, frac * zh, [...path, i]);
+      off += frac;
+    }
+  };
+  visit(root, 0, 0, w, h, []);
+  return out;
+}
+
+/** An internal boundary of the split tree — one physical divider board. */
+export interface SplitBoundary {
+  /** path of the OWNING split node */
+  path: number[];
+  /** divider index within the split (after child `index`) */
+  index: number;
+  /** 'v' = vertical divider line, 'h' = horizontal */
+  dir: 'h' | 'v';
+  /** segment start in face-local coords (x right, y up) */
+  x: number;
+  y: number;
+  len: number;
+  /** rect of the owning split, for drag fractions */
+  rx: number;
+  ry: number;
+  rw: number;
+  rh: number;
+}
+
+/**
+ * Every internal zone boundary with its segment geometry — the divider boards
+ * of the carcass AND the draggable lines of the zone editor (shared so the
+ * editor manipulates exactly what gets built).
+ */
+export function walkSplits(root: Zone, w: number, h: number): SplitBoundary[] {
+  const out: SplitBoundary[] = [];
+  const visit = (z: Zone, x: number, y: number, zw: number, zh: number, path: number[]): void => {
+    if (z.kind === 'leaf') return;
+    const total = z.weights.reduce((s, v) => s + v, 0) || 1;
+    let off = 0;
+    for (let i = 0; i < z.children.length; i++) {
+      const frac = (z.weights[i] ?? 0) / total;
+      const cx = z.dir === 'v' ? x + off * zw : x;
+      const cy = z.dir === 'h' ? y + off * zh : y;
+      const cw = z.dir === 'v' ? frac * zw : zw;
+      const ch = z.dir === 'h' ? frac * zh : zh;
+      if (i > 0) {
+        out.push(
+          z.dir === 'v'
+            ? { path, index: i - 1, dir: 'v', x: cx, y, len: zh, rx: x, ry: y, rw: zw, rh: zh }
+            : { path, index: i - 1, dir: 'h', x, y: cy, len: zw, rx: x, ry: y, rw: zw, rh: zh }
+        );
+      }
+      visit(z.children[i], cx, cy, cw, ch, [...path, i]);
       off += frac;
     }
   };
@@ -130,9 +182,20 @@ export function setDivider(root: Zone, path: number[], divider: number, frac: nu
 export function normalizeZones(root: Zone): Zone {
   const norm = (z: Zone, depth: number): Zone => {
     if (z.kind === 'leaf') {
+      // leaves are rebuilt from scratch: every carried field must be
+      // explicitly whitelisted here or it is silently dropped
       const leaf: LeafZone = { kind: 'leaf', fill: FILLS.includes(z.fill) ? z.fill : 'door' };
       if (leaf.fill === 'drawers') leaf.drawers = clamp(Math.round(z.drawers ?? 2), 1, 5);
-      if (leaf.fill === 'open') leaf.shelves = clamp(Math.round(z.shelves ?? 1), 0, 4);
+      const legacyShelves = (z as { shelves?: unknown }).shelves;
+      const interior = sanitizeInterior(z.interior);
+      if (interior) leaf.interior = interior;
+      else if (typeof legacyShelves === 'number' && leaf.fill === 'open') {
+        // pre-interior zone trees stored a bare shelf count on open leaves
+        leaf.interior = { mode: 'auto', shelves: clamp(Math.round(legacyShelves), 0, 4), innerDrawers: 0 };
+      }
+      if (leaf.fill === 'door' && ['left', 'right', 'top', 'bottom'].includes(z.hinge as string)) {
+        leaf.hinge = z.hinge;
+      }
       return leaf;
     }
     if (depth >= MAX_DEPTH) return norm({ kind: 'leaf', fill: 'door' }, depth);
@@ -164,6 +227,37 @@ export function normalizeZones(root: Zone): Zone {
     out = norm(out, 0);
   }
   return out;
+}
+
+export interface CabinetCounts {
+  drawers: number;
+  doors: number;
+  shelves: number;
+}
+
+/** The classic vertical layout (drawers bottom / doors middle / open top) as a zone tree. */
+export function cabinetTreeFromCounts(o: CabinetCounts): Zone {
+  const children: Zone[] = [];
+  const weights: number[] = [];
+  if (o.drawers > 0) {
+    children.push({ kind: 'leaf', fill: 'drawers', drawers: o.drawers });
+    weights.push(Math.min(0.6, o.drawers * 0.2));
+  }
+  if (o.doors > 0) {
+    children.push({ kind: 'leaf', fill: o.doors >= 2 ? 'doorPair' : 'door' });
+    weights.push(0.45 + o.doors * 0.05);
+  }
+  if (o.shelves > 0) {
+    children.push({
+      kind: 'leaf',
+      fill: 'open',
+      interior: { mode: 'auto', shelves: o.shelves, innerDrawers: 0 },
+    });
+    weights.push(0.35 + o.shelves * 0.08);
+  }
+  if (!children.length) return { kind: 'leaf', fill: 'door' };
+  if (children.length === 1) return children[0];
+  return { kind: 'split', dir: 'h', weights, children };
 }
 
 /** Repair a zone tree parsed from storage; anything unusable becomes a single door. */

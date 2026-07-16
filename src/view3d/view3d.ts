@@ -5,13 +5,17 @@ import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUnifo
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { CatalogDef } from '../model/catalog';
 import { polygonCentroid, wallPoint } from '../model/geometry';
+import { applianceHosting, findHost } from '../model/attach';
+import type { HostContext } from '../model/panels';
 import { snapItem } from '../model/snapping';
 import type { Store } from '../model/store';
 import type { Item, Opening } from '../model/types';
 import { AMBIENT_DAY, skyState } from '../model/sky';
 import { resolveFinish } from '../model/variables';
 import { buildItemGroup, lightLocalY, shade } from './itemMeshes';
+import { collectMotionUnits, setFrontPoses, stepFrontPoses, withClosedPoses } from './partMeshes';
 import { scaleBoxUV, surfMat } from './meshKit';
+import { resolveDevice } from '../model/navPref';
 import { isMac, wheelGesture, type WheelLike } from './wheelInput';
 
 export type CamPreset = 'corner' | 'top' | 'front' | 'inside';
@@ -22,6 +26,8 @@ interface ItemEntry {
   group: THREE.Group;
   light: FixtureLight | null;
   bulbs: THREE.Mesh[];
+  /** motion-unit pivot groups (doors/drawers) for the open-front pose pass */
+  units: THREE.Group[];
 }
 
 interface WallEntry {
@@ -144,9 +150,11 @@ export class View3D {
       else this.softUpdate();
     });
     store.on('selection', () => this.applySelectionTint());
+    store.on('pose', () => this.applyFrontPoses());
 
     canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     canvas.addEventListener('pointerup', (e) => this.onPointerUp(e));
+    canvas.addEventListener('dblclick', (e) => this.onDblClick(e));
 
     // MacBook trackpad navigation: take over the wheel so two-finger swipe pans,
     // +Shift orbits, and pinch zooms. Mouse (drag + wheel) keeps OrbitControls'
@@ -179,6 +187,9 @@ export class View3D {
     requestAnimationFrame(this.animate);
     this.controls.update();
     this.updateWallVisibility();
+    for (const entry of this.items.values()) {
+      if (entry.units.length) stepFrontPoses(entry.units);
+    }
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -258,7 +269,9 @@ export class View3D {
     this.ceiling = null;
 
     this.buildRoom();
-    for (const item of this.store.design.items) this.buildItem(item);
+    // one hosting pass per rebuild: cutouts/niches appliances impose on hosts
+    const hosting = applianceHosting(this.store.design);
+    for (const item of this.store.design.items) this.buildItem(item, hosting.get(item.id));
     this.relight();
     this.applySelectionTint();
   }
@@ -421,10 +434,10 @@ export class View3D {
     wallGroup.add(g);
   }
 
-  private buildItem(item: Item): void {
+  private buildItem(item: Item, host?: HostContext): void {
     const def = this.store.defOf(item.defId);
-    const part = this.store.customPartById(item.defId);
-    const group = buildItemGroup(item, def, this.store.design, part);
+    const part = this.store.partOf(item.defId);
+    const group = buildItemGroup(item, def, this.store.design, part, host);
     group.userData.itemId = item.id;
     group.name = `${def.label.replace(/[^\w]+/g, '_')}_${item.id.slice(-4)}`;
 
@@ -457,9 +470,58 @@ export class View3D {
       group.add(light);
     }
 
+    const units = collectMotionUnits(group);
+    if (units.length) {
+      // re-apply the ephemeral open state across rebuilds (unit ids are stable)
+      setFrontPoses(units, (unit) => this.store.openFronts.isOpen(item.id, unit), true);
+    }
+
     this.itemsGroup.add(group);
-    this.items.set(item.id, { group, light, bulbs });
+    this.items.set(item.id, { group, light, bulbs, units });
     this.placeItem(item);
+  }
+
+  /** Push the open-front view state to every unit; the RAF loop animates. */
+  private applyFrontPoses(): void {
+    for (const [id, entry] of this.items) {
+      if (entry.units.length) {
+        setFrontPoses(entry.units, (unit) => this.store.openFronts.isOpen(id, unit));
+      }
+    }
+  }
+
+  /** Double-click a door/drawer front: toggle its open preview. */
+  private onDblClick(e: MouseEvent): void {
+    // armed placement owns clicks — a dblclick would already have placed items
+    if (this.getArmed()) return;
+    const ray = this.pointerRay(e as PointerEvent);
+    const hits = ray.intersectObjects(this.itemsGroup.children, true);
+    for (const h of hits) {
+      let unit: string | null = null;
+      let itemId: string | null = null;
+      let o: THREE.Object3D | null = h.object;
+      while (o) {
+        if (!unit && o.userData.motionUnit) unit = o.userData.motionUnit as string;
+        if (o.userData.itemId) {
+          itemId = o.userData.itemId as string;
+          break;
+        }
+        o = o.parent;
+      }
+      if (unit && itemId) {
+        this.store.openFronts.toggle(itemId, unit, () => this.allUnits());
+        return;
+      }
+      if (itemId) return; // hit a non-moving panel of an item — swallow
+    }
+  }
+
+  private *allUnits(): Iterable<{ itemId: string; unit: string }> {
+    for (const [itemId, entry] of this.items) {
+      for (const u of entry.units) {
+        yield { itemId, unit: u.userData.motionUnit as string };
+      }
+    }
   }
 
   private placeItem(item: Item): void {
@@ -638,7 +700,9 @@ export class View3D {
     if (!this.gizmo) return; // selection tint runs once before the gizmo exists
     const sel = this.store.selection;
     const entry = sel.kind === 'item' ? this.items.get(sel.id) : undefined;
-    if (entry) this.gizmo.attach(entry.group);
+    // attached appliances derive their pose from the host — no move gizmo
+    const attached = sel.kind === 'item' && !!this.store.itemById(sel.id)?.attach;
+    if (entry && !attached) this.gizmo.attach(entry.group);
     else this.gizmo.detach();
   }
 
@@ -682,6 +746,18 @@ export class View3D {
     if (armed && !armed.opening) {
       const p = this.floorPoint(e);
       if (p) {
+        const mount = armed.appliance?.mount;
+        if (mount === 'counter' || mount === 'zone') {
+          // hosted appliances need a host under the click, here too
+          const hit = findHost(this.store.design, armed, { x: p.x, y: p.z }, null);
+          if (!hit) return;
+          const item = this.store.addItem(armed, p.x, p.z, 0);
+          this.store.setAttachment(item.id, hit.attach);
+          this.store.select({ kind: 'item', id: item.id });
+          this.store.commit();
+          if (!e.shiftKey) this.clearArmed();
+          return;
+        }
         const snapped = snapItem(this.store, armed, null, p.x, p.z, 0);
         const item = this.store.addItem(armed, snapped.x, snapped.y, snapped.rotation);
         this.store.select({ kind: 'item', id: item.id });
@@ -711,7 +787,8 @@ export class View3D {
   /** Route a wheel event to pan/orbit/zoom (macOS only; see wheelInput.ts). */
   private onWheel(e: WheelEvent): void {
     e.preventDefault();
-    switch (wheelGesture(e as unknown as WheelLike, this.isMac)) {
+    const w = e as unknown as WheelLike;
+    switch (wheelGesture(w, this.isMac, resolveDevice(w))) {
       case 'zoom-pinch':
         this.zoomCamera(Math.exp(e.deltaY * PINCH_ZOOM_RATE));
         break;
@@ -797,7 +874,9 @@ export class View3D {
     root.name = 'Kitchen';
     const roomClone = this.roomGroup.clone(true);
     roomClone.name = 'Room';
-    const itemsClone = this.itemsGroup.clone(true);
+    // export closed geometry: open-preview poses are view state, not model
+    const allUnits = [...this.items.values()].flatMap((e) => e.units);
+    const itemsClone = withClosedPoses(allUnits, () => this.itemsGroup.clone(true));
     itemsClone.name = 'Furniture';
     root.add(roomClone, itemsClone);
 
