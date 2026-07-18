@@ -232,29 +232,42 @@ function facePanels(
       const fh = (r.h - g * (n + 1)) / n;
       const iv = leafInterior(r, faceW, faceH, T);
       const dbW = iv.x1 - iv.x0 - m.drawer.widthDeduction;
-      const dDepth = o.cd - m.drawer.depthDeduction;
+      // Drawer tray depth: keep the front clearance (depthDeduction) but pull the
+      // rear forward so the box never pierces the structural back. o.linerZ sits
+      // just in front of the back, so it is the rear bound for interior boards.
+      const trayFront = o.zc + (o.cd - m.drawer.depthDeduction) / 2;
+      const trayRear = Math.max(o.zc - (o.cd - m.drawer.depthDeduction) / 2, o.linerZ + 0.001);
+      const dDepth = trayFront - trayRear;
+      const dzc = (trayFront + trayRear) / 2;
       const dxc = (iv.x0 + iv.x1) / 2 - faceW / 2;
       for (let i = 0; i < n; i++) {
         const fy = yb + g + i * (fh + g);
         front(`${zid}.front${i}`, r.w - g * 2, fh, xc, fy);
-        // drawer box: a metal-sided system, so only the ply bottom + back are boards
-        if (o.structural && dbW > 0.02 && dDepth > 0.02) {
+        // drawer box: a metal-sided system, so only the ply bottom + back are boards.
+        // Clamp the box back to the drawer opening so it can't run into the divider
+        // above, and skip boards that no longer fit a shallow opening.
+        if (o.structural && dbW > 0.02 && dDepth > 0.05) {
           const dby = fy + 0.03;
-          out.push(
-            boxPanel(`${zid}.drawer${i}.bottom`, 'drawerBottom', dbW, m.drawer.bottomT, dDepth, dxc, dby, o.zc, place, rotY),
-            boxPanel(
-              `${zid}.drawer${i}.back`,
-              'drawerBack',
-              dbW,
-              m.drawer.boxHeight,
-              m.drawer.backT,
-              dxc,
-              dby + m.drawer.bottomT,
-              o.zc - dDepth / 2 + m.drawer.backT / 2,
-              place,
-              rotY
-            )
-          );
+          const backH = Math.min(m.drawer.boxHeight, fh - 0.03 - m.drawer.bottomT - 0.005);
+          if (fh >= 0.03 + m.drawer.bottomT + 0.01) {
+            out.push(boxPanel(`${zid}.drawer${i}.bottom`, 'drawerBottom', dbW, m.drawer.bottomT, dDepth, dxc, dby, dzc, place, rotY));
+          }
+          if (backH >= 0.03) {
+            out.push(
+              boxPanel(
+                `${zid}.drawer${i}.back`,
+                'drawerBack',
+                dbW,
+                backH,
+                m.drawer.backT,
+                dxc,
+                dby + m.drawer.bottomT,
+                dzc - dDepth / 2 + m.drawer.backT / 2,
+                place,
+                rotY
+              )
+            );
+          }
         }
       }
     } else if (leaf.fill === 'door' || leaf.fill === 'doorPair') {
@@ -289,11 +302,19 @@ function facePanels(
       const iyb = yBase + iv.y0;
       const acc: Partial<Panel> = { slot: 'accent', finish: 'wood' };
       out.push(boxPanel(`${zid}.liner`, 'back', iw, ih, 0.003, ixc, iyb, o.linerZ, place, rotY, acc));
-      const nsh = Math.max(0, leaf.shelves ?? 1);
+      // Shelves span from just in front of the liner to the front opening,
+      // recessed by shelfSetback. This keeps every shelf clear of the liner AND
+      // the structural back (o.linerZ is the liner centre, 3mm thick).
+      const linerFront = o.linerZ + 0.0015;
+      const rearBound = linerFront + 0.001; // 1mm clear of the liner front face
+      const frontBound = zFront - m.frontT - m.shelfSetback;
+      const shelfD = frontBound - rearBound;
+      const shelfZc = (frontBound + rearBound) / 2;
+      const nsh = shelfD >= 0.05 ? Math.max(0, leaf.shelves ?? 1) : 0;
       for (let i = 0; i < nsh; i++) {
         const sy = iyb + ((i + 1) * ih) / (nsh + 1);
         out.push(
-          boxPanel(`${zid}.shelf${i}`, 'shelf', iw - 0.002, T, o.cd - m.shelfSetback, ixc, sy - T / 2, o.zc - m.shelfSetback / 2, place, rotY, acc)
+          boxPanel(`${zid}.shelf${i}`, 'shelf', iw - 0.002, T, shelfD, ixc, sy - T / 2, shelfZc, place, rotY, acc)
         );
       }
     }

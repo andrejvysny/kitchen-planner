@@ -210,6 +210,54 @@ describe('carcass decomposition', () => {
     }
   });
 
+  it('open-niche shelves and drawer boxes clear the structural back (Phase-2 fix)', () => {
+    // a niche shelf must sit in front of its liner, which is in front of the back
+    const openCab = rectCab(
+      { kind: 'split', dir: 'h', weights: [1, 1], children: [
+        { kind: 'leaf', fill: 'door' },
+        { kind: 'leaf', fill: 'open', shelves: 2 },
+      ] },
+      { w: 0.6, d: 0.6 }
+    );
+    const op = cabinetPanels(openCab, dimsOf(openCab));
+    const backFront = aabb(op.find((p) => p.id === 'back')!).z1;
+    const linerFront = aabb(op.find((p) => p.id.endsWith('.liner'))!).z1;
+    const shelves = op.filter((p) => p.role === 'shelf');
+    expect(shelves.length).toBe(2);
+    for (const s of shelves) {
+      expect(aabb(s).z0, `${s.id} rear clears the liner`).toBeGreaterThan(linerFront);
+      expect(aabb(s).z0, `${s.id} rear clears the back`).toBeGreaterThan(backFront);
+    }
+
+    // a drawer box must not reach behind the structural back
+    const drawerCab = rectCab({ kind: 'leaf', fill: 'drawers', drawers: 3 }, { w: 0.8, d: 0.6 });
+    const dp = cabinetPanels(drawerCab, dimsOf(drawerCab));
+    const dBackFront = aabb(dp.find((p) => p.id === 'back')!).z1;
+    const boxes = dp.filter((p) => p.role === 'drawerBottom' || p.role === 'drawerBack');
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const b of boxes) {
+      expect(aabb(b).z0, `${b.id} rear clears the back`).toBeGreaterThan(dBackFront);
+    }
+  });
+
+  it('a drawer box in a short leaf is height-clamped so it stays inside the opening', () => {
+    // drawers-over-door: a 15%-tall drawer leaf must not spawn a full 90mm box
+    const cab = rectCab(
+      { kind: 'split', dir: 'h', weights: [0.15, 0.85], children: [
+        { kind: 'leaf', fill: 'drawers', drawers: 1 },
+        { kind: 'leaf', fill: 'door' },
+      ] },
+      { w: 0.6, d: 0.6, h: 0.9 }
+    );
+    const panels = cabinetPanels(cab, dimsOf(cab));
+    const divider = aabb(panels.find((p) => p.role === 'divider')!);
+    for (const b of panels.filter((p) => p.role === 'drawerBack' || p.role === 'drawerBottom')) {
+      // clamped box does not protrude up through the divider above the leaf
+      expect(aabb(b).y1, `${b.id} stays below the divider`).toBeLessThanOrEqual(divider.y1 + 1e-9);
+      expect(overlapVol(aabb(b), divider), `${b.id} ∩ divider`).toBeLessThan(1e-9);
+    }
+  });
+
   it('outer bbox parity across footprints and sizes', () => {
     const faces: CabinetPartDef['footprint'][] = [
       { kind: 'rect' },
