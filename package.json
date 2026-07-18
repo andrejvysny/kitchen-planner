@@ -10,6 +10,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "jspdf": "^3",
     "three": "^0.166.0"
   },
   "devDependencies": {

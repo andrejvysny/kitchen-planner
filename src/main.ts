@@ -27,5 +27,15 @@ const view = new View3D(document.getElementById('canvas3d') as HTMLCanvasElement
 
 new UI(store, plan, view, elev);
 
-// small debug/testing handle
-(window as unknown as Record<string, unknown>).__kp = { store, plan, view, elev };
+// small debug/testing handle. `exportPack`/`exportPdf` lazily pull in the pure
+// manufacturing pipeline (and, transitively, jsPDF) so both stay off the main
+// bundle in their own chunks; Phase 5 builds the real export dialog on top of
+// this same public API (src/model/manufacture/index.ts).
+(window as unknown as Record<string, unknown>).__kp = {
+  store,
+  plan,
+  view,
+  elev,
+  exportPack: () => import('./model/manufacture').then((m) => m.buildPack(store.design)),
+  exportPdf: () => import('./model/manufacture').then((m) => m.buildPdfBlob(m.buildPack(store.design))),
+};

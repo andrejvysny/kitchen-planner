@@ -261,6 +261,8 @@ interface DoorHinge {
   /** face-x of the hinge edge (the member it hangs on) */
   hingeFaceX: number;
   coverY: number;
+  /** which vertical edge of the front carries the hinge (v = 0 in the cut frame) */
+  side: 'left' | 'right';
 }
 
 /** Enumerate every hung door leaf and its hinge edge. */
@@ -276,16 +278,32 @@ function doorHinges(part: CabinetPartDef, cc: Carcass, m: ManufactureSettings): 
       const hM = r.h - g;
       const bottomY = cc.y0 + r.y + g / 2;
       const hingeFaceX = hinge === 'left' ? r.x : r.x + r.w;
-      out.push({ frontId: `${zid}.front0`, hM, frontBottomY: bottomY, hingeFaceX, coverY: cc.y0 + r.y + r.h / 2 });
+      out.push({ frontId: `${zid}.front0`, hM, frontBottomY: bottomY, hingeFaceX, coverY: cc.y0 + r.y + r.h / 2, side: hinge });
     } else if (r.leaf.fill === 'doorPair') {
       const hM = r.h - g;
       const bottomY = cc.y0 + r.y + g / 2;
       // leaf 0 = left half hinged on the outer (left) edge; leaf 1 = right half
-      out.push({ frontId: `${zid}.front0`, hM, frontBottomY: bottomY, hingeFaceX: r.x, coverY: cc.y0 + r.y + r.h / 2 });
-      out.push({ frontId: `${zid}.front1`, hM, frontBottomY: bottomY, hingeFaceX: r.x + r.w, coverY: cc.y0 + r.y + r.h / 2 });
+      out.push({ frontId: `${zid}.front0`, hM, frontBottomY: bottomY, hingeFaceX: r.x, coverY: cc.y0 + r.y + r.h / 2, side: 'left' });
+      out.push({ frontId: `${zid}.front1`, hM, frontBottomY: bottomY, hingeFaceX: r.x + r.w, coverY: cc.y0 + r.y + r.h / 2, side: 'right' });
     }
   }
   return out;
+}
+
+/**
+ * Hinge edge (`'left'`/`'right'`) per hung door-front panel id. Exported so the
+ * drawing layer's cabinet FRONT view can place the hinge-cup circles emitted by
+ * `itemDrilling` back onto the door — the cup's `v` (its cut-frame width coord)
+ * is measured from this edge (see the COORDINATE CONTRACT above). Returns an
+ * empty map for non-cabinet / wall-hung / polygon parts (which are not drilled).
+ */
+export function doorHingeSides(part: CustomPartDef, dims: PartDims, m: ManufactureSettings): Map<string, 'left' | 'right'> {
+  const map = new Map<string, 'left' | 'right'>();
+  if (part.type !== 'cabinet') return map;
+  const cc = carcassOf(part, dims, m);
+  if (!cc) return map;
+  for (const dh of doorHinges(part, cc, m)) map.set(dh.frontId, dh.side);
+  return map;
 }
 
 function hinges(
