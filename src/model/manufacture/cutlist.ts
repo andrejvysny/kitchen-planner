@@ -3,8 +3,10 @@ import { partPanels, type Panel, type PanelParams, type PanelRole } from '../pan
 import type { Design, Point } from '../types';
 import { resolveColor } from '../variables';
 import { DEFAULT_MANUFACTURE, panelParamsFrom } from './settings';
-import type { CutPart, EdgeBanding } from './types';
+import type { ManufactureSettings } from './settings';
+import type { CutPart, DrillOp, EdgeBanding, GrooveOp } from './types';
 import { collectDesign, type CollectedItem } from './collect';
+import { itemDrilling, itemDrillNotes, type PanelOps } from './drilling';
 
 /**
  * Panels → cut list. Every physical board a design's items decompose into becomes
@@ -172,9 +174,60 @@ function edgeThkFrom(design: Design): EdgeThk {
   return { ct: mm(s.edgeCarcassT), ft: mm(s.edgeFrontT) };
 }
 
+export interface PanelCut {
+  lengthMm: number;
+  widthMm: number;
+  thicknessMm: number;
+  grain: boolean;
+  outline?: Point[];
+  holes?: Point[][];
+}
+
+/**
+ * Resolve a panel to its 2D cut rectangle (length × width × thickness), the
+ * single source of truth for the CutPart frame the drilling generator's
+ * coordinates live in. Thickness is the min axis; the length axis is the grain
+ * axis (height for vertical roles, in-plane long axis for dividers, width for
+ * horizontal roles), width the remaining face dim; grainless roles take the
+ * larger face dim as length. Exported so validate.ts checks drilling ops
+ * against the exact same rectangle.
+ */
+export function panelCutDims(panel: Panel): PanelCut {
+  const role = panel.role;
+  const isLiner = panel.id.endsWith('.liner');
+  const grainless = role === 'glass' || role === 'back' || isLiner;
+  if (panel.shape.kind === 'cyl') {
+    const dia = mm(panel.shape.dia);
+    return { lengthMm: mm(panel.shape.h), widthMm: dia, thicknessMm: dia, grain: true };
+  }
+  if (panel.shape.kind === 'prism') {
+    const bb = outlineBboxMm(panel.shape.outline);
+    return {
+      lengthMm: bb.lengthMm,
+      widthMm: bb.widthMm,
+      thicknessMm: mm(panel.shape.h),
+      grain: true,
+      outline: toMmPoly(panel.shape.outline),
+      holes: panel.shape.holes?.length ? panel.shape.holes.map(toMmPoly) : undefined,
+    };
+  }
+  const s = panel.shape;
+  // dividers: div-v is thin in x (grain up its height), div-h is thin in y (grain
+  // along its width) — pick the in-plane long axis so the cut frame matches the
+  // drilling generator regardless of whether depth exceeds the span.
+  const lengthAxis: 'h' | 'w' | 'max' = grainless
+    ? 'max'
+    : role === 'divider'
+      ? s.h >= s.w ? 'h' : 'w'
+      : VERTICAL.has(role) ? 'h' : 'w';
+  const cut = boxCut(s, lengthAxis, !grainless);
+  return { lengthMm: cut.lengthMm, widthMm: cut.widthMm, thicknessMm: cut.thicknessMm, grain: cut.grain };
+}
+
 /**
  * Turn one panel into a single-quantity cut part. Exported for unit tests; the
- * `key` field is the dedup signature (excludes name/refId).
+ * `key` field is the dedup signature (excludes name/refId). Drilling ops and the
+ * ops-signature key extension are attached later, in `buildCutList`.
  */
 export function panelToCutPart(design: Design, c: CollectedItem, panel: Panel, m: PanelParams): CutPart {
   return makePart(design, c, panel, m, hexesFor(design, c), edgeThkFrom(design));
@@ -182,43 +235,19 @@ export function panelToCutPart(design: Design, c: CollectedItem, panel: Panel, m
 
 function makePart(design: Design, c: CollectedItem, panel: Panel, m: PanelParams, hex: Hexes, e: EdgeThk): CutPart {
   const role = panel.role;
-  const isLiner = panel.id.endsWith('.liner');
-  const grainless = role === 'glass' || role === 'back' || isLiner;
 
-  let lengthMm: number;
-  let widthMm: number;
-  let thicknessMm: number;
-  let grain: boolean;
+  const cut = panelCutDims(panel);
+  const { lengthMm, widthMm, thicknessMm, grain, outline, holes } = cut;
   let material: string;
   let notes = '';
-  let outline: Point[] | undefined;
-  let holes: Point[][] | undefined;
 
   if (panel.shape.kind === 'cyl') {
-    const dia = mm(panel.shape.dia);
-    lengthMm = mm(panel.shape.h);
-    widthMm = dia;
-    thicknessMm = dia;
-    grain = true;
     material = 'solid wood';
-    notes = `turned/cylindrical Ø${dia}mm`;
+    notes = `turned/cylindrical Ø${thicknessMm}mm`;
   } else if (panel.shape.kind === 'prism') {
-    const bb = outlineBboxMm(panel.shape.outline);
-    lengthMm = bb.lengthMm;
-    widthMm = bb.widthMm;
-    thicknessMm = mm(panel.shape.h);
-    grain = true;
     material = materialFor(panel, thicknessMm, m, hex);
     notes = 'CNC outline';
-    outline = toMmPoly(panel.shape.outline);
-    if (panel.shape.holes?.length) holes = panel.shape.holes.map(toMmPoly);
   } else {
-    const lengthAxis = grainless ? 'max' : VERTICAL.has(role) ? 'h' : 'w';
-    const cut = boxCut(panel.shape, lengthAxis, !grainless);
-    lengthMm = cut.lengthMm;
-    widthMm = cut.widthMm;
-    thicknessMm = cut.thicknessMm;
-    grain = cut.grain;
     material = materialFor(panel, thicknessMm, m, hex);
   }
 
@@ -307,8 +336,21 @@ function dedup(rows: CutPart[]): CutPart[] {
   return out;
 }
 
+/**
+ * Order-independent signature of a panel's machining ops, appended to the dedup
+ * key so two same-size boards with different drilling (e.g. a left- vs
+ * right-side with hinge-plate holes on one only) stay distinct cut rows.
+ */
+function opsSig(drills: DrillOp[], grooves: GrooveOp[]): string {
+  if (!drills.length && !grooves.length) return '';
+  const d = drills.map((o) => `${o.kind}:${o.u}:${o.v}:${o.dia}:${o.depth}:${o.face}`).sort();
+  const g = grooves.map((o) => `${o.axis}:${o.at}:${o.width}:${o.depth}:${o.from}:${o.to}`).sort();
+  return `${d.join(';')}#${g.join(';')}`;
+}
+
 export function buildCutList(design: Design): { parts: CutPart[]; appliances: ReturnType<typeof collectDesign>['appliances']; skipped: string[] } {
-  const m = panelParamsFrom(design.manufacture ?? DEFAULT_MANUFACTURE);
+  const mfg: ManufactureSettings = design.manufacture ?? DEFAULT_MANUFACTURE;
+  const m = panelParamsFrom(mfg);
   const e = edgeThkFrom(design);
   const collected = collectDesign(design);
   const rows: CutPart[] = [];
@@ -316,7 +358,20 @@ export function buildCutList(design: Design): { parts: CutPart[]; appliances: Re
   for (const c of collected.items) {
     const hex = hexesFor(design, c);
     const panels = c.panels ?? (c.part ? partPanels(c.part, c.dims, m) : []);
-    for (const panel of panels) rows.push(makePart(design, c, panel, m, hex, e));
+    const opsMap = c.part ? itemDrilling(c.part, c.dims, panels, mfg) : new Map<string, PanelOps>();
+    const noteMap = c.part ? itemDrillNotes(c.part, c.dims, panels, mfg) : new Map<string, string[]>();
+    for (const panel of panels) {
+      const part = makePart(design, c, panel, m, hex, e);
+      const ops = opsMap.get(panel.id);
+      if (ops) {
+        part.drills = ops.drills;
+        part.grooves = ops.grooves;
+      }
+      const frags = noteMap.get(panel.id);
+      if (frags?.length) part.notes = part.notes ? `${part.notes}; ${frags.join('; ')}` : frags.join('; ');
+      part.key += `|${opsSig(part.drills, part.grooves)}`;
+      rows.push(part);
+    }
     if (c.worktop) rows.push(worktopRow(design, c, m, e));
   }
 

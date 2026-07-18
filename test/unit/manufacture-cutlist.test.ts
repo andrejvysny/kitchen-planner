@@ -64,17 +64,23 @@ describe('cut list', () => {
     expect(side.grain).toBe(true);
   });
 
-  it('dedup collapses two identical base cabinets into one row with doubled qty', () => {
+  it('dedup merges symmetric parts; asymmetric (hinge-bored) sides stay distinct', () => {
+    // UPDATED for Phase-3 drilling: the ops signature now extends the dedup key,
+    // so a single LEFT-hinged door splits side-l (hinge-plate bored) from side-r
+    // (no plates) into two cut parts instead of one qty-2 row.
     const one = buildCutList(mkDesign([item('base-cabinet', { color: '#8a9683' })]));
     const two = buildCutList(
       mkDesign([item('base-cabinet', { color: '#8a9683' }), item('base-cabinet', { color: '#8a9683' })])
     );
-    const sideOne = find(one.parts, (p) => p.role === 'side');
-    const sideTwo = find(two.parts, (p) => p.role === 'side');
-    expect(sideOne.qty).toBe(2); // left + right of one cabinet
-    expect(sideTwo.qty).toBe(4); // both cabinets merged
-    expect(sideTwo.cabinet).toBe('Base cabinet ×4');
-    // one cabinet's rows all stay singular in structure
+    const sidesOne = one.parts.filter((p) => p.role === 'side');
+    expect(sidesOne).toHaveLength(2); // left + right are now different parts
+    expect(sidesOne.every((p) => p.qty === 1)).toBe(true);
+    const sidesTwo = two.parts.filter((p) => p.role === 'side');
+    expect(sidesTwo).toHaveLength(2); // still two hands, each merged across both cabinets
+    expect(sidesTwo.every((p) => p.qty === 2)).toBe(true);
+    expect(sidesTwo[0].cabinet).toBe('Base cabinet ×2');
+    // symmetric parts (top/bottom) still merge across cabinets
+    expect(two.parts.filter((p) => p.role === 'top')[0].qty).toBe(2);
     expect(one.parts.filter((p) => p.role === 'top')[0].qty).toBe(1);
   });
 
@@ -107,8 +113,10 @@ describe('cut list', () => {
     const csv = cutListCsv(parts);
     expect(csv.startsWith('id,cabinet,name,length_mm,width_mm,thickness_mm,qty,material,grain,edge_L1,edge_L2,edge_W1,edge_W2,notes\r\n')).toBe(true);
     expect(csv.endsWith('\r\n')).toBe(true);
-    // exact door-front row (bodyH 760 → front 756 × 592 × 18, front grain vertical)
-    expect(csv).toContain('zr.front0,Base cabinet ×1,Base cabinet — front 1,756,592,18,1,Front 18mm #8a9683,L,2,2,2,2,\r\n');
+    // exact door-front row (bodyH 760 → front 756 × 592 × 18, front grain vertical).
+    // UPDATED for Phase-3: the door now carries a hinge note (H 756 ≤ 900 → 2
+    // hinges, default left hinge), quoted because it contains a comma.
+    expect(csv).toContain('zr.front0,Base cabinet ×1,Base cabinet — front 1,756,592,18,1,Front 18mm #8a9683,L,2,2,2,2,"hinge left, 2 hinges"\r\n');
 
     // a label containing a comma must be quoted in both cabinet and name columns
     const part: CustomPartDef = { ...newCabinetPart(), name: 'Big, wide unit', worktop: false, plinth: false };

@@ -1,8 +1,10 @@
 import { partPanels, type Panel, type PanelParams, type PartDims } from '../panels';
-import type { Design } from '../types';
+import type { CabinetPartDef, CustomPartDef, Design } from '../types';
 import { walkSplits } from '../zones';
-import { DEFAULT_MANUFACTURE, panelParamsFrom } from './settings';
+import { DEFAULT_MANUFACTURE, panelParamsFrom, type ManufactureSettings } from './settings';
 import { collectDesign } from './collect';
+import { enumerateJoints, itemDrilling } from './drilling';
+import { panelCutDims } from './cutlist';
 
 /**
  * Fit validator: proves a design's items actually assemble from their emitted
@@ -365,8 +367,92 @@ export function validateItemPanels(itemId: string, dims: PartDims, panels: Panel
   return out;
 }
 
+/** Push helper that lazily appends to a per-key number list. */
+function bucketPush(map: Map<string, number[]>, key: string, value: number): void {
+  const arr = map.get(key);
+  if (arr) arr.push(value);
+  else map.set(key, [value]);
+}
+
+/**
+ * Validate a cabinet's machining ops: every op inside its panel's cut rectangle
+ * with a ≥ 2 mm edge margin (hinge cups clear by their radius); System-32
+ * shelf-pin columns and hinge-plate pairs on the 32 mm grid; back-groove bands
+ * within the panel width; confirmat holes over a mating board's centerline
+ * (re-derived from the structural joint enumeration). Reconstructs the cut
+ * rectangle from `panelCutDims` — the same frame the generator targets.
+ */
+export function validateItemDrilling(
+  itemId: string, part: CustomPartDef, dims: PartDims, panels: Panel[], m: ManufactureSettings
+): FitViolation[] {
+  const out: FitViolation[] = [];
+  const opsMap = itemDrilling(part, dims, panels, m);
+  if (!opsMap.size) return out;
+  const dimById = new Map(panels.map((p) => [p.id, panelCutDims(p)] as const));
+  const push = (rule: string, detail: string, panelId?: string): void => void out.push({ itemId, panelId, rule, detail });
+
+  for (const [pid, ops] of opsMap) {
+    const cd = dimById.get(pid);
+    if (!cd) continue;
+    const L = cd.lengthMm;
+    const W = cd.widthMm;
+
+    // ---- op bounds ----
+    for (const op of ops.drills) {
+      if (op.face === 'edge') {
+        if (op.u < -0.6 || op.u > L + 0.6) push('drill-bounds', `${op.kind} u ${op.u} off edge [0,${L}]`, pid);
+        if (op.v < 2 || op.v > W - 2) push('drill-bounds', `${op.kind} edge v ${op.v} outside [2,${W - 2}]`, pid);
+        continue;
+      }
+      const margin = op.kind === 'hingeCup' ? op.dia / 2 : 2;
+      if (op.u < margin - 1e-6 || op.u > L - margin + 1e-6) push('drill-bounds', `${op.kind} u ${op.u} outside [${margin},${L - margin}]`, pid);
+      if (op.v < margin - 1e-6 || op.v > W - margin + 1e-6) push('drill-bounds', `${op.kind} v ${op.v} outside [${margin},${W - margin}]`, pid);
+    }
+
+    // ---- System-32 pitch: shelf-pin columns on a 32 grid ----
+    const spCols = new Map<string, number[]>();
+    for (const op of ops.drills) if (op.kind === 'shelfPin') bucketPush(spCols, `${op.face}:${Math.round(op.v)}`, op.u);
+    for (const us of spCols.values()) {
+      us.sort((a, b) => a - b);
+      for (let i = 1; i < us.length; i++) {
+        const gap = us[i] - us[i - 1];
+        if (Math.abs(gap - Math.round(gap / 32) * 32) > 0.6) push('pitch', `shelf-pin gap ${gap.toFixed(1)}mm not a multiple of 32`, pid);
+      }
+    }
+    // hinge mounting plates (5 mm) come in 32 mm vertical pairs
+    const mpCols = new Map<string, number[]>();
+    for (const op of ops.drills) if (op.kind === 'hingePlate' && op.dia === 5) bucketPush(mpCols, `${op.face}:${Math.round(op.v)}`, op.u);
+    for (const us of mpCols.values()) {
+      for (const u of us) {
+        if (!us.some((o) => Math.abs(Math.abs(o - u) - 32) <= 0.6)) push('pitch', `hinge plate at u ${u} has no 32mm pair`, pid);
+      }
+    }
+
+    // ---- groove band within the panel ----
+    for (const gr of ops.grooves) {
+      if (gr.at < -1e-6 || gr.at + gr.width > W + 1e-6) push('groove-band', `groove [${gr.at},${gr.at + gr.width}] exceeds width ${W}`, pid);
+      if (gr.from < -1e-6 || gr.to > L + 1e-6) push('groove-band', `groove span [${gr.from},${gr.to}] exceeds length ${L}`, pid);
+    }
+  }
+
+  // ---- confirmat holes over a mating board centerline (structural) ----
+  if (m.joinery === 'confirmat' && part.type === 'cabinet') {
+    const joints = enumerateJoints(part as CabinetPartDef, dims, panels, m);
+    for (const [pid, ops] of opsMap) {
+      for (const op of ops.drills) {
+        if (op.kind !== 'confirmat') continue;
+        if (!joints.some((j) => j.postId === pid && Math.abs(j.uCenterM * 1000 - op.u) <= 1)) {
+          push('confirmat-centerline', `confirmat u ${op.u} on ${pid} over no mating centerline`, pid);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 export function validateDesignFit(design: Design): FitViolation[] {
-  const m = panelParamsFrom(design.manufacture ?? DEFAULT_MANUFACTURE);
+  const mfg = design.manufacture ?? DEFAULT_MANUFACTURE;
+  const m = panelParamsFrom(mfg);
   const out: FitViolation[] = [];
   for (const c of collectDesign(design).items) {
     const panels = c.panels ?? (c.part ? partPanels(c.part, c.dims, m) : []);
@@ -379,6 +465,8 @@ export function validateDesignFit(design: Design): FitViolation[] {
         out.push({ itemId: c.item.id, rule: 'structure', detail: `divider count ${actual} != ${expected} split boundaries` });
       }
     }
+    // design-level: machining ops within bounds / on grid
+    if (c.part) out.push(...validateItemDrilling(c.item.id, c.part, c.dims, panels, mfg));
   }
   return out;
 }
