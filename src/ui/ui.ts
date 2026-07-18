@@ -28,6 +28,7 @@ import type { ElevationView } from '../plan2d/elevation';
 import { materialSwatch } from '../view3d/textures';
 import type { View3D, CamPreset } from '../view3d/view3d';
 import { PartStudio } from './partstudio';
+import { ManufactureDialog } from './manufacture';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
   document.querySelector(sel) as T;
@@ -50,6 +51,7 @@ export class UI {
   private view: View3D;
   private elev: ElevationView;
   private studio: PartStudio;
+  private manufacture: ManufactureDialog;
 
   constructor(store: Store, plan: Plan2D, view: View3D, elev: ElevationView) {
     this.store = store;
@@ -57,6 +59,7 @@ export class UI {
     this.view = view;
     this.elev = elev;
     this.studio = new PartStudio(store, () => this.renderCatalogIfPartsChanged());
+    this.manufacture = new ManufactureDialog(store);
 
     this.renderCatalog();
     this.renderOutline();
@@ -1075,6 +1078,8 @@ export class UI {
       }
     });
 
+    $('#btn-manufacture').addEventListener('click', () => this.manufacture.open());
+
     // pane controls
     $('#btn-zoom-in').addEventListener('click', () => this.plan.zoomBy(1.25));
     $('#btn-zoom-out').addEventListener('click', () => this.plan.zoomBy(0.8));
@@ -1118,13 +1123,14 @@ export class UI {
         target.isContentEditable;
 
       if (e.key === 'Escape') {
-        if (this.studio.isOpen()) this.studio.handleEscape();
+        if (this.manufacture.isOpen()) this.manufacture.handleEscape();
+        else if (this.studio.isOpen()) this.studio.handleEscape();
         else if (this.plan.armedDef) this.plan.setArmed(null);
         else if (this.plan.measureOn) this.plan.setMeasure(false);
         else this.store.select({ kind: 'none' });
         return;
       }
-      if (typing || this.studio.isOpen()) return;
+      if (typing || this.studio.isOpen() || this.manufacture.isOpen()) return;
 
       const sel = this.store.selection;
       const mod = e.ctrlKey || e.metaKey;

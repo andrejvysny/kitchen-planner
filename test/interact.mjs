@@ -1000,6 +1000,126 @@ results.push([
   persisted.hasVar && persisted.cabBound && persisted.wallBound,
 ]);
 
+// 25. Manufacturing export dialog — reset to the known-fitting demo kitchen so
+//     the fit chip is green and the pack is richly populated.
+const parseCsvRow = (line) => {
+  const out = [];
+  let cur = '';
+  let q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; } else q = false;
+      } else cur += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+};
+
+await page.evaluate(() => window.__kp.store.replaceDesign(window.__kp.demoDesign()));
+await page.waitForTimeout(200);
+await page.keyboard.press('Escape'); // clear any selection / armed tile
+await page.click('#btn-manufacture');
+await page.waitForTimeout(350);
+
+const mfgOpen = await page.evaluate(() => {
+  const overlay = document.querySelector('.studio.mfg');
+  const canvas = document.querySelector('.mfg-canvas');
+  const chip = document.querySelector('.mfg-status');
+  const cvis = canvas && !canvas.hidden && canvas.getBoundingClientRect().width > 50;
+  return { overlay: !!overlay, canvas: !!cvis, chip: chip ? chip.textContent : '' };
+});
+results.push([
+  'manufacture dialog opens with preview + fit chip',
+  mfgOpen.overlay && mfgOpen.canvas && mfgOpen.chip.includes('✓'),
+]);
+
+// settings change writes through to the model, rebuilds, and is one undo step
+const undoBefore = await page.evaluate(() => window.__kp.store['undoStack'].length);
+await page.$eval('.mfg-rail input[data-key="carcassT"]', (el) => {
+  el.value = '16';
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.waitForTimeout(60);
+const afterChange = await page.evaluate(() => ({
+  t: window.__kp.store.design.manufacture.carcassT,
+  len: window.__kp.store['undoStack'].length,
+}));
+results.push([
+  'manufacture settings change persists + one undo step',
+  Math.abs(afterChange.t - 0.016) < 1e-9 && afterChange.len === undoBefore + 1,
+]);
+await page.$eval('.mfg-rail input[data-key="carcassT"]', (el) => {
+  el.value = '18';
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.waitForTimeout(300); // let the debounced pack regen settle
+
+// cut list CSV: schema header, >20 data rows, integer dimension cells
+const [csvDl] = await Promise.all([page.waitForEvent('download'), page.click('.mfg-csv')]);
+const csv = readFileSync(await csvDl.path(), 'utf8');
+const csvLines = csv.replace(/\r\n$/, '').split('\r\n');
+const csvHeaderOk =
+  csvLines[0] ===
+  'id,cabinet,name,length_mm,width_mm,thickness_mm,qty,material,grain,edge_L1,edge_L2,edge_W1,edge_W2,notes';
+const csvData = csvLines.slice(1);
+const dimsInt = csvData.every((l) => {
+  const c = parseCsvRow(l);
+  return /^\d+$/.test(c[3]) && /^\d+$/.test(c[4]) && /^\d+$/.test(c[5]);
+});
+results.push([
+  'manufacture cut list CSV downloads + parses',
+  csvHeaderOk && csvData.length > 20 && dimsInt,
+]);
+
+// DXF: R12 structure, layers, and plenty of drill circles
+const [dxfDl] = await Promise.all([page.waitForEvent('download'), page.click('.mfg-dxf')]);
+const dxf = readFileSync(await dxfDl.path(), 'utf8');
+const circleCount = dxf.split('\n').filter((l) => l === 'CIRCLE').length;
+results.push([
+  'manufacture DXF downloads + is structurally valid',
+  dxf.includes('AC1009') &&
+    dxf.includes('ENTITIES') &&
+    dxf.includes('DRILL_D5') &&
+    dxf.split('\n').includes('CUT') &&
+    dxf.includes('ENDSEC') &&
+    dxf.trimEnd().endsWith('EOF') &&
+    circleCount > 20,
+]);
+
+// PDF pack: multi-page A4 document (async render behind a disabled button)
+const [pdfDl] = await Promise.all([
+  page.waitForEvent('download', { timeout: 30000 }),
+  page.click('.mfg-pdf'),
+]);
+const pdf = readFileSync(await pdfDl.path());
+const pdfStr = pdf.toString('latin1');
+const pageObjs = (pdfStr.match(/\/Type\s*\/Page(?!s)/g) || []).length;
+results.push([
+  'manufacture PDF pack downloads',
+  pdfStr.startsWith('%PDF') && pdf.length > 50000 && pageObjs >= 10,
+]);
+
+// fit validator is clean on the demo kitchen
+const mfgFit = await page.evaluate(() => window.__kp.mfg.validate().length);
+results.push(['manufacture fit validator clean on demo', mfgFit === 0]);
+
+// Escape closes; reopening and clicking outside the panel also closes
+await page.keyboard.press('Escape');
+await page.waitForTimeout(60);
+const closedByEsc = await page.evaluate(() => !document.querySelector('.studio.mfg'));
+await page.click('#btn-manufacture');
+await page.waitForTimeout(120);
+const ovBox = await page.locator('.studio-overlay').boundingBox();
+await page.mouse.click(ovBox.x + 5, ovBox.y + 5); // overlay margin, outside the panel
+await page.waitForTimeout(60);
+const closedByOutside = await page.evaluate(() => !document.querySelector('.studio.mfg'));
+results.push(['manufacture Esc + click-outside close', closedByEsc && closedByOutside]);
+
 let pass = 0;
 for (const [name, ok] of results) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`);

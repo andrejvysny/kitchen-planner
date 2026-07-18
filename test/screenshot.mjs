@@ -43,6 +43,20 @@ const newPart = await page.locator('.cat-new');
 await newPart.click();
 await page.waitForTimeout(1500);
 await page.screenshot({ path: '/tmp/shot-studio.png' });
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+
+// manufacturing export dialog — advance to a cabinet sheet so the shot shows
+// the geometric drawing renderer (FRONT/SIDE/PLAN + dimensions + drill circles)
+await page.click('#btn-manufacture');
+await page.waitForTimeout(700);
+await page.screenshot({ path: '/tmp/shot-manufacture-cover.png' });
+for (let i = 0; i < 5; i++) {
+  await page.click('.mfg-next');
+  await page.waitForTimeout(120);
+}
+await page.waitForTimeout(400);
+await page.screenshot({ path: '/tmp/shot-manufacture.png' });
 
 console.log('ERRORS:', errors.length ? errors.join('\n') : 'none');
 await browser.close();

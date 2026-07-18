@@ -1,7 +1,13 @@
 import { catalogDef, defaultParams, hasCatalogDef, type CatalogDef } from './catalog';
 import { clamp, dist, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
 import { hasMaterial } from './materials';
-import { DEFAULT_MANUFACTURE, sanitizeManufacture } from './manufacture/settings';
+import {
+  DEFAULT_MANUFACTURE,
+  sanitizeManufacture,
+  type DrawerSystemSettings,
+  type ManufactureSettings,
+  type System32Settings,
+} from './manufacture/settings';
 import { samplePart, sanitizePart, toCatalogDef } from './parts';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from './sky';
 import { migrateDesignV1, migratePartV1 } from './partsMigrate';
@@ -18,6 +24,16 @@ type EventMap = {
 type Handler<T> = (payload: T) => void;
 
 const AUTOSAVE_KEY = 'kitchen-planner-design-v1';
+
+/**
+ * A shallow patch of the manufacturing settings. The two nested groups
+ * (`system32`, `drawer`) may be patched partially — `setManufacture`
+ * one-level deep-merges them onto the current settings before sanitizing.
+ */
+export type ManufacturePatch = Partial<Omit<ManufactureSettings, 'system32' | 'drawer'>> & {
+  system32?: Partial<System32Settings>;
+  drawer?: Partial<DrawerSystemSettings>;
+};
 
 export class Store {
   design: Design;
@@ -524,6 +540,29 @@ export class Store {
     Object.assign(this.design.room, patch);
     this.clampAllOpenings();
     this.notify({ structural: true });
+  }
+
+  /* ---------------- manufacturing settings ---------------- */
+
+  /**
+   * Patch the manufacturing settings (cut-list / drilling constants). These
+   * feed the panel generators, so a change is STRUCTURAL — 3D rebuilds to
+   * reflect the new geometry. One-level deep-merges the nested `system32` /
+   * `drawer` groups, then sanitizes (clamps + repairs). Unlike the gesture-
+   * based editors these values change atomically per input, so this commits
+   * itself: one edit == one undo step.
+   */
+  setManufacture(patch: ManufacturePatch): void {
+    const cur = this.design.manufacture;
+    const merged = {
+      ...cur,
+      ...patch,
+      system32: { ...cur.system32, ...patch.system32 },
+      drawer: { ...cur.drawer, ...patch.drawer },
+    };
+    this.design.manufacture = sanitizeManufacture(merged);
+    this.notify({ structural: true });
+    this.commit();
   }
 
   /* ---------------- design variables ---------------- */
