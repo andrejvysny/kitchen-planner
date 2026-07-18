@@ -159,7 +159,8 @@ describe('mesh builders', () => {
     const bounds = new Box3().setFromObject(group);
     expect(bounds.max.y).toBeCloseTo(0.75, 2);
     expect(bounds.max.x).toBeCloseTo(1.2 / 2 + 0.01, 2);
-    // 1 drawer front + 2 door fronts + groove strips + niche + carcass + worktop
+    // drawer + door fronts + groove strips + carcass boards (sides/top/bottom/back/
+    // dividers) + drawer boxes + open niche + worktop
     const boxes = group.children.length;
     expect(boxes).toBeGreaterThanOrEqual(12);
 

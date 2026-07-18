@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { partPanels, type Panel } from '../model/panels';
+import { DEFAULT_PANEL_PARAMS, partPanels, type Panel } from '../model/panels';
+import { panelParamsFrom } from '../model/manufacture/settings';
 import type { CustomPartDef, Design, Item } from '../model/types';
 import { resolveColor, resolveFinish } from '../model/variables';
 import { box, cyl, type Finish, GROOVE, matte, PLINTH_COLOR, prism, surfMat } from './meshKit';
@@ -79,7 +80,10 @@ export function buildCustomPart(g: THREE.Group, item: Item, part: CustomPartDef,
   const counter: Finish | undefined = item.counterMaterial
     ? { color: accentColor, material: item.counterMaterial, rot: item.counterMaterialRot }
     : undefined;
-  for (const p of partPanels(part, dims)) {
+  // physical board sizing comes from the design's manufacture settings; tests /
+  // studio preview may pass a bare design, so fall back to the default params
+  const m = design.manufacture ? panelParamsFrom(design.manufacture) : DEFAULT_PANEL_PARAMS;
+  for (const p of partPanels(part, dims, m)) {
     panelMesh(g, p, front, accentColor, counter);
   }
 }

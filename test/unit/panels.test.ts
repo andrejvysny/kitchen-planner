@@ -35,16 +35,29 @@ function bboxOf(panels: Panel[]): { maxX: number; maxY: number; maxZ: number } {
   return { maxX, maxY, maxZ };
 }
 
+const boxDims = (p: Panel): [number, number, number] => {
+  if (p.shape.kind !== 'box') throw new Error(`${p.id} is not a box`);
+  return [p.shape.w, p.shape.h, p.shape.d];
+};
+
 describe('partPanels (manufacturing IR)', () => {
   it('sample sideboard: roles, counts and cut-list dimensions line up', () => {
     const part = samplePart(); // 1 drawer + door pair + open shelf, worktop, no plinth
     const panels = partPanels(part, dimsOf(part));
     const roles = (r: string) => panels.filter((p) => p.role === r);
+    const byId = (id: string) => panels.find((p) => p.id === id);
     expect(roles('worktop')).toHaveLength(1);
     expect(roles('plinth')).toHaveLength(0);
     // 1 drawer front + 2 pair doors
     expect(roles('front')).toHaveLength(3);
-    expect(roles('niche').length).toBeGreaterThanOrEqual(5);
+    // discrete carcass boards: two sides, a bottom, a top and a structural back
+    expect(roles('side')).toHaveLength(2);
+    expect(roles('bottom')).toHaveLength(1);
+    expect(roles('top')).toHaveLength(1);
+    expect(byId('back')?.role).toBe('back');
+    // the root h-split (drawers / doorPair / open) yields two horizontal dividers
+    expect(roles('divider')).toHaveLength(2);
+    // the open leaf is an accent-wood niche: a liner + one shelf
     expect(roles('shelf')).toHaveLength(1);
     // every front is a real board with the standard thickness
     for (const f of roles('front')) {
@@ -56,6 +69,44 @@ describe('partPanels (manufacturing IR)', () => {
     const bb = bboxOf(panels);
     expect(bb.maxY).toBeLessThanOrEqual(part.h + 1e-6);
     expect(bb.maxX).toBeLessThanOrEqual(part.w / 2 + 0.02);
+  });
+
+  it('door base cabinet decomposes into EU-frameless boards with real dimensions', () => {
+    const part: CabinetPartDef = {
+      ...newCabinetPart(),
+      w: 0.6,
+      d: 0.56,
+      h: 0.72,
+      elevation: 0,
+      plinth: false,
+      worktop: false,
+      footprint: { kind: 'rect' },
+      face: { kind: 'leaf', fill: 'door' },
+    };
+    const panels = cabinetPanels(part, dimsOf(part));
+    const byId = (id: string) => panels.find((p) => p.id === id)!;
+    // sides: T × bodyH × Dc  (18 × 720 × 542)
+    expect(boxDims(byId('side-l'))).toEqual([0.018, 0.72, 0.542]);
+    expect(byId('side-l').x).toBeCloseTo(-(0.6 / 2 - 0.009));
+    expect(boxDims(byId('side-r'))).toEqual([0.018, 0.72, 0.542]);
+    // bottom / top: Wi × T × Dc  (564 × 18 × 542)
+    expect(boxDims(byId('bottom'))).toEqual([0.564, 0.018, 0.542]);
+    expect(boxDims(byId('top'))).toEqual([0.564, 0.018, 0.542]);
+    expect(byId('top').y).toBeCloseTo(0.702); // y0 + bodyH − T
+    // grooved back: (Wi+2gd) × (Hi+2gd) × backT  (580 × 700 × 3) captured into the carcass
+    const back = byId('back');
+    expect(boxDims(back).map((v) => +v.toFixed(3))).toEqual([0.58, 0.7, 0.003]);
+    expect(back.z).toBeCloseTo(-0.56 / 2 + 0.012 + 0.0015);
+    expect(back.y).toBeCloseTo(0.01); // T − grooveDepth
+    // door front: (w−2·reveal) × (bodyH−reveal) × frontT  (592 × 716 × 18)
+    const front = panels.find((p) => p.role === 'front')!;
+    expect(boxDims(front).map((v) => +v.toFixed(3))).toEqual([0.592, 0.716, 0.018]);
+    expect(front.groove).toBe('top');
+    // carcass sits inside the nominal w × h × d envelope
+    const bb = bboxOf(panels);
+    expect(bb.maxX).toBeLessThanOrEqual(0.3 + 1e-9);
+    expect(bb.maxZ).toBeLessThanOrEqual(0.28 + 1e-9);
+    expect(bb.maxY).toBeLessThanOrEqual(0.72 + 1e-9);
   });
 
   it('instances scale: doubling the width doubles front widths, not thicknesses', () => {
@@ -78,7 +129,11 @@ describe('partPanels (manufacturing IR)', () => {
       footprint: { kind: 'chamfer', corner: 'right', cx: 0.5, cz: 0.5, face: 'angled' },
     };
     const panels = cabinetPanels(part, dimsOf(part));
-    expect(panels.find((p) => p.role === 'carcass')?.shape.kind).toBe('prism');
+    // polygon carcass = top + bottom prisms + per-edge side boards
+    const prisms = panels.filter((p) => (p.role === 'top' || p.role === 'bottom') && p.shape.kind === 'prism');
+    expect(prisms).toHaveLength(2);
+    const sides = panels.filter((p) => p.role === 'side');
+    expect(sides.length).toBeGreaterThanOrEqual(3); // back + two straight sides
     const fronts = panels.filter((p) => p.role === 'front' && p.rotY !== 0);
     expect(fronts.length).toBeGreaterThan(0);
     // outward normal of the right chamfer points front-right (45°)

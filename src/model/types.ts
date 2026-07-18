@@ -136,6 +136,8 @@ export interface LeafZone {
   drawers?: number;
   /** fill 'open': interior shelves, 0..4 */
   shelves?: number;
+  /** fill 'door': jamb carrying the hinge (default 'left'); drives later drilling */
+  hinge?: 'left' | 'right';
 }
 
 export interface SplitZone {

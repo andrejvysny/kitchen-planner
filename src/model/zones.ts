@@ -45,6 +45,43 @@ export function walkZones(root: Zone, w: number, h: number): ZoneRect[] {
   return out;
 }
 
+/** One split node's rect + its internal cut positions, in absolute face coords. */
+export interface SplitRect {
+  dir: 'h' | 'v';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** boundary positions (x for 'v', y for 'h'); length === children.length − 1 */
+  boundaries: number[];
+}
+
+/**
+ * Every split node as a rect + its internal boundaries — the mesh builder turns
+ * these into carcass dividers. Mirrors walkZones' layout exactly: 'v' cuts run
+ * left→right in x, 'h' cuts run bottom→top in y (face coords, y up).
+ */
+export function walkSplits(root: Zone, w: number, h: number): SplitRect[] {
+  const out: SplitRect[] = [];
+  const visit = (z: Zone, x: number, y: number, zw: number, zh: number): void => {
+    if (z.kind === 'leaf') return;
+    const total = z.weights.reduce((s, v) => s + v, 0) || 1;
+    const boundaries: number[] = [];
+    let off = 0;
+    for (let i = 0; i < z.children.length; i++) {
+      const frac = (z.weights[i] ?? 0) / total;
+      const cx = z.dir === 'v' ? x + off * zw : x;
+      const cy = z.dir === 'h' ? y + off * zh : y;
+      if (i > 0) boundaries.push(z.dir === 'v' ? cx : cy);
+      visit(z.children[i], cx, cy, z.dir === 'v' ? frac * zw : zw, z.dir === 'h' ? frac * zh : zh);
+      off += frac;
+    }
+    out.push({ dir: z.dir, x, y, w: zw, h: zh, boundaries });
+  };
+  visit(root, 0, 0, w, h);
+  return out;
+}
+
 export function zoneAtPath(root: Zone, path: number[]): Zone | null {
   let z: Zone = root;
   for (const i of path) {
@@ -133,6 +170,8 @@ export function normalizeZones(root: Zone): Zone {
       const leaf: LeafZone = { kind: 'leaf', fill: FILLS.includes(z.fill) ? z.fill : 'door' };
       if (leaf.fill === 'drawers') leaf.drawers = clamp(Math.round(z.drawers ?? 2), 1, 5);
       if (leaf.fill === 'open') leaf.shelves = clamp(Math.round(z.shelves ?? 1), 0, 4);
+      // hinge side is meaningful only for a single door (drives later drilling)
+      if (leaf.fill === 'door' && (z.hinge === 'left' || z.hinge === 'right')) leaf.hinge = z.hinge;
       return leaf;
     }
     if (depth >= MAX_DEPTH) return norm({ kind: 'leaf', fill: 'door' }, depth);

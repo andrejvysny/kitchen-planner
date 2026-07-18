@@ -212,6 +212,15 @@ export class ZoneCanvas {
     if (leaf.fill === 'open') {
       stepper('Shelves', () => leaf.shelves ?? 1, (v) => (leaf.shelves = v), 0, 4);
     }
+    if (leaf.fill === 'door') {
+      // hinge side toggle (marks the drilling jamb; geometry is unchanged)
+      const hingeLabel = () => ((leaf.hinge ?? 'left') === 'left' ? 'Hinge ⌐L' : 'Hinge R¬');
+      const b = btn(hingeLabel(), 'Toggle the hinge side (left / right)', () => {
+        leaf.hinge = (leaf.hinge ?? 'left') === 'left' ? 'right' : 'left';
+        this.changed();
+      });
+      b.classList.add('active');
+    }
   }
 
   /* ---------------- geometry ---------------- */
