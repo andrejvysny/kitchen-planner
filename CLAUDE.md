@@ -58,15 +58,21 @@ Custom parts (Part Studio, src/ui/partstudio/) are a discriminated union on
   groove style) composing arbitrary furniture; meshes tagged
   `userData.boardId` for preview picking.
 
-Custom parts render through a **panel-list IR**: `partPanels(part, dims)`
+Custom parts render through a **panel-list IR**: `partPanels(part, dims, m?)`
 (src/model/panels.ts) emits every physical board as a `Panel` (box/cyl/prism
 shape, position, role, colour slot, finish) — pure model code, no three.js.
+Cabinets decompose into discrete EU-frameless boards (roles `side/top/bottom/
+back/divider/drawerBottom/drawerBack/shelf/…`): two sides, captured top +
+bottom, grooved-in 3mm HDF back (or screwed), one divider per zone-tree split
+line (`walkSplits`), drawer-system bottom/back boards, plinth kickboard. All
+physical sizing flows through `PanelParams`, derived from
+`design.manufacture` (`panelParamsFrom`); `DEFAULT_PANEL_PARAMS` mirrors the
+bare constants so context-free callers render identically.
 src/view3d/partMeshes.ts only maps panels to meshes and adds the decoration
 layer (routed grooves, glass material); meshes carry `name = panel.id` and
-`userData.role`. A future manufacturing export (cut lists, CNC outlines)
-serializes the SAME panel list — never derive board dimensions from meshes.
-Anything geometric belongs in the panel generator, anything cosmetic in the
-mesh layer.
+`userData.role`. The manufacturing export serializes the SAME panel list —
+never derive board dimensions from meshes. Anything geometric belongs in the
+panel generator, anything cosmetic in the mesh layer.
 
 Zone trees live on the part def only — placed instances override just
 w/d/h/color/elevation ("Duplicate part" in the studio covers variants).
@@ -85,9 +91,17 @@ per-instance v1 params become cloned "(variant)" parts.
 - **New part type**: extend the `CustomPartDef` union + `sanitizePart` +
   factory (parts.ts), add a `partPanels` branch (panels.ts), a picker card
   (typePicker.ts) and a rail panel module; migration untouched.
-- **Manufacturing export**: iterate `design.items` → `partPanels(part,
-  itemDims)` → rows from `Panel.shape` dims + `role` + resolved slot colour;
-  prism outlines are CNC-ready polygons. Panel ids are stable per part.
+- **Manufacturing export** (implemented, src/model/manufacture/): pure
+  pipeline `buildPack(design)` → collect (custom parts direct; catalog
+  cabinets bridged via synthetic zone trees in catalogBridge.ts; appliances
+  to a schedule) → cut list (mm ints, grain axis, edge banding, dedup) →
+  System 32 drilling + hardware (drilling.ts documents the per-role 2D cut
+  frame — keep it in sync with cutlist.ts `panelCutDims`) → drawing sheets →
+  CSV / DXF R12 / jsPDF pack (jspdf is dynamically imported, stays a lazy
+  chunk). `validateDesignFit(design)` independently checks parts assemble
+  (overlaps, groove capture, reveals, drill bounds) — extend it with every
+  geometry change; zero violations is a test invariant. UI:
+  src/ui/manufacture/ dialog (`#btn-manufacture`).
 
 Room model: `design.corners` is a polygon, normalized counter-clockwise
 (`normalizeDesign`). Walls are edges identified by their **start corner id**;
@@ -144,7 +158,7 @@ Coordinate conventions (easy to get wrong):
   temporarily clears the selection tint so it doesn't bake into materials.
 - `window.__kp = {store, plan, view}` is exposed for tests/debugging — keep it.
 - Autosave key `kitchen-planner-design-v1`, parts library
-  `kitchen-planner-parts-v1`. `DESIGN_VERSION` is 3; bump + migrate in
+  `kitchen-planner-parts-v1`. `DESIGN_VERSION` is 5; bump + migrate in
   `sanitizeDesign()` (store.ts) on schema changes — it is the single
   validation/repair gate for autosave and file import, and it also drops
   items whose defId resolves nowhere. The parts library migrates per element
