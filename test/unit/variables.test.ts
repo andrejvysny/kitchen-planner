@@ -63,7 +63,7 @@ describe('variables — sanitizeDesign migration & repair', () => {
   it('adds an empty variables registry to a v3 design (v3 → v4)', () => {
     const d = sanitizeDesign({ version: 3, corners: CORNERS })!;
     expect(d).not.toBeNull();
-    expect(d.version).toBe(4);
+    expect(d.version).toBe(5);
     expect(d.variables).toEqual([]);
   });
 

@@ -1,6 +1,7 @@
 import { catalogDef, defaultParams, hasCatalogDef, type CatalogDef } from './catalog';
 import { clamp, dist, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
 import { hasMaterial } from './materials';
+import { DEFAULT_MANUFACTURE, sanitizeManufacture } from './manufacture/settings';
 import { samplePart, sanitizePart, toCatalogDef } from './parts';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from './sky';
 import { migrateDesignV1, migratePartV1 } from './partsMigrate';
@@ -680,7 +681,7 @@ export function normalizeDesign(d: Design): Design {
   return d;
 }
 
-export const DESIGN_VERSION = 4;
+export const DESIGN_VERSION = 5;
 
 /** Validate + repair a design parsed from storage or a file. Returns null when unusable. */
 export function sanitizeDesign(raw: unknown): Design | null {
@@ -694,6 +695,8 @@ export function sanitizeDesign(raw: unknown): Design | null {
   if (!Array.isArray(d.customParts)) d.customParts = [];
   // v≤3 → 4 is additive: designs simply gain an empty variables registry
   d.variables = sanitizeVariables(d.variables);
+  // v≤4 → 5 is additive: designs simply gain manufacturing settings
+  d.manufacture = sanitizeManufacture(d.manufacture);
   if (d.version < 2) migrateDesignV1(d);
   d.customParts = (d.customParts as unknown[]).map(sanitizePart).filter(Boolean);
   // items whose defId resolves nowhere would crash the render loop
@@ -813,7 +816,7 @@ export function defaultScene(): Design['scene'] {
 export function emptyDesign(): Design {
   const c = (x: number, y: number): Corner => ({ id: uid('c'), x, y });
   return normalizeDesign({
-    version: 4,
+    version: 5,
     corners: [c(0, 0), c(4, 0), c(4, 3), c(0, 3)],
     openings: [],
     items: [],
@@ -827,6 +830,7 @@ export function emptyDesign(): Design {
       wallThickness: 0.1,
     },
     scene: defaultScene(),
+    manufacture: JSON.parse(JSON.stringify(DEFAULT_MANUFACTURE)),
   });
 }
 
@@ -911,7 +915,7 @@ export function demoDesign(): Design {
   ];
 
   return normalizeDesign({
-    version: 4,
+    version: 5,
     corners: [c1, c2, c3, c4],
     openings,
     items,
@@ -925,5 +929,6 @@ export function demoDesign(): Design {
       wallThickness: t,
     },
     scene: defaultScene(),
+    manufacture: JSON.parse(JSON.stringify(DEFAULT_MANUFACTURE)),
   });
 }

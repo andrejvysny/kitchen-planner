@@ -1,5 +1,7 @@
 /** Shared model types. All linear units are meters; angles are radians. */
 
+import type { ManufactureSettings } from './manufacture/settings';
+
 export interface Point {
   x: number;
   y: number;
@@ -222,7 +224,7 @@ export interface DesignVar {
 }
 
 export interface Design {
-  version: 4;
+  version: 5;
   corners: Corner[];
   openings: Opening[];
   items: Item[];
@@ -239,6 +241,8 @@ export interface Design {
   wallVisibility?: Record<string, WallVisMode>;
   /** ceiling visibility override; missing = 'auto' (camera-based, visible from below) */
   ceilingVisibility?: WallVisMode;
+  /** physical constants driving the manufacturing export (cut lists, drilling) */
+  manufacture: ManufactureSettings;
 }
 
 export type Selection =

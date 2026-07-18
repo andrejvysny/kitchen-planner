@@ -16,6 +16,52 @@ export const FRONT_T = 0.018;
 export const GAP = 0.004;
 export const WORKTOP_T = 0.035;
 
+/** Drawer-box sizing knobs, mirrored from ManufactureSettings.drawer (src/model/manufacture/settings.ts). */
+export interface DrawerPanelParams {
+  bottomT: number;
+  backT: number;
+  widthDeduction: number;
+  depthDeduction: number;
+  boxHeight: number;
+}
+
+/**
+ * Geometric knobs threaded through the panel generators, sourced from the
+ * design's `manufacture` settings via `panelParamsFrom` (manufacture/settings.ts).
+ * Unused by the generators in this phase — Phase 1 threads it through; today's
+ * generators still use the bare PLINTH_H/FRONT_T/GAP/WORKTOP_T constants above,
+ * which is why DEFAULT_PANEL_PARAMS must stay numerically identical to them.
+ */
+export interface PanelParams {
+  carcassT: number;
+  frontT: number;
+  reveal: number;
+  plinthH: number;
+  plinthInset: number;
+  worktopT: number;
+  backMode: 'groove' | 'screwed';
+  backT: number;
+  grooveDepth: number;
+  backInset: number;
+  shelfSetback: number;
+  drawer: DrawerPanelParams;
+}
+
+export const DEFAULT_PANEL_PARAMS: PanelParams = {
+  carcassT: 0.018,
+  frontT: FRONT_T,
+  reveal: GAP,
+  plinthH: PLINTH_H,
+  plinthInset: 0.045,
+  worktopT: WORKTOP_T,
+  backMode: 'groove',
+  backT: 0.003,
+  grooveDepth: 0.008,
+  backInset: 0.012,
+  shelfSetback: 0.02,
+  drawer: { bottomT: 0.016, backT: 0.016, widthDeduction: 0.084, depthDeduction: 0.01, boxHeight: 0.09 },
+};
+
 export type PanelShape =
   | { kind: 'box'; w: number; h: number; d: number }
   | { kind: 'cyl'; dia: number; h: number }

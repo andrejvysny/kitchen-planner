@@ -117,7 +117,7 @@ describe('sanitizeDesign v1 → v2', () => {
     };
     const d = sanitizeDesign(raw)!;
     expect(d).not.toBeNull();
-    expect(d.version).toBe(4);
+    expect(d.version).toBe(5);
     expect(d.customParts).toHaveLength(2);
     const variant = d.customParts.find((p) => p.name.includes('variant')) as CabinetPartDef;
     expect(variant).toBeTruthy();
@@ -154,11 +154,12 @@ describe('sanitizeDesign v1 → v2', () => {
     expect(d.items[0].id).toBe('ok');
   });
 
-  it('accepts v2/v3/v4 payloads and rejects future versions', () => {
+  it('accepts v2/v3/v4/v5 payloads and rejects future versions', () => {
     expect(sanitizeDesign({ version: 2, corners: CORNERS })).not.toBeNull();
     expect(sanitizeDesign({ version: 3, corners: CORNERS })).not.toBeNull();
     expect(sanitizeDesign({ version: 4, corners: CORNERS })).not.toBeNull();
-    expect(sanitizeDesign({ version: 5, corners: CORNERS })).toBeNull();
+    expect(sanitizeDesign({ version: 5, corners: CORNERS })).not.toBeNull();
+    expect(sanitizeDesign({ version: 6, corners: CORNERS })).toBeNull();
   });
 
   it('drops junk part entries instead of nuking the design', () => {

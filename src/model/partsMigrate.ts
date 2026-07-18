@@ -1,3 +1,4 @@
+import { FRONT_T, GAP } from './panels';
 import type { Board, CabinetPartDef, CustomPartDef, FreeformPartDef, Zone } from './types';
 import { uid } from './types';
 import { normalizeZones } from './zones';
@@ -13,9 +14,6 @@ interface CabinetCounts {
   doors: number;
   shelves: number;
 }
-
-const FRONT_T = 0.018;
-const GAP = 0.004;
 
 /** The v1 vertical layout (drawers bottom / doors middle / open top) as a zone tree. */
 export function cabinetTreeFromCounts(o: CabinetCounts): Zone {
