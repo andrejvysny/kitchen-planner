@@ -106,11 +106,12 @@ interface Member {
 
 function carcassOf(part: CabinetPartDef, dims: PartDims, m: ManufactureSettings): Carcass | null {
   if (part.type !== 'cabinet' || part.footprint.kind !== 'rect') return null;
+  // wall units drill exactly like floor units (hinge plates, pins, joinery,
+  // groove) — only wall-hanger fixing is left to the fitter's hardware
   const wallMounted = dims.elevation > 0.3;
-  if (wallMounted) return null; // wall units: hardware only, no drilling
   const pp = panelParamsFrom(m);
   const T = pp.carcassT;
-  const hasPlinth = part.plinth;
+  const hasPlinth = !wallMounted && part.plinth;
   const topT = part.worktop ? pp.worktopT : 0;
   const y0 = hasPlinth ? pp.plinthH : 0;
   const bodyH = dims.h - y0 - topT;
@@ -232,8 +233,14 @@ function shelfPins(
   };
 
   for (const r of walkZones(part.face, cc.w, cc.bodyH)) {
-    if (r.leaf.fill !== 'open') continue;
-    if ((r.leaf.shelves ?? 1) < 1) continue;
+    // shelf-pin line boring on the members bounding a leaf with adjustable
+    // shelves: open niches (default 1) and door/doorPair interiors (default 0).
+    const fill = r.leaf.fill;
+    const isOpen = fill === 'open';
+    const isDoored = fill === 'door' || fill === 'doorPair';
+    if (!isOpen && !isDoored) continue;
+    const shelves = isOpen ? (r.leaf.shelves ?? 1) : (r.leaf.shelves ?? 0);
+    if (shelves < 1) continue;
     const iv = leafInterior(r, cc.w, cc.bodyH, cc.T);
     const bandStartY = cc.y0 + iv.y0;
     const bandEndY = cc.y0 + iv.y1;
@@ -545,7 +552,28 @@ export function itemDrilling(
   hinges(part, cc, members, panels, m, map);
   joinery(enumerateJoints(part, dims, panels, m), cc, m, map);
   backGroove(cc, members, m, map);
+  dedupeShelfPinPlates(map);
   return map;
+}
+
+/**
+ * On a member carrying a doored leaf with shelves, the System-32 shelf-pin
+ * column and the hinge mounting plates share the front v-column (v = frontSetback)
+ * and the same Ø5 hole. When a plate hole lands exactly on a pin-row hole they
+ * are one physical bore — drop the redundant shelf pin and keep the plate (whose
+ * 32-mm pair the validator checks). Removing a pin leaves a 64-mm (2×32) gap in
+ * the column, still a valid multiple of the pitch.
+ */
+function dedupeShelfPinPlates(map: Map<string, PanelOps>): void {
+  for (const ops of map.values()) {
+    const plates = ops.drills.filter((d) => d.kind === 'hingePlate');
+    if (!plates.length) continue;
+    const same = (a: DrillOp, b: DrillOp): boolean =>
+      a.face === b.face && a.dia === b.dia && Math.abs(a.u - b.u) < 0.05 && Math.abs(a.v - b.v) < 0.05;
+    ops.drills = ops.drills.filter(
+      (d) => d.kind !== 'shelfPin' || !plates.some((p) => same(p, d))
+    );
+  }
 }
 
 /**

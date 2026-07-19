@@ -1,7 +1,6 @@
 import { catalogDef, hasCatalogDef, OAK, type CatalogDef } from '../catalog';
 import { clamp } from '../geometry';
 import { PLINTH_H, type Panel, type PartDims } from '../panels';
-import { cabinetTreeFromCounts } from '../partsMigrate';
 import type { CabinetPartDef, Design, Item, Zone } from '../types';
 import type { ApplianceEntry } from './types';
 
@@ -167,7 +166,8 @@ export function bridgeItem(_design: Design, item: Item): BridgedItem | null {
   switch (kind) {
     case 'baseCabinet': {
       const doors = clamp(Math.round(item.params?.doors ?? 1), 1, 2);
-      const face = cabinetTreeFromCounts({ drawers: 0, doors, shelves: 0 });
+      // a real base cabinet has one adjustable shelf behind its door(s)
+      const face: Zone = { kind: 'leaf', fill: doors >= 2 ? 'doorPair' : 'door', shelves: 1 };
       return { part: cabinet(item, def, face, true, carcassH), dims, worktop: true };
     }
     case 'baseDrawers': {
@@ -231,7 +231,7 @@ export function bridgeItem(_design: Design, item: Item): BridgedItem | null {
     case 'pantry': {
       const sections = clamp(Math.round(item.params?.split ?? 2), 1, 3);
       const heights = sections === 1 ? [1] : sections === 2 ? [0.62, 0.38] : [0.5, 0.28, 0.22];
-      const doorLeaf = (): Zone => ({ kind: 'leaf', fill: item.w > 0.75 ? 'doorPair' : 'door' });
+      const doorLeaf = (): Zone => ({ kind: 'leaf', fill: item.w > 0.75 ? 'doorPair' : 'door', shelves: 1 });
       const face: Zone =
         sections === 1
           ? doorLeaf()
@@ -261,19 +261,20 @@ export function bridgeItem(_design: Design, item: Item): BridgedItem | null {
     }
     case 'wallCabinet': {
       const doors = clamp(Math.round(item.params?.doors ?? 1), 1, 3);
+      // wall units carry an adjustable shelf behind each door too
       const face: Zone =
         doors === 1
-          ? { kind: 'leaf', fill: 'door' }
+          ? { kind: 'leaf', fill: 'door', shelves: 1 }
           : doors === 2
-            ? { kind: 'leaf', fill: 'doorPair' }
+            ? { kind: 'leaf', fill: 'doorPair', shelves: 1 }
             : {
                 kind: 'split',
                 dir: 'v',
                 weights: [1, 1, 1],
                 children: [
-                  { kind: 'leaf', fill: 'door' },
-                  { kind: 'leaf', fill: 'door' },
-                  { kind: 'leaf', fill: 'door' },
+                  { kind: 'leaf', fill: 'door', shelves: 1 },
+                  { kind: 'leaf', fill: 'door', shelves: 1 },
+                  { kind: 'leaf', fill: 'door', shelves: 1 },
                 ],
               };
       // plinth irrelevant: elevation > 0.3 makes cabinetPanels treat it as wall-mounted

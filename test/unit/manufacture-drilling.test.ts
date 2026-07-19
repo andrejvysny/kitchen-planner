@@ -71,6 +71,36 @@ describe('drilling — System 32 shelf-pin boring', () => {
     const pins = [...ops.values()].flatMap((o) => o.drills).filter((d) => d.kind === 'shelfPin');
     expect(pins).toHaveLength(0);
   });
+
+  it('a door leaf WITH shelves bores pin rows on both sides AND keeps its hinge plates', () => {
+    // full-height door + 2 adjustable shelves: side members get BOTH the System-32
+    // shelf-pin columns and the hinge mounting plates (they share the v=37 column).
+    const part = cabinet({ face: { kind: 'leaf', fill: 'door', shelves: 2 } });
+    const { dims, panels, ops } = drill(part);
+    const widthMm = 542; // Dc
+    for (const id of ['side-l', 'side-r']) {
+      const pins = (ops.get(id)?.drills ?? []).filter((d) => d.kind === 'shelfPin');
+      expect(pins.length, `${id} pins`).toBeGreaterThan(0);
+      const vs = [...new Set(pins.map((p) => p.v))].sort((a, b) => a - b);
+      expect(vs).toEqual([37, widthMm - 37]);
+    }
+    // the default-left hinge still bores its mounting plates on side-l (side-r none)
+    const plates = (ops.get('side-l')?.drills ?? []).filter((d) => d.kind === 'hingePlate' && d.dia === 5);
+    expect(plates.length).toBe(4); // 2 hinges × a vertical pair
+    expect((ops.get('side-r')?.drills ?? []).filter((d) => d.kind === 'hingePlate' && d.dia === 5)).toHaveLength(0);
+
+    // NO exact-duplicate holes on any panel — a plate/pin coincidence is deduped
+    for (const [pid, o] of ops) {
+      const seen = new Set<string>();
+      for (const d of o.drills) {
+        const key = `${d.face}:${d.u}:${d.v}:${d.dia}`;
+        expect(seen.has(key), `${pid} duplicate hole ${key}`).toBe(false);
+        seen.add(key);
+      }
+    }
+    // and the whole battery passes the drilling validator (grid + bounds)
+    expect(validateItemDrilling(part.id, part, dims, panels, M)).toEqual([]);
+  });
 });
 
 describe('drilling — hinge cups + pilots + mounting plates', () => {

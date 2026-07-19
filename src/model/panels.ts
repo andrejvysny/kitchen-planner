@@ -222,6 +222,34 @@ function facePanels(
       boxPanel(id, 'front', w, h, m.frontT, lx, y, zFront - m.frontT / 2, place, rotY, { groove: o.groove })
     );
   };
+  /**
+   * Interior adjustable shelves for a leaf, spanning from just in front of the
+   * liner plane (o.linerZ) to behind the front opening (recessed by shelfSetback)
+   * — clear of the structural back on the rear and the fronts ahead. Shared by
+   * open niches AND door interiors; doors get no liner, so `style` carries the
+   * carcass look while open niches pass the accent-wood look.
+   */
+  const addShelves = (
+    zid: string,
+    r: { x: number; y: number; w: number; h: number },
+    count: number,
+    style: Partial<Panel>
+  ): void => {
+    const iv = leafInterior(r, faceW, faceH, T);
+    const iw = iv.x1 - iv.x0;
+    const ih = iv.y1 - iv.y0;
+    const ixc = (iv.x0 + iv.x1) / 2 - faceW / 2;
+    const iyb = yBase + iv.y0;
+    const rearBound = o.linerZ + 0.0015 + 0.001; // 1mm clear of the liner-plane front face
+    const frontBound = zFront - m.frontT - m.shelfSetback;
+    const shelfD = frontBound - rearBound;
+    const shelfZc = (frontBound + rearBound) / 2;
+    const nsh = shelfD >= 0.05 ? Math.max(0, count) : 0;
+    for (let i = 0; i < nsh; i++) {
+      const sy = iyb + ((i + 1) * ih) / (nsh + 1);
+      out.push(boxPanel(`${zid}.shelf${i}`, 'shelf', iw - 0.002, T, shelfD, ixc, sy - T / 2, shelfZc, place, rotY, style));
+    }
+  };
   for (const r of walkZones(face, faceW, faceH)) {
     const zid = `z${r.path.join('-') || 'r'}`;
     const xc = r.x + r.w / 2 - faceW / 2;
@@ -275,6 +303,12 @@ function facePanels(
       splitFronts(r.w, leaf.fill === 'doorPair' ? 2 : 1, g, (dx, fw) =>
         front(`${zid}.front${i++}`, fw, r.h - g, xc + dx, yb + g / 2)
       );
+      // interior adjustable shelves behind the door(s). Structural (rect) faces
+      // only — polygon faces stay fronts-only. Doors hide the interior, so the
+      // shelves take the carcass look (no accent liner) rather than the niche look.
+      if (o.structural && (leaf.shelves ?? 0) > 0) {
+        addShelves(zid, r, leaf.shelves ?? 0, { tint: CARCASS_TINT });
+      }
     } else if (leaf.fill === 'panel') {
       out.push(
         boxPanel(`${zid}.panel`, 'panel', r.w - g * 2, r.h - g, m.frontT, xc, yb + g / 2, zFront - m.frontT / 2, place, rotY)
@@ -302,21 +336,7 @@ function facePanels(
       const iyb = yBase + iv.y0;
       const acc: Partial<Panel> = { slot: 'accent', finish: 'wood' };
       out.push(boxPanel(`${zid}.liner`, 'back', iw, ih, 0.003, ixc, iyb, o.linerZ, place, rotY, acc));
-      // Shelves span from just in front of the liner to the front opening,
-      // recessed by shelfSetback. This keeps every shelf clear of the liner AND
-      // the structural back (o.linerZ is the liner centre, 3mm thick).
-      const linerFront = o.linerZ + 0.0015;
-      const rearBound = linerFront + 0.001; // 1mm clear of the liner front face
-      const frontBound = zFront - m.frontT - m.shelfSetback;
-      const shelfD = frontBound - rearBound;
-      const shelfZc = (frontBound + rearBound) / 2;
-      const nsh = shelfD >= 0.05 ? Math.max(0, leaf.shelves ?? 1) : 0;
-      for (let i = 0; i < nsh; i++) {
-        const sy = iyb + ((i + 1) * ih) / (nsh + 1);
-        out.push(
-          boxPanel(`${zid}.shelf${i}`, 'shelf', iw - 0.002, T, shelfD, ixc, sy - T / 2, shelfZc, place, rotY, acc)
-        );
-      }
+      addShelves(zid, r, leaf.shelves ?? 1, acc);
     }
   }
 }

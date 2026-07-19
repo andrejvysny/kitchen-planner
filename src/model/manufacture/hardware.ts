@@ -80,6 +80,10 @@ export function buildHardware(design: Design): HardwareItem[] {
         const shelves = Math.max(0, r.leaf.shelves ?? 1);
         add('shelfPin', 'Shelf pin', 'pc', '5 mm sleeve pin', 4 * shelves);
       }
+      // adjustable shelves behind door(s) carry the same 4-pin-per-shelf hardware
+      if ((r.leaf.fill === 'door' || r.leaf.fill === 'doorPair') && (r.leaf.shelves ?? 0) > 0) {
+        add('shelfPin', 'Shelf pin', 'pc', '5 mm sleeve pin', 4 * (r.leaf.shelves ?? 0));
+      }
     }
     if (drawerCount > 0) {
       const tray = Math.round((dims.d - pp.frontT - pp.drawer.depthDeduction) * 1000);

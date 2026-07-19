@@ -134,7 +134,7 @@ export interface LeafZone {
   fill: ZoneFill;
   /** fill 'drawers': stacked fronts, 1..5 */
   drawers?: number;
-  /** fill 'open': interior shelves, 0..4 */
+  /** fill 'open' and 'door'/'doorPair': interior adjustable shelves, 0..4 (open default 1, door default 0) */
   shelves?: number;
   /** fill 'door': jamb carrying the hinge (default 'left'); drives later drilling */
   hinge?: 'left' | 'right';

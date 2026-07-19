@@ -170,6 +170,11 @@ export function normalizeZones(root: Zone): Zone {
       const leaf: LeafZone = { kind: 'leaf', fill: FILLS.includes(z.fill) ? z.fill : 'door' };
       if (leaf.fill === 'drawers') leaf.drawers = clamp(Math.round(z.drawers ?? 2), 1, 5);
       if (leaf.fill === 'open') leaf.shelves = clamp(Math.round(z.shelves ?? 1), 0, 4);
+      // door/doorPair may carry interior adjustable shelves too; the field stays
+      // OPTIONAL (absent = 0) so existing designs are untouched — only clamp when set.
+      if ((leaf.fill === 'door' || leaf.fill === 'doorPair') && z.shelves !== undefined) {
+        leaf.shelves = clamp(Math.round(z.shelves), 0, 4);
+      }
       // hinge side is meaningful only for a single door (drives later drilling)
       if (leaf.fill === 'door' && (z.hinge === 'left' || z.hinge === 'right')) leaf.hinge = z.hinge;
       return leaf;

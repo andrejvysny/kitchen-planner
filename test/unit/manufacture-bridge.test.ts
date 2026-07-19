@@ -78,11 +78,12 @@ describe('catalog → panel bridge', () => {
     }
   });
 
-  it('base cabinet respects the doors param (1 → door, 2 → doorPair)', () => {
+  it('base cabinet respects the doors param (1 → door, 2 → doorPair), 1 shelf behind', () => {
+    // a real base cabinet has one adjustable shelf behind its door(s)
     const one = bridgeItem(design, item('base-cabinet', { params: { doors: 1 } }))!;
-    expect(one.part!.face).toEqual({ kind: 'leaf', fill: 'door' });
+    expect(one.part!.face).toEqual({ kind: 'leaf', fill: 'door', shelves: 1 });
     const two = bridgeItem(design, item('base-cabinet', { params: { doors: 2 } }))!;
-    expect(two.part!.face).toEqual({ kind: 'leaf', fill: 'doorPair' });
+    expect(two.part!.face).toEqual({ kind: 'leaf', fill: 'doorPair', shelves: 1 });
   });
 
   it('drawer unit respects the drawers param', () => {
@@ -97,7 +98,8 @@ describe('catalog → panel bridge', () => {
     if (face.kind === 'split') {
       expect(face.dir).toBe('v');
       expect(face.children).toHaveLength(3);
-      expect(face.children.every((c) => c.kind === 'leaf' && c.fill === 'door')).toBe(true);
+      // each door carries one adjustable shelf behind it
+      expect(face.children.every((c) => c.kind === 'leaf' && c.fill === 'door' && c.shelves === 1)).toBe(true);
     }
     expect(b.part!.plinth).toBe(false);
   });
@@ -112,7 +114,8 @@ describe('catalog → panel bridge', () => {
       expect(face.children.every((c) => c.kind === 'leaf' && c.fill === 'doorPair')).toBe(true);
     }
     const narrow = bridgeItem(design, item('pantry', { w: 0.6, params: { split: 1 } }))!;
-    expect(narrow.part!.face).toEqual({ kind: 'leaf', fill: 'door' });
+    // pantry door sections carry an adjustable shelf too
+    expect(narrow.part!.face).toEqual({ kind: 'leaf', fill: 'door', shelves: 1 });
   });
 
   it('sink: door front, false-front note and a bowl-cutout appliance', () => {

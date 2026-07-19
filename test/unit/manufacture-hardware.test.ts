@@ -56,7 +56,9 @@ describe('hardware schedule — demoDesign', () => {
   it('produces the hand-checked totals', () => {
     // Derived above and cross-checked against the model:
     expect(qty(/concealed hinge/)).toBe(12);
-    expect(qty(/confirmat/)).toBe(90);
+    // 90 from the floor units + 8 for the wall cabinet (4 top/bottom↔side
+    // joints × 2 screws at 332 mm depth) now that wall units drill too
+    expect(qty(/confirmat/)).toBe(98);
     expect(qty(/adjustable/)).toBe(26); // 5 units × 4 + island (>900 mm) × 6
     expect(qty(/hanger/)).toBe(2); // the single wall cabinet
     // 8 drawers → 8 soft-close runner sets, deduped to one NL-550 line
@@ -78,7 +80,10 @@ describe('hardware schedule — demoDesign', () => {
   });
 
   it('shelf pins appear for a design with an open-niche cabinet', () => {
-    // demo oven-tower bays are shelfless (shelves 0) → no pins; add an open niche.
+    // The demo now ships adjustable shelves behind door fronts: base-cabinet
+    // (1 door × 1 shelf → 4 pins) + wall-cabinet (1 door-pair × 1 shelf → 4 pins)
+    // = 8 demo pins (oven-tower bays stay shelfless). Adding a 2-shelf open unit
+    // (4 pins × 2 = 8) brings the total to 16.
     const base = demoDesign();
     const withOpen: Design = {
       ...base,
@@ -96,7 +101,7 @@ describe('hardware schedule — demoDesign', () => {
       ],
     };
     const pins = buildHardware(withOpen).find((h) => h.category === 'shelfPin');
-    expect(pins?.qty).toBe(8); // 4 pins × 2 adjustable shelves
+    expect(pins?.qty).toBe(16); // 8 demo (door shelves) + 8 (open unit: 4 × 2 shelves)
     expect(pins?.spec).toBe('5 mm sleeve pin');
   });
 
@@ -105,7 +110,7 @@ describe('hardware schedule — demoDesign', () => {
     const hwCam = buildHardware(cam);
     expect(hwCam.some((h) => /confirmat/.test(h.spec))).toBe(false);
     const set = hwCam.find((h) => /cam/.test(h.spec))!;
-    expect(set.qty).toBe(90); // camBore count == the confirmat count it replaces
+    expect(set.qty).toBe(98); // camBore count == the confirmat count it replaces
     expect(set.unit).toBe('set');
   });
 });

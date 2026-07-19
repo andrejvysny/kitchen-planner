@@ -240,6 +240,44 @@ describe('carcass decomposition', () => {
     }
   });
 
+  it('a door leaf with shelves emits interior shelf boards that fit and clear the back', () => {
+    // adjustable shelves behind a closed door: carcass-look boards (no accent
+    // niche liner), fitted inside the interior and clear of the structural back
+    const cab = rectCab({ kind: 'leaf', fill: 'door', shelves: 2 }, { w: 0.6, d: 0.6 });
+    const panels = cabinetPanels(cab, dimsOf(cab));
+    const shelves = panels.filter((p) => p.role === 'shelf');
+    expect(shelves).toHaveLength(2);
+    // ids follow the same `${zid}.shelf${i}` scheme as open-niche shelves
+    expect(shelves.map((s) => s.id).sort()).toEqual(['zr.shelf0', 'zr.shelf1']);
+    // doors hide the interior → carcass look (slot front, matte, 0.92 tint), NOT accent
+    expect(shelves.every((s) => s.slot === 'front' && s.finish === 'matte' && s.tint === 0.92)).toBe(true);
+    // a door leaf gets NO accent niche liner
+    expect(panels.some((p) => p.id.endsWith('.liner'))).toBe(false);
+
+    const back = aabb(panels.find((p) => p.id === 'back')!);
+    const sl = aabb(panels.find((p) => p.id === 'side-l')!);
+    const sr = aabb(panels.find((p) => p.id === 'side-r')!);
+    const bottom = aabb(panels.find((p) => p.id === 'bottom')!);
+    const top = aabb(panels.find((p) => p.id === 'top')!);
+    const frontZ = Math.max(sl.z1, sr.z1);
+    for (const s of shelves) {
+      const a = aabb(s);
+      expect(a.x0, `${s.id} inside left`).toBeGreaterThanOrEqual(sl.x1 - 1e-9);
+      expect(a.x1, `${s.id} inside right`).toBeLessThanOrEqual(sr.x0 + 1e-9);
+      expect(a.y0, `${s.id} above bottom`).toBeGreaterThanOrEqual(bottom.y1 - 1e-9);
+      expect(a.y1, `${s.id} below top`).toBeLessThanOrEqual(top.y0 + 1e-9);
+      expect(a.z0, `${s.id} clears the back`).toBeGreaterThan(back.z1);
+      expect(a.z1, `${s.id} clears the fronts`).toBeLessThanOrEqual(frontZ + 1e-9);
+    }
+    // no structural board overlaps the new shelves
+    const boards = panels.filter((p) => STRUCTURAL.has(p.role));
+    for (let i = 0; i < boards.length; i++) {
+      for (let j = i + 1; j < boards.length; j++) {
+        expect(overlapVol(aabb(boards[i]), aabb(boards[j])), `${boards[i].id} ∩ ${boards[j].id}`).toBeLessThan(1e-9);
+      }
+    }
+  });
+
   it('a drawer box in a short leaf is height-clamped so it stays inside the opening', () => {
     // drawers-over-door: a 15%-tall drawer leaf must not spawn a full 90mm box
     const cab = rectCab(
