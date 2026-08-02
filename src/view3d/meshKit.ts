@@ -9,7 +9,7 @@ import { texturedMaterial } from './textures';
  * Shared procedural-mesh vocabulary. Local space: x = width, y = up (0 at
  * item bottom), z = depth (back at -d/2 — the wall side; front at +d/2).
  *
- * Style follows the reference kitchens: matte handleless slab fronts with a
+ * Style follows the reference interiors: matte handleless slab fronts with a
  * routed dark groove, dark recessed plinth, oak worktops.
  */
 

@@ -1,7 +1,7 @@
 import type { LightProps } from './types';
 
 /**
- * Palette derived from the reference kitchens: matte two-tone fronts
+ * Palette derived from the reference interiors: matte two-tone fronts
  * (white / cream / sage / navy / graphite) paired with warm oak.
  */
 export const FRONT_COLORS = ['#f2f1ec', '#e6dfd0', '#8a9683', '#31455a', '#3f4447', '#c9a87c'];

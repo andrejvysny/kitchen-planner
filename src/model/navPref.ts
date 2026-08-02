@@ -6,15 +6,14 @@
 // evidence seen in the 3D view resolves ambiguous events in the 2D plan too.
 
 import { isNavInput, WheelDevice, type NavDevice, type NavInput, type WheelLike } from '../view3d/wheelInput';
-
-const NAV_KEY = 'kitchen-planner-nav-v1';
+import { LEGACY_NAV_KEYS, NAV_KEY, readKey } from './storageKeys';
 
 const detector = new WheelDevice();
 let current: NavInput = load();
 
 function load(): NavInput {
   try {
-    const raw = localStorage.getItem(NAV_KEY);
+    const raw = readKey(NAV_KEY, LEGACY_NAV_KEYS);
     return isNavInput(raw) ? raw : 'auto';
   } catch {
     return 'auto'; // private mode / storage disabled

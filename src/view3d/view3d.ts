@@ -8,8 +8,9 @@ import { polygonCentroid, wallPoint } from '../model/geometry';
 import { applianceHosting, findHost } from '../model/attach';
 import type { HostContext } from '../model/panels';
 import { snapItem } from '../model/snapping';
+import { openingsOfWall, styleOfItem } from '../model/rooms';
 import type { Store } from '../model/store';
-import type { Item, Opening } from '../model/types';
+import type { Corner, Item, Opening, Point } from '../model/types';
 import { AMBIENT_DAY, skyState } from '../model/sky';
 import { resolveFinish } from '../model/variables';
 import { buildItemGroup, lightLocalY, shade } from './itemMeshes';
@@ -32,9 +33,20 @@ interface ItemEntry {
 
 interface WallEntry {
   id: string; // wall id = start corner id; keys wallVisibility overrides
+  /** room whose wallVisibility map owns this wall (the owner side of a partition) */
+  roomId: string;
+  /** the room on the other side of a partition; null for exterior walls */
+  twinRoomId: string | null;
   group: THREE.Group;
   inward: THREE.Vector3;
   mid: THREE.Vector3;
+  height: number;
+}
+
+interface CeilingEntry {
+  roomId: string;
+  mesh: THREE.Mesh;
+  height: number;
 }
 
 const SHADOW_LIGHT_BUDGET = 4;
@@ -76,7 +88,9 @@ export class View3D {
   private roomGroup = new THREE.Group();
   private itemsGroup = new THREE.Group();
   private walls: WallEntry[] = [];
-  private ceiling: THREE.Mesh | null = null;
+  private ceilings: CeilingEntry[] = [];
+  private camRoomAt: Point = { x: Infinity, y: Infinity };
+  private camRoomId: string | null = null;
   private items = new Map<string, ItemEntry>();
 
   private hemi: THREE.HemisphereLight;
@@ -195,9 +209,12 @@ export class View3D {
 
   private updateWallVisibility(): void {
     const camPos = this.camera.position;
-    const modes = this.store.design.wallVisibility;
+    // read the live Room objects: visibility edits are non-structural, so they
+    // mutate in place without a rebuild
+    const rooms = this.store.design.rooms;
+    const camRoom = this.cameraRoomId();
     for (const w of this.walls) {
-      const mode = modes?.[w.id] ?? 'auto';
+      const mode = rooms.find((r) => r.id === w.roomId)?.wallVisibility?.[w.id] ?? 'auto';
       if (mode === 'show' || mode === 'hide') {
         w.group.visible = mode === 'show';
         continue;
@@ -205,25 +222,40 @@ export class View3D {
       const toCam = this.scratchToCam.subVectors(camPos, w.mid);
       toCam.y = 0;
       toCam.normalize();
-      w.group.visible = w.inward.dot(toCam) > -0.25;
+      const facing = w.inward.dot(toCam) > -0.25;
+      // a partition stays up while the camera is in either of its rooms or
+      // looking down from above — hiding it would merge the rooms visually
+      w.group.visible = w.twinRoomId
+        ? camRoom === w.roomId || camRoom === w.twinRoomId || camPos.y > w.height || facing
+        : facing;
     }
-    if (this.ceiling) {
-      const cMode = this.store.design.ceilingVisibility ?? 'auto';
-      const H = this.store.design.room.wallHeight;
-      this.ceiling.visible = cMode === 'auto' ? camPos.y < H - 0.05 : cMode === 'show';
+    for (const c of this.ceilings) {
+      const mode = rooms.find((r) => r.id === c.roomId)?.ceilingVisibility ?? 'auto';
+      c.mesh.visible = mode === 'auto' ? camPos.y < c.height - 0.05 : mode === 'show';
     }
+  }
+
+  /** Which room the camera stands in (plan xz), re-resolved after >1 cm moves. */
+  private cameraRoomId(): string | null {
+    const p = this.camera.position;
+    if (Math.abs(p.x - this.camRoomAt.x) > 0.01 || Math.abs(p.z - this.camRoomAt.y) > 0.01) {
+      this.camRoomAt = { x: p.x, y: p.z };
+      this.camRoomId = this.store.roomContaining(this.camRoomAt)?.id ?? null;
+    }
+    return this.camRoomId;
   }
 
   /* ---------------- camera presets ---------------- */
 
   setPreset(p: CamPreset): void {
-    const c = polygonCentroid(this.store.design.corners);
-    const xs = this.store.design.corners.map((k) => k.x);
-    const ys = this.store.design.corners.map((k) => k.y);
+    const corners = this.allCorners();
+    const c = polygonCentroid(corners);
+    const xs = corners.map((k) => k.x);
+    const ys = corners.map((k) => k.y);
     const spanX = Math.max(...xs) - Math.min(...xs);
     const spanY = Math.max(...ys) - Math.min(...ys);
     const span = Math.max(spanX, spanY, 3);
-    const H = this.store.design.room.wallHeight;
+    const H = this.store.activeStyle().wallHeight;
 
     const set = (px: number, py: number, pz: number, tx: number, ty: number, tz: number) => {
       this.camera.position.set(px, py, pz);
@@ -240,10 +272,21 @@ export class View3D {
       case 'front':
         set(c.x, 1.35, Math.max(...ys) + span * 1.05, c.x, 1.0, c.y);
         break;
-      case 'inside':
-        set(c.x + 0.4, 1.55, c.y + spanY * 0.28, c.x, 1.25, c.y - spanY * 0.6);
+      case 'inside': {
+        // step into the ACTIVE room, not the centroid of the whole design
+        const rc = this.store.activeRoom().corners;
+        const ci = polygonCentroid(rc);
+        const ry = rc.map((k) => k.y);
+        const rSpanY = Math.max(Math.max(...ry) - Math.min(...ry), 1.5);
+        set(ci.x + 0.4, 1.55, ci.y + rSpanY * 0.28, ci.x, 1.25, ci.y - rSpanY * 0.6);
         break;
+      }
     }
+  }
+
+  /** Every room's corner ring, flattened — camera framing and sun span. */
+  private allCorners(): Corner[] {
+    return this.store.design.rooms.flatMap((r) => r.corners);
   }
 
   /* ---------------- scene building ---------------- */
@@ -266,9 +309,9 @@ export class View3D {
     this.itemsGroup.clear();
     this.items.clear();
     this.walls = [];
-    this.ceiling = null;
+    this.ceilings = [];
 
-    this.buildRoom();
+    this.buildRooms();
     // one hosting pass per rebuild: cutouts/niches appliances impose on hosts
     const hosting = applianceHosting(this.store.design);
     for (const item of this.store.design.items) this.buildItem(item, hosting.get(item.id));
@@ -276,15 +319,11 @@ export class View3D {
     this.applySelectionTint();
   }
 
-  private buildRoom(): void {
+  private buildRooms(): void {
     const design = this.store.design;
-    const corners = design.corners;
-    if (corners.length < 3) return;
-    const room = design.room;
-    const t = room.wallThickness;
-    const H = room.wallHeight;
+    if (!design.rooms.length) return;
 
-    // ground catches shadows around the room
+    // ground catches shadows around the rooms
     const ground = new THREE.Mesh(
       new THREE.CircleGeometry(40, 40),
       new THREE.MeshStandardMaterial({ color: '#c8c9c4', roughness: 0.95 })
@@ -292,93 +331,107 @@ export class View3D {
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.012;
     ground.receiveShadow = true;
+    ground.name = 'Ground';
     this.roomGroup.add(ground);
 
-    // floor — ShapeGeometry UVs are the plan coords in meters, so shared
-    // material textures (repeat = 1/tile) land at real-world scale directly
-    const shape = new THREE.Shape(corners.map((p) => new THREE.Vector2(p.x, p.y)));
-    const floorFin = resolveFinish(design, room.floorColor, room.floorMaterial, room.floorMaterialRot);
-    const floorMat = floorFin.material
-      ? surfMat(floorFin)
-      : new THREE.MeshStandardMaterial({ color: floorFin.color, roughness: 0.88 });
-    floorMat.side = THREE.DoubleSide;
-    const floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMat);
-    floor.rotation.x = Math.PI / 2;
-    floor.receiveShadow = true;
-    this.roomGroup.add(floor);
-
-    // ceiling (only visible from below)
-    const ceil = new THREE.Mesh(
-      new THREE.ShapeGeometry(shape),
-      new THREE.MeshStandardMaterial({ color: '#f6f5f1', roughness: 0.95 })
-    );
-    ceil.rotation.x = Math.PI / 2;
-    ceil.position.y = H;
-    this.roomGroup.add(ceil);
-    this.ceiling = ceil;
-
-    ground.name = 'Ground';
-    floor.name = 'Floor';
-    ceil.name = 'Ceiling';
-
-    // walls
+    const walls = this.store.allWalls();
     let wallIdx = 0;
-    for (const g of this.store.walls()) {
-      const group = new THREE.Group();
-      group.name = `Wall_${++wallIdx}`;
-      group.position.set(g.a.x, 0, g.a.y);
-      group.rotation.y = -g.angle;
+    for (const room of design.rooms) {
+      const corners = room.corners;
+      if (corners.length < 3) continue;
+      const style = room.style;
+      const H = style.wallHeight;
 
-      const wallFin = resolveFinish(design, room.wallColor, room.wallMaterial, room.wallMaterialRot);
-      const wallMat = wallFin.material
-        ? surfMat(wallFin)
-        : new THREE.MeshStandardMaterial({ color: wallFin.color, roughness: 0.94 });
-      const openings = design.openings
-        .filter((o) => o.wallId === g.id)
-        .sort((a, b) => a.offset - b.offset);
+      // floor — ShapeGeometry UVs are the plan coords in meters, so shared
+      // material textures (repeat = 1/tile) land at real-world scale directly
+      const shape = new THREE.Shape(corners.map((p) => new THREE.Vector2(p.x, p.y)));
+      const floorFin = resolveFinish(design, style.floorColor, style.floorMaterial, style.floorMaterialRot);
+      const floorMat = floorFin.material
+        ? surfMat(floorFin)
+        : new THREE.MeshStandardMaterial({ color: floorFin.color, roughness: 0.88 });
+      floorMat.side = THREE.DoubleSide;
+      const floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMat);
+      floor.rotation.x = Math.PI / 2;
+      floor.receiveShadow = true;
+      floor.name = 'Floor';
+      this.roomGroup.add(floor);
 
-      const addSeg = (x0: number, x1: number, y0: number, y1: number) => {
-        if (x1 - x0 < 0.005 || y1 - y0 < 0.005) return;
-        const geo = new THREE.BoxGeometry(x1 - x0, y1 - y0, t);
-        // meter-scaled UVs, offset so the pattern runs continuously across
-        // the segments around openings (front/back faces are the visible ones)
-        scaleBoxUV(geo, x1 - x0, y1 - y0, t);
-        const uv = geo.attributes.uv as THREE.BufferAttribute;
-        for (let i = 16; i < 24; i++) uv.setXY(i, uv.getX(i) + x0, uv.getY(i) + y0);
-        const m = new THREE.Mesh(geo, wallMat);
-        m.position.set((x0 + x1) / 2, (y0 + y1) / 2, 0);
-        m.castShadow = true;
-        m.receiveShadow = true;
-        group.add(m);
-      };
+      // ceiling (only visible from below)
+      const ceil = new THREE.Mesh(
+        new THREE.ShapeGeometry(shape),
+        new THREE.MeshStandardMaterial({ color: '#f6f5f1', roughness: 0.95 })
+      );
+      ceil.rotation.x = Math.PI / 2;
+      ceil.position.y = H;
+      ceil.name = 'Ceiling';
+      this.roomGroup.add(ceil);
+      this.ceilings.push({ roomId: room.id, mesh: ceil, height: H });
 
-      let cursor = -t / 2; // extend into corners so joints close
-      for (const o of openings) {
-        const oL = o.offset - o.width / 2;
-        const oR = o.offset + o.width / 2;
-        addSeg(cursor, oL, 0, H);
-        if (o.sill > 0.01) addSeg(oL, oR, 0, o.sill);
-        addSeg(oL, oR, o.sill + o.height, H);
-        this.buildOpening(group, o, t);
-        cursor = oR;
+      for (const g of walls) {
+        // a partition is built once, under the room that owns it
+        if (g.roomId !== room.id || (g.shared && !g.shared.owner)) continue;
+        const t = g.thickness;
+        // corners are the room-side wall FACE, so the slab hangs outside it
+        const zc = g.faceOffset - t / 2;
+        const ext = t - g.faceOffset;
+
+        const group = new THREE.Group();
+        group.name = `Wall_${++wallIdx}`;
+        group.position.set(g.a.x, 0, g.a.y);
+        group.rotation.y = -g.angle;
+
+        const wallFin = resolveFinish(design, style.wallColor, style.wallMaterial, style.wallMaterialRot);
+        const wallMat = wallFin.material
+          ? surfMat(wallFin)
+          : new THREE.MeshStandardMaterial({ color: wallFin.color, roughness: 0.94 });
+        const openings = openingsOfWall(design, g).sort((a, b) => a.offset - b.offset);
+
+        const addSeg = (x0: number, x1: number, y0: number, y1: number) => {
+          if (x1 - x0 < 0.005 || y1 - y0 < 0.005) return;
+          const geo = new THREE.BoxGeometry(x1 - x0, y1 - y0, t);
+          // meter-scaled UVs, offset so the pattern runs continuously across
+          // the segments around openings (front/back faces are the visible ones)
+          scaleBoxUV(geo, x1 - x0, y1 - y0, t);
+          const uv = geo.attributes.uv as THREE.BufferAttribute;
+          for (let i = 16; i < 24; i++) uv.setXY(i, uv.getX(i) + x0, uv.getY(i) + y0);
+          const m = new THREE.Mesh(geo, wallMat);
+          m.position.set((x0 + x1) / 2, (y0 + y1) / 2, zc);
+          m.castShadow = true;
+          m.receiveShadow = true;
+          group.add(m);
+        };
+
+        let cursor = -ext; // extend into corners so joints close
+        for (const o of openings) {
+          const oL = o.offset - o.width / 2;
+          const oR = o.offset + o.width / 2;
+          addSeg(cursor, oL, 0, H);
+          if (o.sill > 0.01) addSeg(oL, oR, 0, o.sill);
+          addSeg(oL, oR, o.sill + o.height, H);
+          this.buildOpening(group, o, t, zc);
+          cursor = oR;
+        }
+        addSeg(cursor, g.len + ext, 0, H);
+
+        this.roomGroup.add(group);
+        const mid = wallPoint(g, g.len / 2);
+        this.walls.push({
+          id: g.id,
+          roomId: room.id,
+          twinRoomId: g.shared?.roomId ?? null,
+          group,
+          inward: new THREE.Vector3(g.inward.x, 0, g.inward.y),
+          mid: new THREE.Vector3(mid.x, H / 2, mid.y),
+          height: H,
+        });
       }
-      addSeg(cursor, g.len + t / 2, 0, H);
-
-      this.roomGroup.add(group);
-      const mid = wallPoint(g, g.len / 2);
-      this.walls.push({
-        id: g.id,
-        group,
-        inward: new THREE.Vector3(g.inward.x, 0, g.inward.y),
-        mid: new THREE.Vector3(mid.x, H / 2, mid.y),
-      });
     }
   }
 
-  private buildOpening(wallGroup: THREE.Group, o: Opening, t: number): void {
+  private buildOpening(wallGroup: THREE.Group, o: Opening, t: number, zc: number): void {
     const frameMat = new THREE.MeshStandardMaterial({ color: '#e7e0d2', roughness: 0.7 });
     const g = new THREE.Group();
-    g.position.set(o.offset, 0, 0);
+    g.position.set(o.offset, 0, zc);
 
     const fw = 0.05; // frame width
     const frame = (w: number, h: number, x: number, y: number) => {
@@ -528,7 +581,7 @@ export class View3D {
     const entry = this.items.get(item.id);
     if (!entry) return;
     const def = this.store.defOf(item.defId);
-    const H = this.store.design.room.wallHeight;
+    const H = styleOfItem(this.store.design, item).wallHeight;
     const y = def.kind === 'spot' ? H - 0.02 : item.elevation;
     entry.group.position.set(item.x, y, item.y);
     entry.group.rotation.y = -item.rotation;
@@ -557,7 +610,7 @@ export class View3D {
     this.hemi.color.set(sky.ambientColor);
     this.hemi.intensity = sky.ambientIntensity * scene.brightness;
 
-    const c = polygonCentroid(this.store.design.corners);
+    const c = polygonCentroid(this.allCorners());
     this.sunDir.set(
       Math.sin(sky.azimuth) * Math.cos(sky.elevation),
       Math.sin(sky.elevation),
@@ -569,7 +622,11 @@ export class View3D {
       c.y + this.sunDir.z * SUN_RADIUS
     );
     this.sun.target.position.set(c.x, 0, c.y);
-    const span = 8;
+    // shadow frustum wide enough for every room, not just the first
+    const pts = this.allCorners();
+    const xs = pts.map((p) => p.x);
+    const ys = pts.map((p) => p.y);
+    const span = Math.max(8, (Math.max(...xs) - Math.min(...xs)) / 2 + 2, (Math.max(...ys) - Math.min(...ys)) / 2 + 2);
     const cam = this.sun.shadow.camera;
     cam.left = -span;
     cam.right = span;
@@ -690,7 +747,7 @@ export class View3D {
     obj.position.set(res.x, elevation, res.y);
     this.store.updateItem(
       id,
-      { x: res.x, y: res.y, rotation: res.rotation, elevation },
+      { x: res.x, y: res.y, rotation: res.rotation, elevation, roomId: res.roomId },
       { structural: false, transient: true }
     );
   }
@@ -760,6 +817,7 @@ export class View3D {
         }
         const snapped = snapItem(this.store, armed, null, p.x, p.z, 0);
         const item = this.store.addItem(armed, snapped.x, snapped.y, snapped.rotation);
+        item.roomId = snapped.roomId;
         this.store.select({ kind: 'item', id: item.id });
         this.store.commit();
         if (!e.shiftKey) this.clearArmed();
@@ -859,7 +917,7 @@ export class View3D {
   }
 
   /**
-   * Export the fully modelled kitchen (room shell + every item) as binary
+   * Export the fully modelled interior (room shells + every item) as binary
    * glTF for Blender. Light sources and the helper ground disc are stripped —
    * materials and lighting are meant to be authored in Blender.
    */
@@ -871,9 +929,9 @@ export class View3D {
     if (tinted) this.setTint(tinted, false);
 
     const root = new THREE.Group();
-    root.name = 'Kitchen';
+    root.name = 'Design';
     const roomClone = this.roomGroup.clone(true);
-    roomClone.name = 'Room';
+    roomClone.name = 'Rooms';
     // export closed geometry: open-preview poses are view state, not model
     const allUnits = [...this.items.values()].flatMap((e) => e.units);
     const itemsClone = withClosedPoses(allUnits, () => this.itemsGroup.clone(true));

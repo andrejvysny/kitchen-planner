@@ -14,7 +14,7 @@ function placeSnapped(store: Store, defId: string, x: number, y: number): Item {
 describe('wallElevation', () => {
   it('returns only items attached to the wall, excluding free-standing furniture', () => {
     const store = new Store(demoDesign());
-    const topWall = store.design.corners[0].id; // (0,0)->(4.2,0) run with the worktop
+    const topWall = store.rooms()[0].corners[0].id; // (0,0)->(4.2,0) run with the worktop
 
     const elev = wallElevation(store.design, topWall)!;
     expect(elev).not.toBeNull();
@@ -42,14 +42,14 @@ describe('wallElevation', () => {
 
   it('places the fridge on the right wall only', () => {
     const store = new Store(demoDesign());
-    const rightWall = store.design.corners[1].id; // (4.2,0)->(4.2,3.4)
+    const rightWall = store.rooms()[0].corners[1].id; // (4.2,0)->(4.2,3.4)
     const elev = wallElevation(store.design, rightWall)!;
     expect(elev.items.map((i) => i.defId)).toContain('fridge');
   });
 
   it('maps an item to its along-wall position and floor-relative height band', () => {
     const store = new Store(emptyDesign()); // 4x3 room
-    const bottom = store.walls().find((w) => Math.abs(w.dir.y) < 1e-6 && w.a.y > 2.9)!;
+    const bottom = store.allWalls().find((w) => Math.abs(w.dir.y) < 1e-6 && w.a.y > 2.9)!;
     const cab = placeSnapped(store, 'base-cabinet', 2.0, 2.8);
     const elev = wallElevation(store.design, bottom.id)!;
     const row = elev.items.find((i) => i.id === cab.id)!;
@@ -65,7 +65,7 @@ describe('wallElevation', () => {
 
   it('excludes a free-standing table dropped near a wall', () => {
     const store = new Store(emptyDesign());
-    const bottom = store.walls().find((w) => Math.abs(w.dir.y) < 1e-6 && w.a.y > 2.9)!;
+    const bottom = store.allWalls().find((w) => Math.abs(w.dir.y) < 1e-6 && w.a.y > 2.9)!;
     // a table does not snap/rotate to the wall, so it must not appear in the elevation
     const table = store.addItem(store.defOf('table'), 2.0, 2.2, 0);
     const elev = wallElevation(store.design, bottom.id)!;

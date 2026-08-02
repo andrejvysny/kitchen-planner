@@ -71,6 +71,12 @@ export interface Item {
   params?: Record<string, number>;
   /** appliances only: host-local mounting anchor */
   attach?: Attachment;
+  /**
+   * Room this item belongs to. Authoritative when set; re-inferred from the
+   * item centre's containment when absent or dangling (see rooms.ts
+   * `roomOfItem`). Drives the per-room worktop/counter finish.
+   */
+  roomId?: string;
 }
 
 export interface RoomStyle {
@@ -91,6 +97,27 @@ export interface RoomStyle {
 
 /** Per-wall 3D visibility override. 'auto' = camera-based hide (default). */
 export type WallVisMode = 'auto' | 'show' | 'hide';
+
+/**
+ * One enclosed space: its own CCW corner ring plus the finishes applied to it.
+ * Corner ids are unique across the whole design, so a wall id (start corner id)
+ * alone identifies a wall without naming its room.
+ *
+ * The ring is the ROOM-SIDE WALL FACE (not the centreline): an exterior wall
+ * slab lies entirely outside the polygon, a shared partition straddles it.
+ * `RoomWall.faceOffset` (rooms.ts) is the single sanctioned source for that
+ * offset — never hardcode wallThickness / 2.
+ */
+export interface Room {
+  id: string;
+  name: string;
+  corners: Corner[];
+  style: RoomStyle;
+  /** per-wall visibility override, keyed by wall id; missing = 'auto' */
+  wallVisibility?: Record<string, WallVisMode>;
+  /** ceiling visibility override; missing = 'auto' */
+  ceilingVisibility?: WallVisMode;
+}
 
 /**
  * Global lighting. The sun angles + night flag drive everything derived —
@@ -267,9 +294,12 @@ export interface DesignVar {
 }
 
 export interface Design {
-  version: 5;
-  corners: Corner[];
+  version: 6;
+  /** ≥1 room; rooms[0] is the fallback active room and the shared-edge owner tiebreak */
+  rooms: Room[];
+  /** design-global; `wallId` (a globally unique corner id) alone names the wall */
   openings: Opening[];
+  /** design-global, world coords; `roomId` caches which room each one sits in */
   items: Item[];
   customParts: CustomPartDef[];
   /** named finish tokens; slots reference them as `var:<id>` */
@@ -278,12 +308,7 @@ export interface Design {
   defaultFrontVar?: string;
   /** var id applied to a new item's accent colour when set */
   defaultAccentVar?: string;
-  room: RoomStyle;
   scene: Scene;
-  /** per-wall visibility override, keyed by wall id (start corner id); missing = 'auto' */
-  wallVisibility?: Record<string, WallVisMode>;
-  /** ceiling visibility override; missing = 'auto' (camera-based, visible from below) */
-  ceilingVisibility?: WallVisMode;
 }
 
 export type Selection =

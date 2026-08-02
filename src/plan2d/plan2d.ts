@@ -1,7 +1,6 @@
 import { isWallMounted, snapsToWall, type CatalogDef } from '../model/catalog';
 import {
   clamp,
-  distToSegment,
   fmtCm,
   pointInPolygon,
   pointInRect,
@@ -11,8 +10,9 @@ import {
   wallPoint,
 } from '../model/geometry';
 import { footprintPolygon } from '../model/parts';
+import type { RoomWall } from '../model/rooms';
 import { nearestWall, snapItem, type Guide } from '../model/snapping';
-import type { Store } from '../model/store';
+import type { AddRoomOptions, Store } from '../model/store';
 import type { CustomPartDef, Item, Opening, Point } from '../model/types';
 import { resolveColor } from '../model/variables';
 import { resolveDevice } from '../model/navPref';
@@ -24,6 +24,31 @@ const INK = '#3a3934';
 const ACCENT = '#2f6f5e';
 const GUIDE = '#c26d3f';
 const MEASURE = '#2563eb';
+/** Walls (and labels) of rooms that are not the active one. */
+const MUTED = '#9a978f';
+const LABEL_MUTED = '#a09d95';
+
+/** Seed size of a room dropped by the add-room tool (m). */
+const NEW_ROOM_W = 4;
+const NEW_ROOM_D = 3;
+/** How close to a wall the cursor must be for the tool to attach the room to it. */
+const ROOM_WALL_REACH = 0.45;
+/**
+ * Mirrors store's MIN_WALL_SEG: splitWall refuses to leave a stub shorter than
+ * this, so `addRoom({against})` silently widens a span whose end lands inside
+ * it. The ghost snaps the same way, or it would lie about what a click builds.
+ */
+const MIN_SPAN_STUB = 0.1;
+
+/**
+ * Where a wall slab's centreline sits relative to its polygon edge, measured
+ * along the edge's inward normal. Room corners are the ROOM-SIDE wall face, so
+ * an exterior wall lies wholly outside (−t/2) and a partition straddles (0).
+ */
+const bandCenter = (g: RoomWall): number => g.faceOffset - g.thickness / 2;
+
+/** How far a wall must run past its corners for the joint to close. */
+const bandExtend = (g: RoomWall): number => g.thickness - g.faceOffset;
 
 interface Label {
   x: number;
@@ -33,6 +58,8 @@ interface Label {
   color?: string;
   size?: number;
   bold?: boolean;
+  /** screen-space nudge (px), so stacked lines keep their spacing at any zoom */
+  dy?: number;
 }
 
 type Drag =
@@ -46,6 +73,17 @@ type Drag =
   | { type: 'opening'; id: string }
   | { type: 'rotate'; id: string }
   | { type: 'measure'; sx: number; sy: number; moved: boolean };
+
+/**
+ * Preview of the room the add-room tool would create: the exact polygon plus
+ * the `addRoom` call that produces it, so the click cannot drift from the ghost.
+ */
+interface RoomGhost {
+  poly: Point[];
+  opts: AddRoomOptions;
+  /** hung off an existing wall (vs. free-standing) — drawn slightly differently */
+  attached: boolean;
+}
 
 /** Transient two-point distance measurement (overlay only — never touches the model). */
 interface Measure {
@@ -75,6 +113,10 @@ export class Plan2D {
   onMeasureChange: (() => void) | null = null;
   private measure: Measure = { a: null, b: null, hover: null, snapped: false, measuring: false };
 
+  roomToolOn = false;
+  onRoomToolChange: (() => void) | null = null;
+  private roomGhost: RoomGhost | null = null;
+
   private ghost: { x: number; y: number; rotation: number; valid: boolean } | null = null;
   private ghostOpening: { wallId: string; t: number; valid: boolean } | null = null;
   private drag: Drag = { type: 'none' };
@@ -100,6 +142,11 @@ export class Plan2D {
       this.updateHint();
       this.requestDraw();
     });
+    // the active room drives floor/wall shading and the handle set
+    store.on('activeRoom', () => {
+      this.updateHint();
+      this.requestDraw();
+    });
 
     canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     canvas.addEventListener('pointermove', (e) => this.onPointerMove(e));
@@ -112,6 +159,7 @@ export class Plan2D {
       if (this.drag.type === 'none') {
         this.ghost = null;
         this.ghostOpening = null;
+        this.roomGhost = null;
         this.requestDraw();
       }
     });
@@ -139,7 +187,7 @@ export class Plan2D {
   }
 
   zoomFit(): void {
-    const c = this.store.design.corners;
+    const c = this.store.design.rooms.flatMap((r) => r.corners);
     if (!c.length) return;
     const xs = c.map((p) => p.x);
     const ys = c.map((p) => p.y);
@@ -177,11 +225,16 @@ export class Plan2D {
     this.armedDef = def;
     this.ghost = null;
     this.ghostOpening = null;
-    // arming and measuring are mutually exclusive
+    // arming, measuring and the room tool are mutually exclusive
     if (def && this.measureOn) {
       this.measureOn = false;
       this.resetMeasure();
       this.onMeasureChange?.();
+    }
+    if (def && this.roomToolOn) {
+      this.roomToolOn = false;
+      this.roomGhost = null;
+      this.onRoomToolChange?.();
     }
     this.canvas.style.cursor = def ? 'crosshair' : 'default';
     this.updateHint();
@@ -198,17 +251,117 @@ export class Plan2D {
   setMeasure(on: boolean): void {
     this.measureOn = on;
     this.resetMeasure();
-    // arming and measuring are mutually exclusive
+    // arming, measuring and the room tool are mutually exclusive
     if (on && this.armedDef) {
       this.armedDef = null;
       this.ghost = null;
       this.ghostOpening = null;
       this.onArmedChange?.();
     }
+    if (on && this.roomToolOn) {
+      this.roomToolOn = false;
+      this.roomGhost = null;
+      this.onRoomToolChange?.();
+    }
     this.canvas.style.cursor = on ? 'crosshair' : 'default';
     this.updateHint();
     this.onMeasureChange?.();
     this.requestDraw();
+  }
+
+  /* ---------------- add-room tool ---------------- */
+
+  setRoomTool(on: boolean): void {
+    this.roomToolOn = on;
+    this.roomGhost = null;
+    // arming, measuring and the room tool are mutually exclusive
+    if (on && this.armedDef) {
+      this.armedDef = null;
+      this.ghost = null;
+      this.ghostOpening = null;
+      this.onArmedChange?.();
+    }
+    if (on && this.measureOn) {
+      this.measureOn = false;
+      this.resetMeasure();
+      this.onMeasureChange?.();
+    }
+    this.canvas.style.cursor = on ? 'crosshair' : 'default';
+    this.updateHint();
+    this.onRoomToolChange?.();
+    this.requestDraw();
+  }
+
+  /**
+   * The nearest wall a new room could be hung off: exterior walls only, from
+   * any room. A partition already has a room on both sides, and `addRoom`
+   * refuses it.
+   */
+  private nearestFreeWall(p: Point): { wall: RoomWall; t: number } | null {
+    let best: { wall: RoomWall; t: number } | null = null;
+    let bestPerp = ROOM_WALL_REACH;
+    for (const g of this.store.allWalls()) {
+      if (g.shared) continue;
+      const pr = projectOnWall(g, p);
+      if (pr.t < -0.1 || pr.t > g.len + 0.1) continue;
+      const perp = Math.abs(pr.side);
+      if (perp > bestPerp) continue;
+      bestPerp = perp;
+      best = { wall: g, t: clamp(pr.t, 0, g.len) };
+    }
+    return best;
+  }
+
+  /** What a click at `w` would add: a room against the wall under the cursor, else a free one. */
+  private roomGhostAt(w: Point): RoomGhost {
+    const near = this.nearestFreeWall(w);
+    if (near) {
+      const g = near.wall;
+      const width = Math.min(g.len, NEW_ROOM_W);
+      let t0 = clamp(near.t - width / 2, 0, g.len - width);
+      let t1 = t0 + width;
+      // stubs shorter than a wall segment are never cut — match addRoom exactly
+      if (t0 < MIN_SPAN_STUB) t0 = 0;
+      if (g.len - t1 < MIN_SPAN_STUB) t1 = g.len;
+      const out = { x: -g.inward.x, y: -g.inward.y };
+      const a = wallPoint(g, t0);
+      const b = wallPoint(g, t1);
+      const whole = t0 === 0 && t1 === g.len;
+      return {
+        poly: [
+          b,
+          a,
+          { x: a.x + out.x * NEW_ROOM_D, y: a.y + out.y * NEW_ROOM_D },
+          { x: b.x + out.x * NEW_ROOM_D, y: b.y + out.y * NEW_ROOM_D },
+        ],
+        opts: { against: { wallId: g.id, ...(whole ? {} : { span: { t0, t1 } }) }, d: NEW_ROOM_D },
+        attached: true,
+      };
+    }
+    // free-standing: a w×d rectangle centred on the cursor, on the drag grid
+    const x = Math.round((w.x - NEW_ROOM_W / 2) * 20) / 20;
+    const y = Math.round((w.y - NEW_ROOM_D / 2) * 20) / 20;
+    return {
+      poly: [
+        { x, y },
+        { x: x + NEW_ROOM_W, y },
+        { x: x + NEW_ROOM_W, y: y + NEW_ROOM_D },
+        { x, y: y + NEW_ROOM_D },
+      ],
+      opts: { at: { x, y }, w: NEW_ROOM_W, d: NEW_ROOM_D },
+      attached: false,
+    };
+  }
+
+  private placeRoom(w: Point, keep: boolean): void {
+    const ghost = this.roomGhostAt(w);
+    const room = this.store.addRoom(ghost.opts);
+    if (!room) return; // the host wall became a partition since the ghost was built
+    this.store.select({ kind: 'none' }); // the new room's panel is the no-selection one
+    this.store.commit();
+    this.roomGhost = null;
+    if (!keep) this.setRoomTool(false);
+    else this.requestDraw();
   }
 
   /** An item's plan outline in world coordinates (custom footprint or the bounding rect). */
@@ -254,7 +407,7 @@ export class Plan2D {
         best = p;
       }
     };
-    for (const c of this.store.design.corners) tryV(c);
+    for (const r of this.store.design.rooms) for (const c of r.corners) tryV(c);
     for (const it of this.store.design.items) {
       tryV({ x: it.x, y: it.y });
       for (const v of this.itemOutlineWorld(it)) tryV(v);
@@ -270,7 +423,7 @@ export class Plan2D {
         best = q;
       }
     };
-    for (const g of this.store.walls()) tryE(g.a, g.b);
+    for (const g of this.store.allWalls()) tryE(g.a, g.b);
     for (const it of this.store.design.items) {
       const o = this.itemOutlineWorld(it);
       for (let i = 0; i < o.length; i++) tryE(o[i], o[(i + 1) % o.length]);
@@ -283,6 +436,10 @@ export class Plan2D {
   /* ---------------- hints ---------------- */
 
   private updateHint(): void {
+    if (this.roomToolOn) {
+      this.onHint('Click to place a room · hover a wall to attach it · Shift keeps the tool · Esc cancels');
+      return;
+    }
     if (this.measureOn) {
       this.onHint(
         this.measure.measuring
@@ -316,22 +473,55 @@ export class Plan2D {
         this.onHint('Drag to slide along the wall · size it in the panel · Delete removes');
         break;
       default:
-        this.onHint('Drag corners to reshape the room · pick items from the left · scroll zooms, drag empty space pans');
+        this.onHint(
+          this.store.design.rooms.length > 1
+            ? 'Click a room to work in it · drag its corners to reshape · scroll zooms, drag empty space pans'
+            : 'Drag corners to reshape the room · pick items from the left · scroll zooms, drag empty space pans'
+        );
     }
   }
 
   /* ---------------- pointer handling ---------------- */
 
   private hitCorner(s: Point): string | null {
-    for (const c of this.store.design.corners) {
+    for (const c of this.store.activeRoom().corners) {
       const cs = this.toScreen(c);
       if (Math.hypot(cs.x - s.x, cs.y - s.y) < 9) return c.id;
     }
     return null;
   }
 
+  /**
+   * The room a click lands in: the last one containing the point (same rule as
+   * store.roomContaining), except that the active room wins wherever rooms
+   * overlap — clicking where you already work must never move you elsewhere.
+   */
+  private hitRoom(w: Point): string | null {
+    const activeId = this.store.activeRoomId;
+    let hit: string | null = null;
+    for (const r of this.store.design.rooms) {
+      if (!pointInPolygon(w, r.corners)) continue;
+      if (r.id === activeId) return activeId;
+      hit = r.id;
+    }
+    return hit;
+  }
+
+  /**
+   * One click both switches rooms and selects: picking a wall/opening of an
+   * inactive room activates that room first. A partition counts as belonging to
+   * either of its rooms, so it never drags you off the side you are working on.
+   */
+  private activateForWall(g: RoomWall | undefined): void {
+    if (!g) return;
+    const activeId = this.store.activeRoomId;
+    if (g.roomId === activeId || g.shared?.roomId === activeId) return;
+    this.store.setActiveRoom(g.roomId);
+  }
+
+  /** Wall-bend handles belong to the active room only (like the corner handles). */
   private hitMidpoint(s: Point): string | null {
-    for (const w of this.store.walls()) {
+    for (const w of this.store.activeWalls()) {
       const m = this.toScreen(wallPoint(w, w.len / 2));
       if (Math.hypot(m.x - s.x, m.y - s.y) < 8) return w.id;
     }
@@ -358,12 +548,12 @@ export class Plan2D {
   }
 
   private hitOpening(w: Point): Opening | null {
-    const t = this.store.design.room.wallThickness;
     for (const o of this.store.design.openings) {
       const g = this.store.wallById(o.wallId);
       if (!g) continue;
       const pr = projectOnWall(g, w);
-      if (Math.abs(pr.side) < t / 2 + 8 / this.zoom && Math.abs(pr.t - o.offset) < o.width / 2) {
+      const perp = Math.abs(pr.side - bandCenter(g));
+      if (perp < g.thickness / 2 + 8 / this.zoom && Math.abs(pr.t - o.offset) < o.width / 2) {
         return o;
       }
     }
@@ -403,9 +593,11 @@ export class Plan2D {
   }
 
   private hitWall(w: Point): string | null {
-    const t = this.store.design.room.wallThickness;
-    for (const g of this.store.walls()) {
-      if (distToSegment(w, g.a, g.b) < t / 2 + 5 / this.zoom) return g.id;
+    const tol = 5 / this.zoom;
+    for (const g of this.store.allWalls()) {
+      const pr = projectOnWall(g, w);
+      if (pr.t < -tol || pr.t > g.len + tol) continue;
+      if (Math.abs(pr.side - bandCenter(g)) <= g.thickness / 2 + tol) return g.id;
     }
     return null;
   }
@@ -456,6 +648,12 @@ export class Plan2D {
       return;
     }
 
+    // dropping a new room
+    if (this.roomToolOn) {
+      this.placeRoom(w, e.shiftKey);
+      return;
+    }
+
     // placing from the catalog
     if (this.armedDef) {
       this.placeArmed(w, e.shiftKey);
@@ -481,6 +679,7 @@ export class Plan2D {
     }
     const opening = this.hitOpening(w);
     if (opening) {
+      this.activateForWall(this.store.wallById(opening.wallId));
       this.store.select({ kind: 'opening', id: opening.id });
       this.drag = { type: 'opening', id: opening.id };
       return;
@@ -504,6 +703,7 @@ export class Plan2D {
     }
     const wallId = this.hitWall(w);
     if (wallId) {
+      this.activateForWall(this.store.wallById(wallId));
       this.store.select({ kind: 'wall', id: wallId });
       return;
     }
@@ -538,6 +738,7 @@ export class Plan2D {
     const snapped = snapItem(this.store, def, null, w.x, w.y, 0);
     if ((def.marker || isWallMounted(def)) && !snapped.wallId) return; // markers need a wall
     const item = this.store.addItem(def, snapped.x, snapped.y, snapped.rotation);
+    item.roomId = snapped.roomId;
     this.store.select({ kind: 'item', id: item.id });
     this.store.commit();
     if (!keep) this.setArmed(null);
@@ -603,8 +804,9 @@ export class Plan2D {
         let x = Math.round(w.x * 20) / 20; // 5 cm grid
         let y = Math.round(w.y * 20) / 20;
         // axis-lock to neighbouring corners for easy orthogonal rooms
-        const c = this.store.design.corners;
-        const idx = c.findIndex((k) => k.id === (this.drag as { id: string }).id);
+        const dragId = (this.drag as { id: string }).id;
+        const c = this.store.roomOfCorner(dragId)?.corners ?? [];
+        const idx = c.findIndex((k) => k.id === dragId);
         if (idx >= 0) {
           const prev = c[(idx - 1 + c.length) % c.length];
           const next = c[(idx + 1) % c.length];
@@ -659,7 +861,7 @@ export class Plan2D {
         this.guides = res.guides;
         this.store.updateItem(
           it.id,
-          { x: res.x, y: res.y, rotation: res.rotation },
+          { x: res.x, y: res.y, rotation: res.rotation, roomId: res.roomId },
           { structural: false, transient: true }
         );
         return;
@@ -684,6 +886,14 @@ export class Plan2D {
       }
       case 'none':
         break;
+    }
+
+    // add-room tool: preview exactly what a click would build
+    if (this.roomToolOn) {
+      this.roomGhost = this.roomGhostAt(w);
+      this.canvas.style.cursor = 'crosshair';
+      this.requestDraw();
+      return;
     }
 
     // measuring, between clicks: keep the snapped hover / rubber-band live
@@ -756,6 +966,9 @@ export class Plan2D {
       return;
     }
     if (wasDrag.type === 'maybe-pan' && !wasDrag.moved) {
+      // a click on empty floor of another room switches to it; a drag only pans
+      const roomId = this.hitRoom(this.toWorld(wasDrag.sx, wasDrag.sy));
+      if (roomId) this.store.setActiveRoom(roomId);
       this.store.select({ kind: 'none' });
     }
     if (wasDrag.type === 'maybe-split') {
@@ -772,7 +985,8 @@ export class Plan2D {
     const wasDrag = this.drag;
     this.drag = { type: 'none' };
     this.guides = [];
-    this.canvas.style.cursor = this.armedDef || this.measureOn ? 'crosshair' : 'default';
+    this.canvas.style.cursor =
+      this.armedDef || this.measureOn || this.roomToolOn ? 'crosshair' : 'default';
     if (['corner', 'opening', 'item', 'rotate'].includes(wasDrag.type)) {
       this.store.commit();
     }
@@ -798,7 +1012,7 @@ export class Plan2D {
 
   private onDblClick(e: PointerEvent | MouseEvent): void {
     const w = this.toWorld(e.offsetX, e.offsetY);
-    if (this.armedDef) return;
+    if (this.armedDef || this.roomToolOn) return;
     if (this.hitItem(w) || this.hitOpening(w)) return;
     const wallId = this.hitWall(w);
     if (wallId) {
@@ -877,29 +1091,41 @@ export class Plan2D {
     }
 
     const design = this.store.design;
-    const corners = design.corners;
-    const t = design.room.wallThickness;
     const sel = this.store.selection;
+    const activeId = this.store.activeRoomId;
+    // a lone room needs no name plate — keep the single-room plan pixel-identical
+    const multiRoom = design.rooms.length > 1;
 
-    // ---- floor ----
-    if (corners.length >= 3) {
+    // ---- floors ----
+    for (const room of design.rooms) {
+      const corners = room.corners;
+      if (corners.length < 3) continue;
+      const isActive = room.id === activeId;
       ctx.beginPath();
       ctx.moveTo(corners[0].x, corners[0].y);
       for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i].x, corners[i].y);
       ctx.closePath();
-      ctx.fillStyle = resolveColor(design, design.room.floorColor);
-      ctx.globalAlpha = 0.42;
+      ctx.fillStyle = resolveColor(design, room.style.floorColor);
+      ctx.globalAlpha = isActive ? 0.42 : 0.18;
       ctx.fill();
       ctx.globalAlpha = 1;
 
       const c = polygonCentroid(corners);
+      const area = `${this.store.floorArea(room.id).toFixed(1)} m²`;
+      if (!multiRoom) {
+        labels.push({ x: c.x, y: c.y, text: area, color: LABEL_MUTED, size: 13 });
+        continue;
+      }
       labels.push({
         x: c.x,
         y: c.y,
-        text: `${this.store.floorArea().toFixed(1)} m²`,
-        color: '#a09d95',
+        dy: -8,
+        text: room.name,
+        color: isActive ? INK : MUTED,
         size: 13,
+        bold: isActive,
       });
+      labels.push({ x: c.x, y: c.y, dy: 9, text: area, color: LABEL_MUTED, size: 13 });
     }
 
     // ---- guides (behind items) ----
@@ -1002,25 +1228,44 @@ export class Plan2D {
 
     // ---- walls ----
     ctx.lineCap = 'butt';
-    for (const g of this.store.walls()) {
-      const selectedWall = sel.kind === 'wall' && sel.id === g.id;
-      ctx.strokeStyle = selectedWall ? ACCENT : INK;
-      ctx.lineWidth = t;
-      // extend walls half a thickness so corners join cleanly
-      const ext = t / 2;
+    const walls = this.store.allWalls();
+    for (const g of walls) {
+      // both halves of a partition describe the same slab — draw the owner's
+      if (g.shared && !g.shared.owner) continue;
+      // selecting either half highlights the one partition on screen
+      const selectedWall = sel.kind === 'wall' && (sel.id === g.id || sel.id === g.shared?.wallId);
+      const mine = g.roomId === activeId || g.shared?.roomId === activeId;
+      ctx.strokeStyle = selectedWall ? ACCENT : mine ? INK : MUTED;
+      ctx.lineWidth = g.thickness;
+      // the slab sits outside the room-side face; extend it past both corners
+      // so the joints close
+      const off = bandCenter(g);
+      const ext = bandExtend(g);
       ctx.beginPath();
-      ctx.moveTo(g.a.x - g.dir.x * ext, g.a.y - g.dir.y * ext);
-      ctx.lineTo(g.b.x + g.dir.x * ext, g.b.y + g.dir.y * ext);
+      ctx.moveTo(g.a.x - g.dir.x * ext + g.inward.x * off, g.a.y - g.dir.y * ext + g.inward.y * off);
+      ctx.lineTo(g.b.x + g.dir.x * ext + g.inward.x * off, g.b.y + g.dir.y * ext + g.inward.y * off);
       ctx.stroke();
 
-      // wall dimension label (outside)
+      if (g.shared) {
+        // hairline down the seam, so a partition reads apart from an exterior wall
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = hair;
+        ctx.beginPath();
+        ctx.moveTo(g.a.x, g.a.y);
+        ctx.lineTo(g.b.x, g.b.y);
+        ctx.stroke();
+      }
+
+      // dimension label — only for walls the active room can actually edit
+      if (!mine) continue;
       const mid = wallPoint(g, g.len / 2);
-      const off = 0.32;
+      // a partition has no "outside" to hang the label off; sit it on the seam
+      const lblOff = g.shared ? 0 : 0.32;
       let ang = g.angle;
       if (ang > Math.PI / 2 || ang <= -Math.PI / 2) ang += Math.PI; // keep text upright
       labels.push({
-        x: mid.x - g.inward.x * off,
-        y: mid.y - g.inward.y * off,
+        x: mid.x - g.inward.x * lblOff,
+        y: mid.y - g.inward.y * lblOff,
         text: fmtCm(g.len),
         angle: ang,
         color: selectedWall ? ACCENT : '#8a877f',
@@ -1029,14 +1274,47 @@ export class Plan2D {
       });
     }
 
+    // ---- add-room ghost ----
+    if (this.roomToolOn && this.roomGhost) {
+      const poly = this.roomGhost.poly;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(poly[0].x, poly[0].y);
+      for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
+      ctx.closePath();
+      ctx.fillStyle = ACCENT;
+      ctx.globalAlpha = 0.12;
+      ctx.fill();
+      ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = ACCENT;
+      ctx.lineWidth = hair * 2;
+      ctx.setLineDash([hair * 7, hair * 5]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+      const c = polygonCentroid(poly);
+      labels.push({
+        x: c.x,
+        y: c.y,
+        text: this.roomGhost.attached ? 'New room · shares this wall' : 'New room',
+        color: ACCENT,
+        size: 12,
+        bold: true,
+      });
+    }
+
     // ---- openings ----
     for (const o of design.openings) {
       const g = this.store.wallById(o.wallId);
       if (!g) continue;
+      const t = g.thickness;
       const p = wallPoint(g, o.offset);
+      const off = bandCenter(g);
       const selectedO = sel.kind === 'opening' && sel.id === o.id;
       ctx.save();
-      ctx.translate(p.x, p.y);
+      // local +y is the wall's inward normal, so translating by the band centre
+      // puts the cut symbol on the slab whatever the face offset is
+      ctx.translate(p.x + g.inward.x * off, p.y + g.inward.y * off);
       ctx.rotate(g.angle);
       // clear the wall
       ctx.fillStyle = '#f4f3f0';
@@ -1054,10 +1332,10 @@ export class Plan2D {
         // distances to both wall ends
         const l = o.offset - o.width / 2;
         const r = g.len - o.offset - o.width / 2;
-        const off = -0.32;
+        const dimOff = -0.32;
         const gp = (tp: number): Point => ({
-          x: g.a.x + g.dir.x * tp + g.inward.x * off,
-          y: g.a.y + g.dir.y * tp + g.inward.y * off,
+          x: g.a.x + g.dir.x * tp + g.inward.x * dimOff,
+          y: g.a.y + g.dir.y * tp + g.inward.y * dimOff,
         });
         for (const [from, to, val] of [
           [0, o.offset - o.width / 2, l],
@@ -1088,10 +1366,12 @@ export class Plan2D {
     if (this.ghostOpening && this.armedDef) {
       const g = this.store.wallById(this.ghostOpening.wallId);
       if (g) {
+        const t = g.thickness;
+        const off = bandCenter(g);
         const p = wallPoint(g, this.ghostOpening.t);
         ctx.save();
         ctx.globalAlpha = 0.55;
-        ctx.translate(p.x, p.y);
+        ctx.translate(p.x + g.inward.x * off, p.y + g.inward.y * off);
         ctx.rotate(g.angle);
         ctx.fillStyle = '#f4f3f0';
         ctx.fillRect(-this.armedDef.w / 2, -t / 2, this.armedDef.w, t);
@@ -1105,8 +1385,9 @@ export class Plan2D {
       }
     }
 
-    // ---- corner + midpoint handles ----
-    for (const g of this.store.walls()) {
+    // ---- corner + midpoint handles (active room only, like every gesture) ----
+    for (const g of walls) {
+      if (g.roomId !== activeId) continue;
       const m = wallPoint(g, g.len / 2);
       const r = 4.5 / this.zoom;
       ctx.save();
@@ -1119,7 +1400,7 @@ export class Plan2D {
       ctx.strokeRect(-r, -r, r * 2, r * 2);
       ctx.restore();
     }
-    for (const c of corners) {
+    for (const c of this.store.activeRoom().corners) {
       const selectedC = sel.kind === 'corner' && sel.id === c.id;
       const r = (selectedC ? 6.5 : 5) / this.zoom;
       ctx.fillStyle = selectedC ? ACCENT : '#fff';
@@ -1138,7 +1419,7 @@ export class Plan2D {
     for (const l of labels) {
       const s = this.toScreen(l);
       ctx.save();
-      ctx.translate(s.x, s.y);
+      ctx.translate(s.x, s.y + (l.dy ?? 0));
       if (l.angle) ctx.rotate(l.angle);
       ctx.font = `${l.bold ? 600 : 500} ${l.size ?? 12}px Inter, system-ui, sans-serif`;
       ctx.textAlign = 'center';

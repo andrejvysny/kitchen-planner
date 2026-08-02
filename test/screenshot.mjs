@@ -44,5 +44,20 @@ await newPart.click();
 await page.waitForTimeout(1500);
 await page.screenshot({ path: '/tmp/shot-studio.png' });
 
+// multi-room: add a room against a wall, split view
+await page.keyboard.press('Escape');
+await page.keyboard.press('Escape');
+await page.click('#view-toggle button[data-view="split"]');
+await page.waitForTimeout(300);
+await page.evaluate(() => {
+  const st = window.__kp.store;
+  const wall0 = st.allWalls()[0];
+  st.addRoom({ against: { wallId: wall0.id }, d: 3 });
+  st.commit();
+  window.__kp.plan.zoomFit();
+});
+await page.waitForTimeout(1200);
+await page.screenshot({ path: '/tmp/shot-rooms.png' });
+
 console.log('ERRORS:', errors.length ? errors.join('\n') : 'none');
 await browser.close();

@@ -24,6 +24,9 @@ export const PLINTH_H = 0.1;
 export const FRONT_T = 0.018;
 export const GAP = 0.004;
 export const WORKTOP_T = 0.035;
+/** parts whose bottom sits above this (m) are wall-hung: no plinth */
+export const WALL_MOUNT_ELEVATION = 0.3;
+export const isWallMountedElevation = (elevation: number): boolean => elevation > WALL_MOUNT_ELEVATION;
 
 export type PanelShape =
   | { kind: 'box'; w: number; h: number; d: number }
@@ -96,7 +99,7 @@ export interface PartDims {
  * (single source — the studio canvas and any host-anchor math reuse it).
  */
 export function cabinetFaceSize(part: CabinetPartDef): { faceW: number; faceH: number } {
-  const wallMounted = part.elevation > 0.3;
+  const wallMounted = isWallMountedElevation(part.elevation);
   const topT = part.worktop ? WORKTOP_T : 0;
   const y0 = !wallMounted && part.plinth ? PLINTH_H : 0;
   const fp = part.footprint;
@@ -376,7 +379,7 @@ function cutoutHoles(ctx: HostContext | undefined): Point[][] {
 export function cabinetPanels(part: CabinetPartDef, dims: PartDims, ctx?: HostContext): Panel[] {
   const { w, d, h } = dims;
   const out: Panel[] = [];
-  const wallMounted = dims.elevation > 0.3;
+  const wallMounted = isWallMountedElevation(dims.elevation);
   const hasPlinth = !wallMounted && part.plinth;
   const topT = part.worktop ? WORKTOP_T : 0;
   const y0 = hasPlinth ? PLINTH_H : 0;

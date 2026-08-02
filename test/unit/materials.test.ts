@@ -31,7 +31,10 @@ const ROOM: RoomStyle = {
 
 // colour resolution runs against the whole design; these tests use literal
 // colours, so an empty variables registry wrapping ROOM is all that's needed.
-const DESIGN = { variables: [], room: ROOM } as unknown as Design;
+const DESIGN = {
+  variables: [],
+  rooms: [{ id: 'r1', name: 'Room', corners: [], style: ROOM }],
+} as unknown as Design;
 
 describe('material registry', () => {
   it('has unique ids that all resolve', () => {
@@ -144,9 +147,9 @@ describe('sanitizeDesign material validation', () => {
     });
     expect(d!.items[0].material).toBe('walnut');
     expect(d!.items[1].material).toBeUndefined();
-    expect(d!.room.floorMaterial).toBe('floor-oak');
-    expect(d!.room.wallMaterial).toBeUndefined();
-    expect(d!.room.counterMaterial).toBe('marble-light');
+    expect(d!.rooms[0].style.floorMaterial).toBe('floor-oak');
+    expect(d!.rooms[0].style.wallMaterial).toBeUndefined();
+    expect(d!.rooms[0].style.counterMaterial).toBe('marble-light');
   });
 
   it('validates worktop overrides and rotation flags', () => {
@@ -184,16 +187,16 @@ describe('sanitizeDesign material validation', () => {
     expect(d!.items[0].counterMaterialRot).toBeUndefined();
     expect(d!.items[1].counterMaterial).toBeUndefined();
     expect(d!.items[1].materialRot).toBeUndefined();
-    expect(d!.room.counterMaterialRot).toBe(true);
-    expect(d!.room.floorMaterialRot).toBeUndefined();
-    expect(d!.room.wallMaterialRot).toBeUndefined();
+    expect(d!.rooms[0].style.counterMaterialRot).toBe(true);
+    expect(d!.rooms[0].style.floorMaterialRot).toBeUndefined();
+    expect(d!.rooms[0].style.wallMaterialRot).toBeUndefined();
   });
 
   it('designs without material fields stay untouched', () => {
     const d = sanitizeDesign({ version: 5, corners: base() });
-    expect(d!.room.floorMaterial).toBeUndefined();
-    expect(d!.room.wallMaterial).toBeUndefined();
-    expect(d!.room.counterMaterial).toBeUndefined();
+    expect(d!.rooms[0].style.floorMaterial).toBeUndefined();
+    expect(d!.rooms[0].style.wallMaterial).toBeUndefined();
+    expect(d!.rooms[0].style.counterMaterial).toBeUndefined();
   });
 
   it('emptyDesign round-trips through sanitize unchanged', () => {

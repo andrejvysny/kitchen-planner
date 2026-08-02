@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='5' fill='%232f6f5e'/%3E%3Crect x='8' y='14' width='16' height='10' rx='1.5' fill='%23f2f1ec'/%3E%3Crect x='8' y='8' width='16' height='3' rx='1.5' fill='%23c9a87c'/%3E%3C/svg%3E" />
-    <title>Kitchen Planner</title>
+    <title>Interior Planner</title>
   </head>
   <body>
     <div id="app">
       <header id="topbar">
         <div class="brand">
           <span class="brand-mark">▦</span>
-          <span class="brand-name">Kitchen Planner</span>
+          <span class="brand-name">Interior Planner</span>
         </div>
         <button id="btn-catalog" title="Show / hide the catalog">☰</button>
         <div class="topbar-group" id="view-toggle">
@@ -36,7 +36,7 @@
           <button id="btn-save" title="Download design as JSON">Save</button>
           <button id="btn-load" title="Load design from JSON">Load</button>
           <button id="btn-png" title="Export 3D snapshot as PNG">Snapshot</button>
-          <button id="btn-glb" title="Export the modelled kitchen as .glb for Blender">Blender</button>
+          <button id="btn-glb" title="Export the modelled interior as .glb for Blender">Blender</button>
           <input type="file" id="file-input" accept=".json,application/json" hidden />
         </div>
       </header>
@@ -75,6 +75,7 @@
               <button id="btn-zoom-out" title="Zoom out">−</button>
             </div>
             <div id="measure-controls">
+              <button id="btn-room" title="Add a room — click in the plan, or hover a wall to attach it">▧</button>
               <button id="btn-measure" title="Measure distances — click two points (snaps to corners, edges & walls)">📏</button>
             </div>
             <div id="wall-nav">

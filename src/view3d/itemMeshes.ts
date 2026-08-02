@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { CatalogDef } from '../model/catalog';
 import type { HostContext } from '../model/panels';
 import type { CustomPartDef, Design, Item, RoomStyle } from '../model/types';
+import { styleOfItem } from '../model/rooms';
 import { resolveFinish } from '../model/variables';
 import {
   applianceGlass,
@@ -310,7 +311,7 @@ export function buildItemGroup(
   host?: HostContext
 ): THREE.Group {
   const g = new THREE.Group();
-  const room = design.room;
+  const room = styleOfItem(design, item);
   const finish = resolveFinish(design, item.color, item.material, item.materialRot);
   const builder = BUILDERS[def.kind];
   if (builder) builder(g, { item, def, design, room, part, host, finish });

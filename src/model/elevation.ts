@@ -1,4 +1,5 @@
-import { clamp, projectOnWall, wallGeom, type WallGeom } from './geometry';
+import { clamp, projectOnWall } from './geometry';
+import { openingsOfWall, roomById, wallByIdIn } from './rooms';
 import { rotationFromInward } from './snapping';
 import type { Design } from './types';
 
@@ -42,6 +43,9 @@ export interface WallElevationOpening {
 
 export interface WallElevation {
   wallId: string;
+  /** the room this elevation is seen FROM (a partition has one per side) */
+  roomId: string;
+  roomName: string;
   /** interior length of the wall (m) */
   len: number;
   /** ceiling height (m) */
@@ -57,16 +61,6 @@ const BACK_GAP = 0.15;
 /** how far (rad) an item may face off the wall's inward normal and still count */
 const FACE_TOL = 0.3;
 
-function wallGeomById(design: Design, wallId: string): WallGeom | null {
-  const c = design.corners;
-  for (let i = 0; i < c.length; i++) {
-    const a = c[i];
-    if (a.id !== wallId) continue;
-    return wallGeom({ id: a.id, a, b: c[(i + 1) % c.length] });
-  }
-  return null;
-}
-
 /** smallest absolute angular difference, folded into [0, π] */
 function angleClose(a: number, b: number, tol: number): boolean {
   let d = Math.abs(a - b) % (Math.PI * 2);
@@ -81,9 +75,9 @@ function angleClose(a: number, b: number, tol: number): boolean {
  * both tests by their geometry, so they never appear.
  */
 export function wallElevation(design: Design, wallId: string): WallElevation | null {
-  const g = wallGeomById(design, wallId);
+  const g = wallByIdIn(design.rooms, wallId);
   if (!g) return null;
-  const t = design.room.wallThickness;
+  const room = roomById(design.rooms, g.roomId);
   const wantRot = rotationFromInward(g.inward);
 
   const items: WallElevationItem[] = [];
@@ -94,7 +88,7 @@ export function wallElevation(design: Design, wallId: string): WallElevation | n
     if (pr.t < -0.3 || pr.t > g.len + 0.3) continue; // beyond the wall span
     if (pr.side <= 0) continue; // outside the room (behind the wall)
     // distance from the interior wall face to the item's back plane
-    const backGap = pr.side - it.d / 2 - t / 2;
+    const backGap = pr.side - it.d / 2 - g.faceOffset;
     if (backGap < -0.05 || backGap > BACK_GAP) continue; // not hugging this wall
     if (!angleClose(it.rotation, wantRot, FACE_TOL)) continue; // faces elsewhere
     memberIds.add(it.id);
@@ -129,18 +123,25 @@ export function wallElevation(design: Design, wallId: string): WallElevation | n
   // against-wall (small side) first so nearer items paint over them
   items.sort((a, b) => a.depth - b.depth);
 
-  const openings: WallElevationOpening[] = [];
-  for (const o of design.openings) {
-    if (o.wallId !== wallId) continue;
-    openings.push({
-      id: o.id,
-      type: o.type,
-      center: o.offset,
-      width: o.width,
-      z0: o.sill,
-      z1: o.sill + o.height,
-    });
-  }
+  // a partition's openings are stored on the owning side; openingsOfWall
+  // mirrors them so the door shows up in BOTH rooms' elevations
+  const openings: WallElevationOpening[] = openingsOfWall(design, g).map((o) => ({
+    id: o.id,
+    type: o.type,
+    center: o.offset,
+    width: o.width,
+    z0: o.sill,
+    z1: o.sill + o.height,
+  }));
 
-  return { wallId, len: g.len, height: design.room.wallHeight, thickness: t, items, openings };
+  return {
+    wallId,
+    roomId: g.roomId,
+    roomName: room?.name ?? '',
+    len: g.len,
+    height: room?.style.wallHeight ?? design.rooms[0].style.wallHeight,
+    thickness: g.thickness,
+    items,
+    openings,
+  };
 }

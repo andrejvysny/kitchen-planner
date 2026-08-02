@@ -90,6 +90,12 @@ export class UI {
       this.updateInfo();
       if (info.transient) this.refreshTransientInputs();
     });
+    // ephemeral, but it retargets every room-scoped panel and the elevation
+    store.on('activeRoom', () => {
+      if (!this.isEditingRoomName(document.activeElement)) this.renderProps();
+      this.renderOutline();
+      this.updateInfo();
+    });
     this.updateUndoButtons();
     this.updateInfo();
   }
@@ -315,9 +321,36 @@ export class UI {
       });
     }
 
+    // the total counts placed components; rooms are the container, not content
     const total = this.store.design.items.length + this.store.design.openings.length;
     const head = this.el(`<div class="ol-head">Components<span class="ol-total">${total}</span></div>`);
     root.appendChild(head);
+
+    // Rooms lead the outline: it is the primary room switcher
+    const activeRoomId = this.store.activeRoomId;
+    const roomsGroup = this.el(
+      `<div class="ol-group"><div class="ol-group-title"><span class="ol-label">Rooms</span><span class="ol-count">${this.store.design.rooms.length}</span></div></div>`
+    );
+    for (const r of this.store.design.rooms) {
+      const row = this.el(
+        `<div class="ol-row room-row${r.id === activeRoomId ? ' active' : ''}"><span class="room-row-name"></span><span class="room-row-area"></span></div>`
+      );
+      row.role = 'button';
+      row.tabIndex = 0;
+      (row.querySelector('.room-row-name') as HTMLElement).textContent = r.name;
+      (row.querySelector('.room-row-area') as HTMLElement).textContent =
+        `${this.store.floorArea(r.id).toFixed(1)} m²`;
+      const pick = () => this.activateRoom(r.id);
+      row.addEventListener('click', pick);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          pick();
+        }
+      });
+      roomsGroup.appendChild(row);
+    }
+    root.appendChild(roomsGroup);
 
     if (total === 0) {
       root.appendChild(this.el(`<div class="ol-empty">Nothing placed yet</div>`));
@@ -474,6 +507,16 @@ export class UI {
       active instanceof HTMLInputElement &&
       active.classList.contains('var-name') &&
       $('#variables-panel').contains(active)
+    );
+  }
+
+  /** Same guard as isEditingVariableName, for the room-name field in #props. */
+  private isEditingRoomName(active: Element | null): boolean {
+    return (
+      !!active &&
+      active instanceof HTMLInputElement &&
+      active.classList.contains('room-name') &&
+      $('#props').contains(active)
     );
   }
 
@@ -647,11 +690,59 @@ export class UI {
 
   /* ---------- room ---------- */
 
+  /** Room rows (panel + outline) switch rooms and drop back to the room panel. */
+  private activateRoom(id: string): void {
+    this.store.setActiveRoom(id);
+    this.store.select({ kind: 'none' });
+  }
+
   private renderRoomProps(root: HTMLElement): void {
-    root.appendChild(this.el(`<h2 class="props-title">Room</h2>`));
+    const room = this.store.activeRoom();
+    const style = this.store.activeStyle();
+    const rooms = this.store.design.rooms;
+
+    // the title IS the room name — renaming is the most common room-level edit
+    const name = this.el('<input class="room-name" type="text" spellcheck="false">') as HTMLInputElement;
+    name.value = room.name;
+    name.title = 'Rename this room';
+    name.addEventListener('change', () => {
+      this.store.renameRoom(room.id, name.value);
+      this.store.commit();
+      const applied = this.store.roomById(room.id)?.name ?? room.name; // renameRoom rejects blanks
+      name.value = applied;
+      // the panel is deliberately not rebuilt while the caret is in this field,
+      // so the room list right below it has to be corrected by hand
+      const row = $('#props-inner').querySelector<HTMLElement>('.room-row.active .room-row-name');
+      if (row) row.textContent = applied;
+    });
+    root.appendChild(name);
     root.appendChild(
-      this.el(`<p class="props-sub">${this.store.floorArea().toFixed(1)} m² · ${this.store.design.corners.length} corners</p>`)
+      this.el(`<p class="props-sub">${this.store.floorArea().toFixed(1)} m² · ${room.corners.length} corners</p>`)
     );
+
+    const list = this.section(root, 'Rooms');
+    for (const r of rooms) {
+      const row = this.el(
+        `<div class="ol-row room-row${r.id === room.id ? ' active' : ''}"><span class="room-row-name"></span><span class="room-row-area"></span></div>`
+      );
+      row.role = 'button';
+      row.tabIndex = 0;
+      (row.querySelector('.room-row-name') as HTMLElement).textContent = r.name;
+      (row.querySelector('.room-row-area') as HTMLElement).textContent =
+        `${this.store.floorArea(r.id).toFixed(1)} m²`;
+      const pick = () => this.activateRoom(r.id);
+      row.addEventListener('click', pick);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          pick();
+        }
+      });
+      list.appendChild(row);
+    }
+    const addRow = this.el('<div class="btn-row"><button class="btn">＋ Add room</button></div>');
+    addRow.querySelector('button')!.addEventListener('click', () => this.plan.setRoomTool(true));
+    list.appendChild(addRow);
 
     const rect = this.store.rectangleSize();
     const size = this.section(root, 'Size');
@@ -663,7 +754,7 @@ export class UI {
     } else {
       size.appendChild(this.el(`<p class="props-sub">Select a wall to edit its length, or drag corners in the plan.</p>`));
     }
-    this.numberRow(size, 'Ceiling', Math.round(this.store.design.room.wallHeight * 100), 'cm', (v) =>
+    this.numberRow(size, 'Ceiling', Math.round(style.wallHeight * 100), 'cm', (v) =>
       this.store.setRoomStyle({ wallHeight: Math.min(4, Math.max(2, v / 100)) }), { min: 200, max: 400 });
 
     const shape = this.section(root, 'Room shape');
@@ -675,6 +766,13 @@ export class UI {
     };
     rectBtn.addEventListener('click', () => applyPreset('rect'));
     lBtn.addEventListener('click', () => applyPreset('lshape'));
+    // a preset rewrites the whole corner ring, which would orphan a partition
+    if (this.store.wallsOf(room.id).some((w) => w.shared)) {
+      for (const b of [rectBtn, lBtn]) {
+        b.disabled = true;
+        b.title = 'This room shares a wall with another — reshaping it would break the partition';
+      }
+    }
     shape.appendChild(btns);
     shape.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Drag ■ corners to reshape · drag ◆ to bend a wall</p>`));
 
@@ -686,15 +784,15 @@ export class UI {
 
     const design = this.store.design;
     const colors = this.section(root, 'Walls');
-    this.varChips(colors, design.room.wallColor, (ref) => this.store.setRoomStyle({ wallColor: ref }));
-    this.swatchRow(colors, WALL_COLORS, resolveColor(design, design.room.wallColor), (c) =>
-      this.store.setRoomStyle(overridesColor(design.room.wallMaterial)
+    this.varChips(colors, style.wallColor, (ref) => this.store.setRoomStyle({ wallColor: ref }));
+    this.swatchRow(colors, WALL_COLORS, resolveColor(design, style.wallColor), (c) =>
+      this.store.setRoomStyle(overridesColor(style.wallMaterial)
         ? { wallColor: c, wallMaterial: undefined, wallMaterialRot: undefined }
         : { wallColor: c }));
-    this.materialRow(colors, WALL_MATERIALS, this.store.design.room.wallMaterial, (id) =>
+    this.materialRow(colors, WALL_MATERIALS, style.wallMaterial, (id) =>
       this.store.setRoomStyle({ wallMaterial: id }));
-    this.rotToggle(colors, this.store.design.room.wallMaterial,
-      this.store.design.room.wallMaterialRot === true, (v) =>
+    this.rotToggle(colors, style.wallMaterial,
+      style.wallMaterialRot === true, (v) =>
         this.store.setRoomStyle({ wallMaterialRot: v || undefined }));
     const visRow = this.el(`<div class="btn-row">
       <button class="btn" data-m="auto">Auto all</button>
@@ -708,36 +806,50 @@ export class UI {
     colors.appendChild(visRow);
     colors.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Or select a single wall to override it</p>`));
     const floor = this.section(root, 'Floor');
-    this.varChips(floor, design.room.floorColor, (ref) => this.store.setRoomStyle({ floorColor: ref }));
-    this.swatchRow(floor, FLOOR_COLORS, resolveColor(design, design.room.floorColor), (c) =>
-      this.store.setRoomStyle(overridesColor(design.room.floorMaterial)
+    this.varChips(floor, style.floorColor, (ref) => this.store.setRoomStyle({ floorColor: ref }));
+    this.swatchRow(floor, FLOOR_COLORS, resolveColor(design, style.floorColor), (c) =>
+      this.store.setRoomStyle(overridesColor(style.floorMaterial)
         ? { floorColor: c, floorMaterial: undefined, floorMaterialRot: undefined }
         : { floorColor: c }));
-    this.materialRow(floor, FLOOR_MATERIALS, this.store.design.room.floorMaterial, (id) =>
+    this.materialRow(floor, FLOOR_MATERIALS, style.floorMaterial, (id) =>
       this.store.setRoomStyle({ floorMaterial: id }));
-    this.rotToggle(floor, this.store.design.room.floorMaterial,
-      this.store.design.room.floorMaterialRot === true, (v) =>
+    this.rotToggle(floor, style.floorMaterial,
+      style.floorMaterialRot === true, (v) =>
         this.store.setRoomStyle({ floorMaterialRot: v || undefined }));
     const counter = this.section(root, 'Worktops');
-    this.varChips(counter, design.room.counterColor, (ref) => this.store.setRoomStyle({ counterColor: ref }));
-    this.swatchRow(counter, COUNTER_COLORS, resolveColor(design, design.room.counterColor), (c) =>
-      this.store.setRoomStyle(overridesColor(design.room.counterMaterial)
+    this.varChips(counter, style.counterColor, (ref) => this.store.setRoomStyle({ counterColor: ref }));
+    this.swatchRow(counter, COUNTER_COLORS, resolveColor(design, style.counterColor), (c) =>
+      this.store.setRoomStyle(overridesColor(style.counterMaterial)
         ? { counterColor: c, counterMaterial: undefined, counterMaterialRot: undefined }
         : { counterColor: c }));
-    this.materialRow(counter, COUNTER_MATERIALS, this.store.design.room.counterMaterial, (id) =>
+    this.materialRow(counter, COUNTER_MATERIALS, style.counterMaterial, (id) =>
       this.store.setRoomStyle({ counterMaterial: id }));
-    this.rotToggle(counter, this.store.design.room.counterMaterial,
-      this.store.design.room.counterMaterialRot === true, (v) =>
+    this.rotToggle(counter, style.counterMaterial,
+      style.counterMaterialRot === true, (v) =>
         this.store.setRoomStyle({ counterMaterialRot: v || undefined }));
 
     this.renderLightingProps(root);
 
+    const actions = this.section(root, 'Actions');
+    const delRow = this.el('<div class="btn-row"><button class="btn danger">Delete room</button></div>');
+    const delBtn = delRow.querySelector('button') as HTMLButtonElement;
+    if (rooms.length === 1) {
+      delBtn.disabled = true;
+      delBtn.title = 'A design always has at least one room';
+    }
+    delBtn.addEventListener('click', () => {
+      if (!confirm(`Delete "${room.name}" and everything in it?`)) return;
+      this.store.deleteRoom(room.id);
+      this.store.commit();
+    });
+    actions.appendChild(delRow);
+
     root.appendChild(
       this.el(`<div class="props-empty-tip">
-        <b>How to design your kitchen</b><br>
-        1 · Sketch the room — size, corners, then place <b>doors, windows, water & outlets</b><br>
-        2 · Add base units along the walls (they snap into runs)<br>
-        3 · Stack wall cabinets & shelves above<br>
+        <b>How to design your space</b><br>
+        1 · Sketch rooms — size, corners, and <b>＋ Add room</b> for more<br>
+        2 · Place doors, windows & utilities on the walls<br>
+        3 · Furnish along the walls — cabinets and furniture snap into place<br>
         4 · Place lights, then set the mood in <b>Lighting</b> (sun direction & height, brightness)<br>
         Create your own parametric furniture with <b>＋ New part</b></div>`)
     );
@@ -973,11 +1085,23 @@ export class UI {
     const g = this.store.wallById(wallId)!;
     root.appendChild(this.el(`<h2 class="props-title">Wall</h2>`));
     root.appendChild(this.el(`<p class="props-sub">Interior length along this wall</p>`));
+    // a partition belongs to two rooms — say which, so its edits are no surprise
+    const twinRoom = g.shared ? this.store.roomById(g.shared.roomId) : undefined;
+    if (twinRoom) {
+      const line = this.el('<p class="props-sub room-shared">Shared with </p>');
+      const who = document.createElement('b');
+      who.textContent = twinRoom.name; // user text — never interpolated into HTML
+      line.appendChild(who);
+      root.appendChild(line);
+    }
     const s = this.section(root, 'Size');
     this.numberRow(s, 'Length', Math.round(g.len * 100), 'cm', (v) =>
       this.store.setWallLength(wallId, Math.max(30, v) / 100), { min: 30, max: 3000 });
-    this.numberRow(s, 'Thickness', Math.round(this.store.design.room.wallThickness * 100), 'cm', (v) =>
-      this.store.setRoomStyle({ wallThickness: Math.min(0.4, Math.max(0.05, v / 100)) }), { min: 5, max: 40 });
+    // thickness is a property of the wall's OWN room, not the active one
+    const wallRoom = this.store.roomOfWall(wallId) ?? this.store.activeRoom();
+    this.numberRow(s, 'Thickness', Math.round(wallRoom.style.wallThickness * 100), 'cm', (v) =>
+      this.store.setRoomStyle({ wallThickness: Math.min(0.4, Math.max(0.05, v / 100)) }, wallRoom.id),
+      { min: 5, max: 40 });
     const vis = this.section(root, 'Visibility');
     this.choiceRow(vis, [['auto', 'Auto'], ['show', 'Show'], ['hide', 'Hide']],
       this.store.wallVisibility(wallId), (v) =>
@@ -1042,7 +1166,7 @@ export class UI {
     const a = this.section(root, 'Actions');
     const del = this.el(`<div class="btn-row"><button class="btn danger">Remove corner</button></div>`);
     const delBtn = del.querySelector('button') as HTMLButtonElement;
-    if (this.store.design.corners.length <= 3) {
+    if ((this.store.roomOfCorner(id)?.corners.length ?? 0) <= 3) {
       delBtn.disabled = true;
       delBtn.title = 'A room needs at least 3 corners';
     }
@@ -1127,7 +1251,7 @@ export class UI {
 
     $('#btn-save').addEventListener('click', () => {
       const blob = new Blob([this.store.exportJson()], { type: 'application/json' });
-      this.download(URL.createObjectURL(blob), 'kitchen-design.json');
+      this.download(URL.createObjectURL(blob), 'interior-design.json');
     });
 
     const fileInput = $('#file-input') as HTMLInputElement;
@@ -1142,12 +1266,12 @@ export class UI {
         this.store.replaceDesign(d);
         this.plan.zoomFit();
       } catch {
-        $('#status-hint').textContent = 'Could not read that file — is it a kitchen-design.json?';
+        $('#status-hint').textContent = 'Could not read that file — is it an interior-design.json?';
       }
     });
 
     $('#btn-png').addEventListener('click', () => {
-      this.download(this.view.snapshotPNG(), 'kitchen-3d.png');
+      this.download(this.view.snapshotPNG(), 'interior-3d.png');
     });
 
     $('#btn-glb').addEventListener('click', async () => {
@@ -1155,9 +1279,9 @@ export class UI {
       btn.disabled = true;
       try {
         const blob = await this.view.exportGLB();
-        this.download(URL.createObjectURL(blob), 'kitchen.glb');
+        this.download(URL.createObjectURL(blob), 'interior.glb');
         $('#status-hint').textContent =
-          'kitchen.glb exported — in Blender: File → Import → glTF 2.0';
+          'interior.glb exported — in Blender: File → Import → glTF 2.0';
       } finally {
         btn.disabled = false;
       }
@@ -1172,6 +1296,10 @@ export class UI {
     measureBtn.addEventListener('click', () => this.plan.setMeasure(!this.plan.measureOn));
     this.plan.onMeasureChange = () =>
       measureBtn.classList.toggle('active', this.plan.measureOn);
+
+    const roomBtn = $('#btn-room');
+    roomBtn.addEventListener('click', () => this.plan.setRoomTool(!this.plan.roomToolOn));
+    this.plan.onRoomToolChange = () => roomBtn.classList.toggle('active', this.plan.roomToolOn);
     document.querySelectorAll<HTMLElement>('#cam-controls button').forEach((b) =>
       b.addEventListener('click', () => {
         this.view.setPreset(b.dataset.cam as CamPreset);
@@ -1193,8 +1321,10 @@ export class UI {
   }
 
   private updateInfo(): void {
+    const rooms = this.store.design.rooms.length;
     $('#status-info').textContent =
-      `${this.store.design.items.length} items · ${this.store.floorArea().toFixed(1)} m²`;
+      `${this.store.design.items.length} items · ${this.store.totalFloorArea().toFixed(1)} m²` +
+      (rooms > 1 ? ` · ${rooms} rooms` : '');
   }
 
   private wireKeyboard(): void {
@@ -1209,6 +1339,7 @@ export class UI {
         if (this.studio.isOpen()) this.studio.handleEscape();
         else if (this.plan.armedDef) this.plan.setArmed(null);
         else if (this.plan.measureOn) this.plan.setMeasure(false);
+        else if (this.plan.roomToolOn) this.plan.setRoomTool(false);
         else this.store.select({ kind: 'none' });
         return;
       }

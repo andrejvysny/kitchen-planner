@@ -12,7 +12,7 @@ import type { CabinetPartDef, CustomPartDef, FreeformPartDef, Zone } from './typ
 export interface PresetEntry {
   part: CustomPartDef;
   /** catalog section the preset tile renders under */
-  section: 'Base units' | 'Tall units' | 'Wall units';
+  section: string;
 }
 
 const door: Zone = { kind: 'leaf', fill: 'door' };

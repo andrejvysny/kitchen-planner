@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { toCatalogDef } from '../../model/parts';
+import { defaultRoomStyle } from '../../model/rooms';
 import type { CustomPartDef, Design, Item } from '../../model/types';
 import { buildItemGroup } from '../../view3d/itemMeshes';
 import { collectMotionUnits, setFrontPoses } from '../../view3d/partMeshes';
@@ -11,14 +12,12 @@ import { collectMotionUnits, setFrontPoses } from '../../view3d/partMeshes';
  * part def), so an empty variables registry is all the renderer needs.
  */
 const PREVIEW_DESIGN = {
+  version: 6,
   variables: [],
-  room: {
-    wallColor: '#f4f1ea',
-    floorColor: '#cfccc6',
-    counterColor: '#c9a87c',
-    wallHeight: 2.6,
-    wallThickness: 0.1,
-  },
+  items: [],
+  openings: [],
+  customParts: [],
+  rooms: [{ id: 'preview', name: 'Preview', corners: [], style: defaultRoomStyle() }],
 } as unknown as Design;
 
 /**
@@ -150,7 +149,7 @@ export class StudioPreview {
     };
     // worktop panels follow the room worktop style; in the studio the part's
     // accent stands in for it so the swatch stays live
-    PREVIEW_DESIGN.room.counterColor = part.accentColor;
+    PREVIEW_DESIGN.rooms[0].style.counterColor = part.accentColor;
     this.meshGroup = buildItemGroup(fake, toCatalogDef(part), PREVIEW_DESIGN, part);
     this.meshGroup.position.y = part.elevation > 0.3 ? 0.6 : 0;
     // studio-local open preview: re-applied (snapped) after every rebuild

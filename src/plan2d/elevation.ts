@@ -1,5 +1,6 @@
 import { clamp, fmtCm } from '../model/geometry';
 import { wallElevation, type WallElevation, type WallElevationItem } from '../model/elevation';
+import type { RoomWall } from '../model/rooms';
 import type { Store } from '../model/store';
 import type { Point } from '../model/types';
 import { resolveColor } from '../model/variables';
@@ -42,6 +43,15 @@ export class ElevationView {
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement!);
 
     store.on('change', () => this.requestDraw());
+    // the nav cycles the ACTIVE room's walls, so a room switch re-resolves it
+    store.on('activeRoom', () => {
+      this.ensureWall();
+      this.onWallChange();
+      if (this.active) {
+        this.fit();
+        this.requestDraw();
+      }
+    });
     store.on('selection', () => {
       // follow a wall picked in the plan; otherwise just repaint the highlight
       const sel = this.store.selection;
@@ -57,13 +67,27 @@ export class ElevationView {
 
   /* ---------------- wall selection ---------------- */
 
+  /** The walls this view cycles: the active room's own ring, in corner order. */
+  private walls(): RoomWall[] {
+    return this.store.wallsOf(this.store.activeRoomId);
+  }
+
   private ensureWall(): void {
-    const walls = this.store.walls();
+    const walls = this.walls();
     if (!walls.length) {
       this.wallId = null;
       return;
     }
-    if (!this.wallId || !walls.some((w) => w.id === this.wallId)) this.wallId = walls[0].id;
+    const cur = this.wallId ? this.store.wallById(this.wallId) : undefined;
+    if (cur) {
+      if (cur.roomId === this.store.activeRoomId) return;
+      // a partition picked from the far side: show this room's own half of it
+      if (cur.shared?.roomId === this.store.activeRoomId) {
+        this.wallId = cur.shared.wallId;
+        return;
+      }
+    }
+    this.wallId = walls[0].id;
   }
 
   setWall(id: string): void {
@@ -76,7 +100,7 @@ export class ElevationView {
   }
 
   stepWall(dir: 1 | -1): void {
-    const walls = this.store.walls();
+    const walls = this.walls();
     if (!walls.length) return;
     this.ensureWall();
     const idx = walls.findIndex((w) => w.id === this.wallId);
@@ -84,13 +108,14 @@ export class ElevationView {
     this.setWall(next.id);
   }
 
-  /** "Wall 2 / 4 · 340 cm" for the pane nav label. */
+  /** "Wall 2 / 4 · 340 cm" for the pane nav label, room-qualified once there are several. */
   wallLabel(): string {
-    const walls = this.store.walls();
+    const walls = this.walls();
     this.ensureWall();
     const idx = walls.findIndex((w) => w.id === this.wallId);
     if (idx < 0) return 'No wall';
-    return `Wall ${idx + 1} / ${walls.length} · ${fmtCm(walls[idx].len)}`;
+    const room = this.store.design.rooms.length > 1 ? `${this.store.activeRoom().name} · ` : '';
+    return `${room}Wall ${idx + 1} / ${walls.length} · ${fmtCm(walls[idx].len)}`;
   }
 
   /** Raw elevation model for the current wall (used by tests). */

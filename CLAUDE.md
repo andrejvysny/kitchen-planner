@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-Web-based 3D kitchen planner. Vite + TypeScript + Three.js, no framework, no
-backend, no 3D asset files — all meshes are procedural.
+Web-based 3D interior planner (multi-room). Vite + TypeScript + Three.js, no
+framework, no backend, no 3D asset files — all meshes are procedural.
 
 ## Commands
 
@@ -99,9 +99,9 @@ attached items (they overlap their hosts).
 
 Zone trees live on the part def only — placed instances override just
 w/d/h/color/elevation ("Duplicate part" in the studio and "Customize part…"
-in the props panel cover variants). There is NO pre-v5 migration path:
-sanitizeDesign rejects any design whose version ≠ 5 (callers fall back to a
-fresh/demo design).
+in the props panel cover variants). `DESIGN_VERSION` is 6; sanitizeDesign
+migrates v5 forward (src/model/migrate.ts) and returns null for anything
+older or unknown (callers fall back to a fresh/demo design).
 
 ## Extending custom parts
 
@@ -127,12 +127,25 @@ fresh/demo design).
   polygons (incl. sink/hob cutouts). Panel ids are stable per part;
   `motion` carries hinge sides + slide travel; drawer boxes are real boards.
 
-Room model: `design.corners` is a polygon, normalized counter-clockwise
-(`normalizeDesign`). Walls are edges identified by their **start corner id**;
-openings reference `wallId` + offset along the wall. The CCW invariant gives
-every wall an inward normal — wall snapping, item auto-rotation
-(`rotationFromInward`), and 3D wall-hiding all depend on it. If you mutate
-corners, re-normalize and re-clamp openings.
+Room model: `design.rooms` is an array of `Room`s, each owning a corner
+polygon normalized counter-clockwise (`normalizeRoom`, applied to every room
+by `normalizeDesign`) plus its own `RoomStyle`. Corner ids are unique
+design-wide, so walls — edges identified by their **start corner id** — and
+the openings that reference `wallId` + offset stay design-global. The CCW
+invariant gives every wall an inward normal: wall snapping, item
+auto-rotation (`rotationFromInward`), and 3D wall-hiding all depend on it. If
+you mutate corners, re-normalize that room and re-clamp openings.
+
+A room's polygon is the **room-side wall face**, not the centreline: an
+exterior wall slab lies entirely outside it, a shared partition straddles it.
+`RoomWall.faceOffset` (src/model/rooms.ts — 0 exterior, thickness/2 shared)
+is the single sanctioned source for that offset; never hardcode `t / 2`.
+Everything derived from `Room[]` lives in rooms.ts (`allWalls` with
+geometric shared-edge detection, `wallsOf`, `roomOfItem`, `styleOfItem`,
+`openingsOfWall`); the Store only delegates. The active room is ephemeral
+view state like the selection (`store.activeRoomId`, `'activeRoom'` event) —
+never serialized, never in an undo step. Room-scoped mutations take a
+trailing `roomId?` defaulting to the active room.
 
 Coordinate conventions (easy to get wrong):
 
@@ -185,13 +198,16 @@ Adding a NON-cabinet catalog item (appliance/furniture/light) still means:
   and snaps all open-front poses closed for the clone (snapshotPNG stays
   as-posed — an opened drawer is staged content).
 - `window.__kp = {store, plan, view}` is exposed for tests/debugging — keep it.
-- Autosave key `kitchen-planner-design-v1`, parts library
-  `kitchen-planner-parts-v1`. `DESIGN_VERSION` is 5 and the gate is STRICT:
-  `sanitizeDesign()` (store.ts) returns null for any other version — no
-  migrations. It is the single validation/repair gate for autosave and file
-  import, and it also drops items whose defId resolves nowhere (custom part,
-  preset, or catalog). The parts library sanitizes per element on read
-  (`Store.sharedLibrary()`).
+- Storage keys all live in src/model/storageKeys.ts: writes target
+  `interior-planner-{design,parts,nav}-v1`, reads fall back to the legacy
+  `kitchen-planner-*` keys (never deleted). `DESIGN_VERSION` is 6.
+  `sanitizeDesign()` (store.ts) is the single validation/repair gate for
+  autosave and file import: it runs `migrateDesign()` first (versioned step
+  map, `MIN_MIGRATABLE_VERSION` 5) and returns null when there is no path.
+  It also drops rooms under 3 corners, re-ids corners colliding across
+  rooms, drops openings whose wallId resolves nowhere, and drops items whose
+  defId resolves nowhere (custom part, preset, or catalog). The parts
+  library sanitizes per element on read (`Store.sharedLibrary()`).
 - Items with non-rect footprints hit-test against the true polygon in the
   plan (`footprintPolygon` + `pointInPolygon`) but SNAP by bounding box —
   intentional simplification; a diagonal corner unit's square back still

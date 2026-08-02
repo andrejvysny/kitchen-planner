@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { partPanels, type HostContext, type Panel, type PanelMotion } from '../model/panels';
 import type { CustomPartDef, Design, Item } from '../model/types';
+import { styleOfItem } from '../model/rooms';
 import { resolveColor, resolveFinish } from '../model/variables';
 import { box, counterFin, cyl, type Finish, GROOVE, matte, PLINTH_COLOR, prism, surfMat } from './meshKit';
 
@@ -104,7 +105,7 @@ export function buildCustomPart(
   const front: Finish = resolveFinish(design, item.color, item.material, item.materialRot);
   const accentColor = resolveColor(design, item.accentColor ?? part.accentColor);
   // worktops follow the room worktop style; the item's counterMaterial wins
-  const counter = counterFin(design, design.room, item);
+  const counter = counterFin(design, styleOfItem(design, item), item);
   const units = new Map<string, Panel[]>();
   for (const p of partPanels(part, dims, ctx)) {
     if (p.motion) {

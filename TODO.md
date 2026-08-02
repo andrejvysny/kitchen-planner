@@ -1,3 +1,28 @@
+# v6 Multi-Room Foundation (kitchen → interior planner) — TODO
+
+Plan: ~/.claude/plans/act-as-senior-software-elegant-unicorn.md
+Each phase ends green: `npx tsc --noEmit && npm run test:unit` (+ `npm run build && node test/interact.mjs` from Phase 2)
+
+- [x] Phase 0: de-kitchen prep — WALL_MOUNT_ELEVATION const, PresetEntry.section→string, storageKeys.ts (interior-planner-* + legacy fallback) (154 unit, 69/69 E2E)
+- [x] Phase 1: rooms.ts (Room type, allWalls/shared detection/faceOffset, makeRoom, mirrorOpening) + insetPolygon + rooms.test.ts — additive, Design still v5 (178 unit, 69/69 E2E)
+- [x] Phase 2: schema flip v6 — Design.rooms[], migrate.ts (inset + opening re-projection), store rewrite, snapping scope, mechanical view compile-fix, test updates (188 unit, 69/69 E2E)
+- [x] Phase 3: rooms CRUD (add/delete/duplicate/rename) + activeRoom ephemeral state + tests (200 unit, 69/69 E2E)
+- [x] Phase 4: View3D multi-room — partition-once ✓(phase 2), camera-in-room visibility heuristic, per-design shadow span, inside-preset→active room, GLB 'Design'/'Rooms' (200 unit, 69/69 E2E, 3-shot visual check)
+- [x] Phase 5: Plan2D multi-room render + room switching + add-room tool; UI rooms panel/outline; elevation follows active room (200 unit, 75/75 E2E, visual check)
+- [x] Phase 6: shared-wall openings polish — twin splitWall (bit-identical split point), sanitize owner re-homing (207 unit, 75/75 E2E)
+- [x] Phase 7: de-kitchen sweep + E2E N4-N11 (N1-N3/N12 landed in phase 5) + two-room screenshot + docs (207 unit, 86/86 E2E — N10 alone asserts 4 checks, replaying tests 1/6/7 against a migrated design)
+
+All phases complete. Uncommitted on master.
+
+Deferred:
+- partition magnetism on corner drag (near-coincident twin corner pulled into exact alignment)
+- partial edge-overlap detection (a 6 m wall abutting a 3 m wall renders doubled instead of auto-splitting)
+- duplicateRoom copying items (currently geometry + openings only)
+- room-type presets/catalogs (bedroom/bath/office furniture sets)
+- per-room demo designs (demo stays a single kitchen room)
+
+---
+
 # Cabinet Model Unification — TODO
 
 Plan: ~/.claude/plans/context-this-is-wobbly-finch.md

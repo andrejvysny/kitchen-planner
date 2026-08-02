@@ -78,8 +78,9 @@ const placed = await page.evaluate(() => {
   const it = items[items.length - 1];
   return { defId: it.defId, x: it.x, y: it.y, rot: it.rotation };
 });
-// bottom wall of 4x3 room: inner face at y = 3 - 0.05; item center should be ~3 - 0.05 - 0.3 = 2.65
-results.push(['wall snap position', Math.abs(placed.y - 2.65) < 0.02]);
+// v6 corners ARE the wall face: the bottom wall of the 4x3 room sits at
+// y = 3, so a 60 cm deep unit centres on 3 - 0.3 = 2.7
+results.push(['wall snap position', Math.abs(placed.y - 2.7) < 0.02]);
 results.push(['wall snap rotation', Math.abs(Math.abs(placed.rot) - Math.PI) < 0.01]);
 
 // 2. props panel shows the item
@@ -107,7 +108,8 @@ results.push([
 ]);
 await page.evaluate(() => window.__kp.store.select({ kind: 'none' }));
 await page.waitForTimeout(80);
-await page.click('#outline .ol-row');
+// the outline now leads with a Rooms group — the first component row follows it
+await page.click('#outline .ol-row:not(.room-row)');
 await page.waitForTimeout(120);
 const outlineSel = await page.evaluate(() => window.__kp.store.selection);
 results.push([
@@ -133,7 +135,7 @@ const moved = await page.evaluate(() => {
   const it = items[items.length - 1];
   return { x: it.x, y: it.y };
 });
-results.push(['drag moved item', Math.abs(moved.x - placed.x) > 0.5 && Math.abs(moved.y - 2.65) < 0.02]);
+results.push(['drag moved item', Math.abs(moved.x - placed.x) > 0.5 && Math.abs(moved.y - 2.7) < 0.02]);
 
 // 4. undo restores
 await page.keyboard.press('Control+z');
@@ -417,17 +419,17 @@ await page.keyboard.press('Escape');
 // 10. wall midpoint: click selects the wall, only a drag adds a corner
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
-const cornersBefore = await page.evaluate(() => window.__kp.store.design.corners.length);
+const cornersBefore = await page.evaluate(() => window.__kp.store.activeRoom().corners.length);
 const midWorld = await page.evaluate(() => {
   // the left wall (x = 0) — the right one can sit outside the un-refitted viewport
-  const g = window.__kp.store.walls().find((w) => Math.abs(w.dir.x) < 1e-6 && w.a.x < 0.01);
+  const g = window.__kp.store.allWalls().find((w) => Math.abs(w.dir.x) < 1e-6 && w.a.x < 0.01);
   return { x: g.a.x + g.dir.x * (g.len / 2), y: g.a.y + g.dir.y * (g.len / 2) };
 });
 const mp = await worldToScreen(midWorld.x, midWorld.y);
 await page.mouse.click(bb.x + mp.x, bb.y + mp.y);
 await page.waitForTimeout(200);
 const midClick = await page.evaluate(() => ({
-  n: window.__kp.store.design.corners.length,
+  n: window.__kp.store.activeRoom().corners.length,
   sel: window.__kp.store.selection.kind,
 }));
 results.push(['midpoint click selects wall', midClick.n === cornersBefore && midClick.sel === 'wall']);
@@ -437,21 +439,21 @@ await page.mouse.move(bb.x + mp.x - 30, bb.y + mp.y, { steps: 4 });
 await page.mouse.up();
 await page.waitForTimeout(200);
 const midDrag = await page.evaluate(() => ({
-  n: window.__kp.store.design.corners.length,
+  n: window.__kp.store.activeRoom().corners.length,
   sel: window.__kp.store.selection.kind,
 }));
 results.push(['midpoint drag adds corner', midDrag.n === cornersBefore + 1 && midDrag.sel === 'corner']);
 await page.keyboard.press('Control+z');
 await page.waitForTimeout(200);
-results.push(['undo midpoint drag', (await page.evaluate(() => window.__kp.store.design.corners.length)) === cornersBefore]);
+results.push(['undo midpoint drag', (await page.evaluate(() => window.__kp.store.activeRoom().corners.length)) === cornersBefore]);
 
 // 11. dragging a corner inside-out must keep the CCW invariant + opening bounds
 const ccw = await page.evaluate(() => {
   const st = window.__kp.store;
-  const c0 = st.design.corners.reduce((a, b) => (Math.hypot(a.x, a.y) < Math.hypot(b.x, b.y) ? a : b));
+  const c0 = st.activeRoom().corners.reduce((a, b) => (Math.hypot(a.x, a.y) < Math.hypot(b.x, b.y) ? a : b));
   st.moveCorner(c0.id, 5.5, 4.5, false);
   st.commit();
-  const pts = st.design.corners;
+  const pts = st.activeRoom().corners;
   let s = 0;
   for (let i = 0; i < pts.length; i++) {
     const a = pts[i];
@@ -557,7 +559,7 @@ await page.evaluate((id) => {
 // 15. door hinge/swing survives undo/redo
 const doorId = await page.evaluate(() => {
   const st = window.__kp.store;
-  const wall = st.walls()[0];
+  const wall = st.allWalls()[0];
   const o = st.addOpening(st.defOf('door'), wall.id, wall.len / 2);
   st.updateOpening(o.id, { hinge: 'right', swing: 'out' });
   st.commit();
@@ -749,7 +751,7 @@ if (isMacRun) {
   await setNav('auto');
   await page.click('#btn-navinput');
   const navLabel = await page.textContent('#btn-navinput');
-  const navStored = await page.evaluate(() => localStorage.getItem('kitchen-planner-nav-v1'));
+  const navStored = await page.evaluate(() => localStorage.getItem('interior-planner-nav-v1'));
   results.push(['nav toggle cycles + persists', navLabel === 'Nav: Mouse' && navStored === 'mouse']);
   await setNav('auto');
 }
@@ -919,7 +921,7 @@ results.push(['glb export magic', buf.length > 2000 && buf.toString('ascii', 0, 
 // still repaired in place.
 await page.evaluate(() => {
   localStorage.setItem(
-    'kitchen-planner-design-v1',
+    'interior-planner-design-v1',
     JSON.stringify({
       version: 1,
       corners: [
@@ -935,13 +937,13 @@ await page.waitForTimeout(1500);
 const resetFresh = await page.evaluate(() => {
   const d = window.__kp.store.design;
   // the old 3-corner v1 payload must NOT survive — demo design loads instead
-  return d.version === 5 && d.corners.length === 4 && d.items.length > 0;
+  return d.version === 6 && d.rooms[0].corners.length === 4 && d.items.length > 0;
 });
 results.push(['pre-v5 autosave resets to a fresh design', resetFresh]);
 
 await page.evaluate(() => {
   localStorage.setItem(
-    'kitchen-planner-design-v1',
+    'interior-planner-design-v1',
     JSON.stringify({
       version: 5,
       corners: [
@@ -954,17 +956,24 @@ await page.evaluate(() => {
 });
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(1500);
-const repaired = await page.evaluate(() => {
+const migrated = await page.evaluate(() => {
   const d = window.__kp.store.design;
+  const room = d.rooms && d.rooms[0];
   return (
     Array.isArray(d.items) &&
     Array.isArray(d.openings) &&
-    !!d.room &&
     !!d.scene &&
-    d.corners.length === 3
+    d.version === 6 &&
+    d.rooms.length === 1 &&
+    !!room.style &&
+    room.corners.length === 3 &&
+    // v5 corners were centrelines; the migration insets them by t/2 onto the
+    // wall face — corner 'a' sits on the offset y = 0 edge, so y ≈ 0.05
+    Math.abs(room.corners[0].y - 0.05) < 0.005 &&
+    room.corners[0].x > 0.05
   );
 });
-results.push(['partial v5 autosave repaired on load', repaired]);
+results.push(['v5 autosave migrates to a single v6 room', migrated]);
 
 // 22. per-wall visibility override forces wall groups shown/hidden in 3D
 const wallVis = async (mode) => {
@@ -1011,12 +1020,13 @@ await page.waitForTimeout(400);
 const elevIds = await page.evaluate(() => {
   const st = window.__kp.store;
   // top wall of the empty 4x3 room (horizontal, y ~ 0)
-  const g = st.walls().find((w) => Math.abs(w.dir.y) < 1e-6 && w.a.y < 0.01);
+  const g = st.allWalls().find((w) => Math.abs(w.dir.y) < 1e-6 && w.a.y < 0.01);
   const def = st.defOf('base-cabinet');
-  const t = st.design.room.wallThickness;
+  const t = st.activeRoom().style.wallThickness;
   const rot = Math.atan2(-g.inward.x, g.inward.y);
   const foot = { x: g.a.x + g.dir.x * (g.len / 2), y: g.a.y + g.dir.y * (g.len / 2) };
-  const cab = st.addItem(def, foot.x + g.inward.x * (t / 2 + def.d / 2), foot.y + g.inward.y * (t / 2 + def.d / 2), rot);
+  const back = g.faceOffset + def.d / 2; // wall face → item centre
+  const cab = st.addItem(def, foot.x + g.inward.x * back, foot.y + g.inward.y * back, rot);
   const table = st.addItem(st.defOf('table'), foot.x, 1.5, 0); // free-standing, centre of room
   st.commit();
   return { wallId: g.id, cab: cab.id, table: table.id };
@@ -1060,7 +1070,7 @@ const varScenario = await page.evaluate(() => {
   const st = window.__kp.store;
   st.select({ kind: 'none' });
   const cab = st.addItem(st.defOf('base-cabinet'), 1.0, 0.4, 0);
-  const wallId = st.walls()[0].id;
+  const wallId = st.allWalls()[0].id;
   const v = st.addVariable({ name: 'Theme', color: '#123456' });
   st.updateItem(cab.id, { color: 'var:' + v.id });
   st.setRoomStyle({ wallColor: 'var:' + v.id });
@@ -1109,7 +1119,7 @@ const persisted = await page.evaluate(() => {
   return {
     hasVar: d.variables.length >= 1 && d.variables[0].color === '#123456',
     cabBound: !!cab,
-    wallBound: d.room.wallColor.startsWith('var:'),
+    wallBound: d.rooms[0].style.wallColor.startsWith('var:'),
   };
 });
 results.push([
@@ -1360,6 +1370,479 @@ const zoneApplFresh = await page.evaluate(() => {
   return sized && follows;
 });
 results.push(['oven slots into an appliance niche and rides the tower', zoneApplFresh]);
+
+// 30. multi-room UI (N1-N3, N12): the add-room tool, click-to-activate,
+// the Rooms group in the outline, and the elevation following the active room.
+await page.keyboard.press('Escape');
+await page.click('#btn-new'); // deterministic single 4x3 room, no items
+await page.waitForTimeout(600);
+// pin the viewport so both rooms are on-canvas whatever the pane size is
+await page.evaluate(() => {
+  const p = window.__kp.plan;
+  p.zoom = 30;
+  p.panX = 20;
+  p.panY = 40;
+  p.requestDraw();
+});
+const roomBb = await paneOffset();
+const clickWorld = async (x, y) => {
+  const s = await worldToScreen(x, y);
+  await page.mouse.move(roomBb.x + s.x, roomBb.y + s.y); // hover first, as a user would
+  await page.mouse.click(roomBb.x + s.x, roomBb.y + s.y);
+  await page.waitForTimeout(200);
+};
+
+// N1 — the tool arms, previews and drops a free-standing room clear of the first
+await page.click('#btn-room');
+const roomToolArmed = await page.evaluate(() => ({
+  on: window.__kp.plan.roomToolOn,
+  active: document.getElementById('btn-room').classList.contains('active'),
+}));
+await clickWorld(8.0, 1.5); // ~4 m clear of the 4x3 room's right wall
+const added = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const rooms = st.design.rooms;
+  return {
+    n: rooms.length,
+    activeIsNew: st.activeRoomId === rooms[rooms.length - 1].id,
+    sel: st.selection.kind,
+    toolOff: window.__kp.plan.roomToolOn === false,
+    shared: st.allWalls().some((w) => w.shared),
+  };
+});
+results.push([
+  'add room tool places a second room',
+  roomToolArmed.on &&
+    roomToolArmed.active &&
+    added.n === 2 &&
+    added.activeIsNew &&
+    added.sel === 'none' &&
+    added.toolOff &&
+    !added.shared,
+]);
+await page.keyboard.press('Control+z');
+await page.waitForTimeout(300);
+results.push([
+  'undo removes the added room',
+  (await page.evaluate(() => window.__kp.store.design.rooms.length)) === 1,
+]);
+await page.evaluate(() => window.__kp.store.redo());
+await page.waitForTimeout(300);
+
+// N2 — clicking floor switches rooms; clicking the active one changes nothing;
+// a drag past the pan threshold pans instead of switching.
+const roomIds = await page.evaluate(() => window.__kp.store.design.rooms.map((r) => r.id));
+await clickWorld(8.0, 1.5); // inside the second room
+const switched = await page.evaluate(() => ({
+  active: window.__kp.store.activeRoomId,
+  sel: window.__kp.store.selection.kind,
+}));
+await clickWorld(8.0, 1.5); // again, already active
+const restated = await page.evaluate(() => ({
+  active: window.__kp.store.activeRoomId,
+  sel: window.__kp.store.selection.kind,
+}));
+await clickWorld(2.0, 1.5); // inside the first room
+const switchedBack = await page.evaluate(() => window.__kp.store.activeRoomId);
+results.push([
+  'clicking a room activates it',
+  switched.active === roomIds[1] &&
+    switched.sel === 'none' &&
+    restated.active === roomIds[1] &&
+    restated.sel === 'none' &&
+    switchedBack === roomIds[0],
+]);
+const panFrom = await worldToScreen(8.0, 1.5); // empty floor of the INACTIVE room
+const panBefore = await page.evaluate(() => window.__kp.plan.panX);
+await page.mouse.move(roomBb.x + panFrom.x, roomBb.y + panFrom.y);
+await page.mouse.down();
+await page.mouse.move(roomBb.x + panFrom.x + 60, roomBb.y + panFrom.y, { steps: 6 });
+await page.mouse.up();
+await page.waitForTimeout(200);
+const panned = await page.evaluate(() => ({
+  panX: window.__kp.plan.panX,
+  active: window.__kp.store.activeRoomId,
+}));
+results.push([
+  'dragging empty space pans without switching rooms',
+  Math.abs(panned.panX - panBefore) > 40 && panned.active === roomIds[0],
+]);
+
+// N3 — the outline lists both rooms and switches between them
+await page.click('#sidebar-tabs button[data-tab="components"]');
+await page.waitForTimeout(120);
+const roomsGroup = await page.evaluate(() => {
+  const g = [...document.querySelectorAll('#outline .ol-group')].find(
+    (x) => x.querySelector('.ol-label')?.textContent === 'Rooms'
+  );
+  if (!g) return null;
+  const rows = [...g.querySelectorAll('.ol-row')];
+  return {
+    first: true,
+    leads: document.querySelector('#outline .ol-group') === g,
+    names: rows.map((r) => r.querySelector('.room-row-name').textContent),
+    activeIdx: rows.findIndex((r) => r.classList.contains('active')),
+  };
+});
+await page.evaluate(() => {
+  // click the row that is NOT the active one
+  const g = [...document.querySelectorAll('#outline .ol-group')].find(
+    (x) => x.querySelector('.ol-label')?.textContent === 'Rooms'
+  );
+  [...g.querySelectorAll('.ol-row')].find((r) => !r.classList.contains('active')).click();
+});
+await page.waitForTimeout(200);
+const outlineSwitched = await page.evaluate(() => window.__kp.store.activeRoomId);
+results.push([
+  'outline lists rooms and switches',
+  !!roomsGroup &&
+    roomsGroup.leads &&
+    roomsGroup.names.length === 2 &&
+    roomsGroup.activeIdx === 0 &&
+    outlineSwitched === roomIds[1],
+]);
+await page.click('#sidebar-tabs button[data-tab="library"]');
+
+// N12 — the elevation nav cycles only the active room's walls
+await page.click('#mode2d-toggle button[data-2dmode="elev"]');
+await page.waitForTimeout(300);
+const elevRoomOf = () =>
+  page.evaluate(() => {
+    const st = window.__kp.store;
+    const w = st.wallById(window.__kp.elev.wallId);
+    return { room: w ? w.roomId : null, active: st.activeRoomId, label: document.getElementById('wall-label').textContent };
+  });
+const elevWalk = [];
+for (let i = 0; i < 5; i++) {
+  await page.click('#btn-wall-next');
+  await page.waitForTimeout(120);
+  elevWalk.push(await elevRoomOf());
+}
+await page.evaluate((id) => window.__kp.store.setActiveRoom(id), roomIds[0]);
+await page.waitForTimeout(250);
+const elevAfterSwitch = await elevRoomOf();
+results.push([
+  'elevation follows the active room',
+  elevWalk.every((e) => e.room === roomIds[1]) &&
+    elevWalk[0].label.includes(' / 4') &&
+    elevAfterSwitch.room === roomIds[0] &&
+    elevAfterSwitch.active === roomIds[0],
+]);
+await page.click('#mode2d-toggle button[data-2dmode="plan"]');
+
+// N4 — per-room style isolation: styling one room must not bleed into the
+// other, and the two Floor meshes must carry distinct material colours.
+await page.click('#btn-new');
+await page.waitForTimeout(300);
+const n4 = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const before = st.design.rooms[0].style.floorColor;
+  const r2 = st.addRoom();
+  st.commit();
+  st.setRoomStyle({ floorColor: '#123456' }, r2.id);
+  st.commit();
+  return {
+    room1Unchanged: st.design.rooms[0].style.floorColor === before,
+    room2Color: st.design.rooms[1].style.floorColor,
+  };
+});
+await page.waitForTimeout(300);
+const n4floors = await page.evaluate(() => {
+  const colors = [];
+  window.__kp.view['scene'].traverse((o) => {
+    if (o.name === 'Floor' && o.material && o.material.color) colors.push('#' + o.material.color.getHexString());
+  });
+  return colors;
+});
+results.push([
+  'per-room style isolation',
+  n4.room1Unchanged &&
+    n4.room2Color === '#123456' &&
+    n4floors.length === 2 &&
+    n4floors.includes('#123456') &&
+    new Set(n4floors).size === 2,
+]);
+
+// N5 — a shared partition is built exactly once, under its owner.
+await page.click('#btn-new');
+await page.waitForTimeout(300);
+await page.evaluate(() => {
+  const st = window.__kp.store;
+  const wall0 = st.allWalls()[0];
+  st.addRoom({ against: { wallId: wall0.id }, d: 3 });
+  st.commit();
+});
+await page.waitForTimeout(400);
+const n5 = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const totalWalls = st.allWalls().length;
+  const sharedWalls = st.allWalls().filter((w) => w.shared);
+  const owners = sharedWalls.filter((w) => w.shared.owner).length;
+  let groups = 0;
+  window.__kp.view['scene'].traverse((o) => {
+    if (/^Wall_\d+$/.test(o.name)) groups++;
+  });
+  return { totalWalls, sharedLen: sharedWalls.length, owners, groups };
+});
+results.push([
+  'partition renders once',
+  n5.groups === n5.totalWalls - 1 && n5.sharedLen === 2 && n5.owners === 1,
+]);
+
+// N6 — placing a catalog item near the far wall of the second room snaps it
+// flush to that wall, facing into room 2, and stamps room 2 as its roomId.
+await page.click('#btn-new');
+await page.waitForTimeout(300);
+const n6fixture = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const wall0 = st.allWalls()[0];
+  const r2 = st.addRoom({ against: { wallId: wall0.id }, d: 3 });
+  st.commit();
+  window.__kp.plan.zoomFit();
+  const walls2 = st.wallsOf(r2.id);
+  const sharedIdx = walls2.findIndex((w) => w.shared);
+  const far = walls2[(sharedIdx + 2) % 4]; // the wall opposite the shared one
+  return {
+    room2: r2.id,
+    far: { ax: far.a.x, ay: far.a.y, bx: far.b.x, by: far.b.y, inx: far.inward.x, iny: far.inward.y },
+  };
+});
+await page.waitForTimeout(200);
+await page.click('.cat-item[data-def-id="base-cabinet"]');
+const bb6 = await paneOffset();
+const midX6 = (n6fixture.far.ax + n6fixture.far.bx) / 2;
+const midY6 = (n6fixture.far.ay + n6fixture.far.by) / 2;
+const clickPt6 = { x: midX6 + n6fixture.far.inx * 0.25, y: midY6 + n6fixture.far.iny * 0.25 };
+const screenPt6 = await worldToScreen(clickPt6.x, clickPt6.y);
+await page.mouse.click(bb6.x + screenPt6.x, bb6.y + screenPt6.y);
+await page.waitForTimeout(300);
+const n6placed = await page.evaluate((fx) => {
+  const st = window.__kp.store;
+  const items = st.design.items;
+  const it = items[items.length - 1];
+  const expectedRot = Math.atan2(-fx.far.inx, fx.far.iny);
+  const diff = (((it.rotation - expectedRot + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  return { roomId: it.roomId, rotOk: Math.abs(diff) < 0.05 };
+}, n6fixture);
+results.push([
+  'item snaps in the second room',
+  n6placed.roomId === n6fixture.room2 && n6placed.rotOk,
+]);
+
+// N7 — each room's ceiling sits at that room's own wallHeight.
+await page.click('#btn-new');
+await page.waitForTimeout(300);
+await page.evaluate(() => {
+  const st = window.__kp.store;
+  const wall0 = st.allWalls()[0];
+  const r2 = st.addRoom({ against: { wallId: wall0.id }, d: 3 });
+  st.commit();
+  st.setRoomStyle({ wallHeight: 2.2 }, r2.id);
+  st.commit();
+});
+await page.waitForTimeout(400);
+const n7ceilings = await page.evaluate(() => {
+  const ys = [];
+  window.__kp.view['scene'].traverse((o) => {
+    if (o.name === 'Ceiling') ys.push(o.position.y);
+  });
+  return ys.sort((a, b) => a - b);
+});
+results.push([
+  'per-room ceiling height',
+  n7ceilings.length === 2 && Math.abs(n7ceilings[0] - 2.2) < 0.01 && Math.abs(n7ceilings[1] - 2.6) < 0.01,
+]);
+
+// N8 — wall-visibility overrides are scoped to the room they were set on.
+await page.click('#btn-new');
+await page.waitForTimeout(300);
+const n8 = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const r1 = st.design.rooms[0];
+  const r2 = st.addRoom(); // freestanding — no partition to complicate ownership
+  st.commit();
+  st.setActiveRoom(r1.id);
+  st.setAllWallVisibility('show', r2.id); // deterministic baseline (not camera-dependent 'auto')
+  st.setAllWallVisibility('hide', r1.id);
+  st.commit();
+  return { r1: r1.id, r2: r2.id };
+});
+await page.waitForTimeout(300);
+const n8vis = await page.evaluate(() =>
+  window.__kp.view['walls'].map((w) => ({ roomId: w.roomId, visible: w.group.visible }))
+);
+results.push([
+  'wall visibility is per room',
+  n8vis.some((w) => w.roomId === n8.r1) &&
+    n8vis.some((w) => w.roomId === n8.r2) &&
+    n8vis.filter((w) => w.roomId === n8.r1).every((w) => w.visible === false) &&
+    n8vis.filter((w) => w.roomId === n8.r2).every((w) => w.visible === true),
+]);
+
+// N9 — deleteRoom cascades the deleted room's items and, when the deleted
+// room OWNS a partition (the earlier room in design.rooms always does — see
+// store.ts deleteRoom / rooms.ts allWalls), re-homes that partition's door
+// onto the surviving twin instead of dropping it. A door on a wall the
+// deleted room does NOT own would instead survive untouched on the owner —
+// this fixture exercises the re-home branch by deleting the owning room.
+await page.click('#btn-new');
+await page.waitForTimeout(300);
+const n9setup = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const wall0 = st.allWalls()[0];
+  const room1 = st.design.rooms[0]; // earlier in design.rooms[] => owns the partition
+  const room2 = st.addRoom({ against: { wallId: wall0.id }, d: 3 });
+  st.commit();
+  const item = st.addItem(st.defOf('base-cabinet'), 1, 1); // lands inside room1
+  st.commit();
+  const partitionWallId = st.wallsOf(room1.id).find((w) => w.shared).id;
+  const door = st.addOpening(st.defOf('door'), partitionWallId, 1);
+  st.commit();
+  const twinWallId = st.wallTwin(partitionWallId).id;
+  return { room1: room1.id, room2: room2.id, itemId: item.id, doorId: door.id, doorWallBefore: door.wallId, twinWallId };
+});
+const n9del = await page.evaluate((fx) => {
+  const st = window.__kp.store;
+  const result = st.deleteRoom(fx.room1);
+  st.commit();
+  const doorAfter = st.openingById(fx.doorId);
+  return {
+    result,
+    roomsLen: st.design.rooms.length,
+    remainingRoom: st.design.rooms[0].id,
+    itemGone: !st.itemById(fx.itemId),
+    doorSurvives: !!doorAfter,
+    doorWallAfter: doorAfter ? doorAfter.wallId : null,
+  };
+}, n9setup);
+results.push([
+  'delete room cascades items and re-homes the partition door',
+  n9del.roomsLen === 1 &&
+    n9del.remainingRoom === n9setup.room2 &&
+    n9del.itemGone &&
+    n9del.doorSurvives &&
+    n9del.doorWallAfter === n9setup.twinWallId &&
+    n9del.doorWallAfter !== n9setup.doorWallBefore,
+]);
+
+// N10 — a migrated v5 design keeps behaving like a v6 one: wall-length edit,
+// rectangle resize and wall-snap placement all still work post-migration
+// (same mechanics as tests 6/7/1, replayed against the migrated geometry).
+await page.evaluate(() => {
+  localStorage.setItem(
+    'interior-planner-design-v1',
+    JSON.stringify({
+      version: 5,
+      corners: [
+        { id: 'c0', x: 0, y: 0 },
+        { id: 'c1', x: 4, y: 0 },
+        { id: 'c2', x: 4, y: 3 },
+        { id: 'c3', x: 0, y: 3 },
+      ],
+    })
+  );
+});
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+const n10setup = await page.evaluate(() => {
+  window.__kp.plan.zoomFit();
+  const st = window.__kp.store;
+  return { version: st.design.version, rect: st.rectangleSize() };
+});
+results.push(['v5 payload migrates to an editable v6 rectangle', n10setup.version === 6 && !!n10setup.rect]);
+
+const bb10 = await paneOffset();
+const leftMid10 = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const g = st.allWalls().find((w) => Math.abs(w.dir.x) < 1e-6 && w.a.x < 1);
+  return { x: g.a.x + g.dir.x * (g.len / 2), y: g.a.y + g.dir.y * (g.len / 2) };
+});
+const leftScr10 = await worldToScreen(leftMid10.x, leftMid10.y);
+await page.mouse.click(bb10.x + leftScr10.x, bb10.y + leftScr10.y);
+await page.waitForTimeout(300);
+const wallTitle10 = await page.textContent('.props-title');
+const lenInput10 = page.locator('#props-inner input[type=number]').first();
+await lenInput10.fill('300');
+await lenInput10.press('Enter');
+await page.waitForTimeout(300);
+const area10 = await page.evaluate(() => window.__kp.store.floorArea());
+results.push([
+  'wall length edit on a migrated design',
+  wallTitle10 === 'Wall' && Math.abs(area10 - n10setup.rect.w * 3.0) < 0.05,
+]);
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+const widthInput10 = page.locator('#props-inner input[type=number]').first();
+await widthInput10.fill('450');
+await widthInput10.press('Enter');
+await page.waitForTimeout(300);
+const rect10 = await page.evaluate(() => window.__kp.store.rectangleSize());
+results.push([
+  'rectangle resize on a migrated design',
+  !!rect10 && Math.abs(rect10.w - 4.5) < 0.01 && Math.abs(rect10.d - 3.0) < 0.01,
+]);
+
+await page.click('.cat-item[data-def-id="base-cabinet"]');
+const bottomWall10 = await page.evaluate(() => {
+  const st = window.__kp.store;
+  return st.allWalls().reduce((best, w) => (w.a.y + w.b.y > best.a.y + best.b.y ? w : best));
+});
+const aimPt10 = {
+  x: (bottomWall10.a.x + bottomWall10.b.x) / 2 + bottomWall10.inward.x * 0.25,
+  y: (bottomWall10.a.y + bottomWall10.b.y) / 2 + bottomWall10.inward.y * 0.25,
+};
+const aimScr10 = await worldToScreen(aimPt10.x, aimPt10.y);
+await page.mouse.click(bb10.x + aimScr10.x, bb10.y + aimScr10.y);
+await page.waitForTimeout(300);
+const placed10 = await page.evaluate((bw) => {
+  const items = window.__kp.store.design.items;
+  const it = items[items.length - 1];
+  const expected = {
+    x: (bw.a.x + bw.b.x) / 2 + bw.inward.x * (it.d / 2),
+    y: (bw.a.y + bw.b.y) / 2 + bw.inward.y * (it.d / 2),
+  };
+  return Math.hypot(it.x - expected.x, it.y - expected.y);
+}, bottomWall10);
+results.push(['wall-snap placement on a migrated design', placed10 < 0.05]);
+
+// N11 — measuring between a corner of room 1 and a corner of room 2 reports
+// the true cross-room distance and never touches the model.
+await page.click('#btn-new');
+await page.waitForTimeout(300);
+const n11fixture = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const r2 = st.addRoom(); // freestanding, 1 m clear of room 1
+  st.commit();
+  window.__kp.plan.zoomFit();
+  const c1 = st.design.rooms[0].corners[0];
+  const c2 = r2.corners[0];
+  return {
+    itemsBefore: st.design.items.length,
+    p1: { x: c1.x, y: c1.y },
+    p2: { x: c2.x, y: c2.y },
+    dist: Math.hypot(c2.x - c1.x, c2.y - c1.y),
+  };
+});
+await page.waitForTimeout(200);
+await page.click('#btn-measure');
+const bb11 = await paneOffset();
+const s1 = await worldToScreen(n11fixture.p1.x, n11fixture.p1.y);
+const s2 = await worldToScreen(n11fixture.p2.x, n11fixture.p2.y);
+await page.mouse.click(bb11.x + s1.x, bb11.y + s1.y);
+await page.waitForTimeout(100);
+await page.mouse.click(bb11.x + s2.x, bb11.y + s2.y);
+await page.waitForTimeout(150);
+const n11measured = await page.evaluate(() => {
+  const m = window.__kp.plan.measure;
+  const d = m.a && m.b ? Math.hypot(m.b.x - m.a.x, m.b.y - m.a.y) : -1;
+  return { d, items: window.__kp.store.design.items.length };
+});
+results.push([
+  'measure across rooms',
+  Math.abs(n11measured.d - n11fixture.dist) < 0.03 && n11measured.items === n11fixture.itemsBefore,
+]);
+await page.keyboard.press('Escape');
 
 let pass = 0;
 for (const [name, ok] of results) {

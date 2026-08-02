@@ -131,6 +131,43 @@ export function polygonIsSimple(poly: Point[]): boolean {
   return true;
 }
 
+/**
+ * Offset every edge of a simple CCW polygon inward by `d` and re-intersect the
+ * offset edge lines (miter joins). Inputs are cloned rather than rebuilt, so
+ * richer point types (a Corner and its id) survive the offset. Returns null
+ * when the result stops being a simple CCW polygon — over-inset, self
+ * intersection, or a CW input whose "inward" normals point outward instead.
+ */
+export function insetPolygon<T extends Point>(pts: T[], d: number): T[] | null {
+  const n = pts.length;
+  if (n < 3) return null;
+  const lines: { p: Point; dir: Point }[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % n];
+    const len = dist(a, b);
+    if (len < 1e-9) return null;
+    const dir = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+    const inward = { x: -dir.y, y: dir.x }; // CCW: interior lies left of the edge
+    lines.push({ p: { x: a.x + inward.x * d, y: a.y + inward.y * d }, dir });
+  }
+  const out: T[] = [];
+  for (let i = 0; i < n; i++) {
+    const prev = lines[(i + n - 1) % n];
+    const cur = lines[i];
+    const det = prev.dir.x * cur.dir.y - prev.dir.y * cur.dir.x;
+    let v = cur.p; // collinear neighbours: the offset endpoint IS the join
+    if (Math.abs(det) >= 1e-9) {
+      const ex = cur.p.x - prev.p.x;
+      const ey = cur.p.y - prev.p.y;
+      const s = (ex * cur.dir.y - ey * cur.dir.x) / det;
+      v = { x: prev.p.x + prev.dir.x * s, y: prev.p.y + prev.dir.y * s };
+    }
+    out.push({ ...pts[i], x: v.x, y: v.y });
+  }
+  return signedArea(out) > 1e-9 && polygonIsSimple(out) ? out : null;
+}
+
 export function polygonBounds(poly: Point[]): { minX: number; minY: number; maxX: number; maxY: number } {
   let minX = Infinity;
   let minY = Infinity;

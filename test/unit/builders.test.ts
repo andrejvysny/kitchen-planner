@@ -24,7 +24,10 @@ const ROOM: RoomStyle = {
 
 // buildItemGroup resolves colours against the whole design (for variable refs);
 // these smoke tests use literal colours, so an empty variables registry suffices.
-const DESIGN = { variables: [], room: ROOM } as unknown as Design;
+const DESIGN = {
+  variables: [],
+  rooms: [{ id: 'r1', name: 'Room', corners: [], style: ROOM }],
+} as unknown as Design;
 
 function itemFor(def: CatalogDef, params?: Record<string, number>): Item {
   return {

@@ -1,6 +1,6 @@
 import { catalogDef, hasCatalogDef, type CatalogDef } from './catalog';
 import { clamp } from './geometry';
-import { cabinetFaceSize, GAP } from './panels';
+import { cabinetFaceSize, GAP, isWallMountedElevation, PLINTH_H } from './panels';
 import { toCatalogDef } from './parts';
 import { presetPart } from './presets';
 import type { Attachment, CabinetPartDef, CustomPartDef, Design, Item, Point } from './types';
@@ -72,8 +72,8 @@ function hostFacePart(part: CabinetPartDef, host: Item): CabinetPartDef {
 }
 
 function plinthOffset(part: CabinetPartDef, host: Item): number {
-  const wallMounted = host.elevation > 0.3;
-  return !wallMounted && part.plinth ? 0.1 : 0;
+  const wallMounted = isWallMountedElevation(host.elevation);
+  return !wallMounted && part.plinth ? PLINTH_H : 0;
 }
 
 /** the appliance zone rect (face-local) an attachment points at, or null */
@@ -162,6 +162,9 @@ export function syncAttachments(design: Design): void {
       delete it.attach; // detach-to-world at the cached pose
       continue;
     }
+    // a mounted appliance always lives in its host's room
+    const host = itemById(design, it.attach.hostId);
+    if (host?.roomId !== undefined) it.roomId = host.roomId;
     it.x = pose.x;
     it.y = pose.y;
     it.rotation = pose.rotation;

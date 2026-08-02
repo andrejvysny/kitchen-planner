@@ -1,5 +1,6 @@
 import { snapsToWall, type CatalogDef } from './catalog';
-import { clamp, fmtCm, projectOnWall, wallPoint, type WallGeom } from './geometry';
+import { clamp, fmtCm, projectOnWall, wallPoint } from './geometry';
+import type { RoomWall } from './rooms';
 import type { Store } from './store';
 import type { Item, Point } from './types';
 
@@ -14,6 +15,8 @@ export interface SnapResult {
   y: number;
   rotation: number;
   wallId: string | null;
+  /** the room the snapped pose belongs to — callers stamp it on the item */
+  roomId: string;
   guides: Guide[];
 }
 
@@ -32,13 +35,28 @@ function angleClose(a: number, b: number, tol = 0.06): boolean {
   return d < tol;
 }
 
+/**
+ * Which room a pose belongs to: the room it lands in, else the item's cached
+ * room, else the active one. Snapping is never design-global — a partition's
+ * two sides have opposite inward normals, so an item snapped to the wrong side
+ * would face the wrong room.
+ */
+export function snapRoomFor(store: Store, p: Point, itemId: string | null): string {
+  const inside = store.roomContaining(p);
+  if (inside) return inside.id;
+  const cached = itemId ? store.itemById(itemId)?.roomId : undefined;
+  if (cached && store.roomById(cached)) return cached;
+  return store.activeRoomId;
+}
+
 export function nearestWall(
   store: Store,
   p: Point,
-  maxPerp = 0.5
-): { wall: WallGeom; t: number; perp: number } | null {
-  let best: { wall: WallGeom; t: number; perp: number } | null = null;
-  for (const wall of store.walls()) {
+  maxPerp = 0.5,
+  roomId?: string
+): { wall: RoomWall; t: number; perp: number } | null {
+  let best: { wall: RoomWall; t: number; perp: number } | null = null;
+  for (const wall of store.wallsOf(roomId ?? snapRoomFor(store, p, null))) {
     const pr = projectOnWall(wall, p);
     if (pr.t < -0.1 || pr.t > wall.len + 0.1) continue;
     const perp = Math.abs(pr.side);
@@ -59,10 +77,12 @@ export function snapItem(
   itemId: string | null,
   x: number,
   y: number,
-  rotation: number
+  rotation: number,
+  roomId?: string
 ): SnapResult {
   const guides: Guide[] = [];
-  const t = store.design.room.wallThickness;
+  const room = roomId ?? snapRoomFor(store, { x, y }, itemId);
+  const walls = store.wallsOf(room);
   const item = itemId ? store.itemById(itemId) : null;
   const w = item?.w ?? def.w;
   const d = item?.d ?? def.d;
@@ -71,29 +91,29 @@ export function snapItem(
 
   // ---- wall snap ----
   if (snapsToWall(def)) {
-    const targetSide = t / 2 + d / 2;
-    let best: { wall: WallGeom; t: number; err: number } | null = null;
-    for (const wall of store.walls()) {
+    let best: { wall: RoomWall; t: number; err: number } | null = null;
+    for (const wall of walls) {
       const pr = projectOnWall(wall, { x, y });
       if (pr.t < -0.05 || pr.t > wall.len + 0.05) continue;
-      const err = Math.abs(pr.side - targetSide);
+      // the wall face this room sees sits `faceOffset` in from the edge
+      const err = Math.abs(pr.side - (wall.faceOffset + d / 2));
       if (err > WALL_SNAP_DIST) continue;
       if (!best || err < best.err) best = { wall, t: pr.t, err };
     }
     if (best) {
       const g = best.wall;
+      const off = g.faceOffset + d / 2;
       const halfSpan = Math.min(w / 2, g.len / 2);
       const tt = clamp(best.t, halfSpan, g.len - halfSpan);
       const foot = wallPoint(g, tt);
-      x = foot.x + g.inward.x * (t / 2 + d / 2);
-      y = foot.y + g.inward.y * (t / 2 + d / 2);
+      x = foot.x + g.inward.x * off;
+      y = foot.y + g.inward.y * off;
       rotation = rotationFromInward(g.inward);
       wallId = g.id;
 
       // clearance guides from the item's side edges to the wall's corners
       const edgeL = tt - w / 2;
       const edgeR = g.len - (tt + w / 2);
-      const off = t / 2 + d / 2;
       const gp = (tp: number): Point => ({
         x: g.a.x + g.dir.x * tp + g.inward.x * off,
         y: g.a.y + g.dir.y * tp + g.inward.y * off,
@@ -150,8 +170,8 @@ export function snapItem(
         const halfSpan = Math.min(w / 2, g.len / 2);
         const tt = clamp(pr.t, halfSpan, g.len - halfSpan);
         const foot = wallPoint(g, tt);
-        x = foot.x + g.inward.x * (t / 2 + d / 2);
-        y = foot.y + g.inward.y * (t / 2 + d / 2);
+        x = foot.x + g.inward.x * (g.faceOffset + d / 2);
+        y = foot.y + g.inward.y * (g.faceOffset + d / 2);
       }
     }
   }
@@ -179,5 +199,5 @@ export function snapItem(
     y = Math.round(y * 100) / 100;
   }
 
-  return { x, y, rotation, wallId, guides };
+  return { x, y, rotation, wallId, roomId: room, guides };
 }

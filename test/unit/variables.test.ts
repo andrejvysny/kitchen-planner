@@ -63,7 +63,7 @@ describe('variables — sanitizeDesign repair', () => {
   it('a design without a variables field gets an empty registry', () => {
     const d = sanitizeDesign({ version: 5, corners: CORNERS })!;
     expect(d).not.toBeNull();
-    expect(d.version).toBe(5);
+    expect(d.version).toBe(6);
     expect(d.variables).toEqual([]);
   });
 
@@ -103,8 +103,8 @@ describe('variables — sanitizeDesign repair', () => {
     expect(i1.color).toBe('var:live'); // live ref preserved
     expect(i2.color).toBe(VAR_FALLBACK); // dangling detached
     expect(i2.accentColor).toBe(VAR_FALLBACK);
-    expect(d.room.wallColor).toBe(VAR_FALLBACK);
-    expect(d.room.counterColor).toBe('var:live');
+    expect(d.rooms[0].style.wallColor).toBe(VAR_FALLBACK);
+    expect(d.rooms[0].style.counterColor).toBe('var:live');
     expect(d.defaultFrontVar).toBeUndefined(); // default pointing nowhere cleared
   });
 });
@@ -140,7 +140,7 @@ describe('variables — store mutations', () => {
     const inlined = s.itemById(it.id)!;
     expect(inlined.color).toBe('#c9a87c');
     expect(inlined.material).toBe('oak');
-    expect(s.design.room.wallColor).toBe('#c9a87c');
+    expect(s.design.rooms[0].style.wallColor).toBe('#c9a87c');
     expect(s.design.defaultFrontVar).toBeUndefined();
   });
 
