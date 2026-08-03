@@ -68,12 +68,16 @@ export function projectOnWall(g: WallGeom, p: Point): { t: number; side: number 
   };
 }
 
-export function distToSegment(p: Point, a: Point, b: Point): number {
+/** The point on segment a→b closest to p (an endpoint when p projects past it). */
+export function closestOnSegment(p: Point, a: Point, b: Point): Point {
   const l2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
-  if (l2 === 0) return dist(p, a);
-  let t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
-  t = clamp(t, 0, 1);
-  return dist(p, { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) });
+  if (l2 === 0) return { x: a.x, y: a.y };
+  const t = clamp(((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2, 0, 1);
+  return { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
+}
+
+export function distToSegment(p: Point, a: Point, b: Point): number {
+  return dist(p, closestOnSegment(p, a, b));
 }
 
 /** Rotate a point around the origin. */
@@ -81,6 +85,22 @@ export function rot(p: Point, angle: number): Point {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
   return { x: p.x * c - p.y * s, y: p.x * s + p.y * c };
+}
+
+/**
+ * Transform a point from a frame's LOCAL axes into world space: rotate `p` by
+ * `angle` then offset by `origin`. Convention: +angle rotates local +x toward
+ * +y (matches `item.rotation`) — used for host-local anchors (attach.ts) and
+ * any other origin+rotation frame.
+ */
+export function localToWorld(origin: Point, angle: number, p: Point): Point {
+  const r = rot(p, angle);
+  return { x: origin.x + r.x, y: origin.y + r.y };
+}
+
+/** Inverse of `localToWorld`: a world point `p` into the origin/angle frame's local axes. */
+export function worldToLocal(origin: Point, angle: number, p: Point): Point {
+  return rot({ x: p.x - origin.x, y: p.y - origin.y }, -angle);
 }
 
 /** Smallest absolute angular difference, folded into [0, π]. */
@@ -213,7 +233,8 @@ export function pointInPolygon(p: Point, poly: Point[]): boolean {
 }
 
 export function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
-  const cross = (o: Point, p: Point, q: Point) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+  const cross = (o: Point, p: Point, q: Point) =>
+    (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
   const d1 = cross(c, d, a);
   const d2 = cross(c, d, b);
   const d3 = cross(a, b, c);
@@ -271,7 +292,40 @@ export function insetPolygon<T extends Point>(pts: T[], d: number): T[] | null {
   return signedArea(out) > 1e-9 && polygonIsSimple(out) ? out : null;
 }
 
-export function polygonBounds(poly: Point[]): { minX: number; minY: number; maxX: number; maxY: number } {
+/**
+ * Convex hull by monotone chain, wound CCW in the `signedArea` sense with
+ * collinear points dropped. Duplicates are merged first, so a degenerate input
+ * (all points equal, or all on one line) comes back with 1–2 points and zero
+ * area — that is how callers detect "no hull".
+ */
+export function convexHull(pts: Point[]): Point[] {
+  const sorted = [...pts].sort((a, b) => a.x - b.x || a.y - b.y);
+  const uniq: Point[] = [];
+  for (const p of sorted) {
+    const last = uniq[uniq.length - 1];
+    if (!last || Math.abs(last.x - p.x) > 1e-12 || Math.abs(last.y - p.y) > 1e-12) uniq.push(p);
+  }
+  if (uniq.length < 3) return uniq;
+  const cross = (o: Point, a: Point, b: Point): number =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const chain = (src: Point[]): Point[] => {
+    const out: Point[] = [];
+    for (const p of src) {
+      while (out.length >= 2 && cross(out[out.length - 2], out[out.length - 1], p) <= 0) out.pop();
+      out.push(p);
+    }
+    out.pop(); // the last point starts the other chain
+    return out;
+  };
+  return [...chain(uniq), ...chain([...uniq].reverse())];
+}
+
+export function polygonBounds(poly: Point[]): {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+} {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -283,10 +337,6 @@ export function polygonBounds(poly: Point[]): { minX: number; minY: number; maxX
     maxY = Math.max(maxY, p.y);
   }
   return { minX, minY, maxX, maxY };
-}
-
-export function fmtLen(m: number): string {
-  return `${m.toFixed(2)} m`;
 }
 
 export function fmtCm(m: number): string {

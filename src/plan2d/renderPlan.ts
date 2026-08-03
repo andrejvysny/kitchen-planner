@@ -17,7 +17,7 @@ import type { CatalogDef } from '../model/catalog';
 import type { Severity, Warning } from '../model/checks';
 import { fmtCm, polygonCentroid, rot, wallPoint } from '../model/geometry';
 import { footprintPolygon } from '../model/parts';
-import type { RoomWall } from '../model/rooms';
+import { slabQuad, wallJoints, type RoomWall } from '../model/rooms';
 import type { Guide } from '../model/snapping';
 import type { AddRoomOptions, Store } from '../model/store';
 import type { CustomPartDef, Item, Point, Selection } from '../model/types';
@@ -53,9 +53,6 @@ const CHECK_LABEL_MAX = 52;
  */
 export const bandCenter = (g: RoomWall): number => g.faceOffset - g.thickness / 2;
 
-/** How far a wall must run past its corners for the joint to close. */
-export const bandExtend = (g: RoomWall): number => g.thickness - g.faceOffset;
-
 interface Label {
   x: number;
   y: number;
@@ -77,6 +74,18 @@ export interface RoomGhost {
   opts: AddRoomOptions;
   /** hung off an existing wall (vs. free-standing) — drawn slightly differently */
   attached: boolean;
+  /** free-standing but snapped flush to a neighbour, so placing it will weld */
+  flush?: boolean;
+}
+
+/** The draw-room tool's in-progress ring — overlay only, never in the model. */
+export interface DrawRing {
+  /** corners clicked so far */
+  pts: Point[];
+  /** snapped cursor the pending segment rubber-bands to */
+  hover: Point | null;
+  /** the cursor is on the first corner, i.e. a click would close the ring */
+  closing: boolean;
 }
 
 /** Transient two-point distance measurement (overlay only — never touches the model). */
@@ -115,6 +124,10 @@ export interface PlanViewport {
 
 /** Which layers to draw. The printed sheet turns every interactive one off. */
 export interface PlanRenderOpts {
+  /** the imported tracing photo, under everything else (never printed) */
+  underlay: boolean;
+  /** the underlay's image finished decoding — the caller should redraw */
+  onUnderlayLoad?: () => void;
   /** corner / wall-bend / rotate handles AND the whole selection highlight */
   handles: boolean;
   /** snapping guide lines */
@@ -136,12 +149,39 @@ export interface PlanOverlays {
   ghost: ItemGhost | null;
   ghostOpening: OpeningGhost | null;
   roomGhost: RoomGhost | null;
+  drawRing: DrawRing | null;
   measure: Measure;
   /** the ⚠ toggle: warn/info findings on top of the always-drawn errors */
   advisoryChecks: boolean;
 }
 
 const NO_SELECTION: Selection = { kind: 'none' };
+
+/* ---------------- underlay image cache ---------------- */
+
+/**
+ * Decoded tracing photos, keyed by their data URL. Exactly one underlay can be
+ * live at a time, so a miss clears the map before loading: replacing or
+ * removing the photo drops the old (multi-hundred-kB) element on the next
+ * draw, and a changed `src` is simply a different key.
+ */
+const underlayCache = new Map<string, HTMLImageElement>();
+
+/**
+ * The decoded image for `src`, or null while it loads (the caller is pinged
+ * through `onLoad` once and redraws). Also used by Plan2D's hit test, which is
+ * why it lives here with the rest of the shared plan geometry.
+ */
+export function underlayImage(src: string, onLoad?: () => void): HTMLImageElement | null {
+  const hit = underlayCache.get(src);
+  if (hit) return hit.complete && hit.naturalWidth > 0 ? hit : null;
+  underlayCache.clear();
+  const img = new Image();
+  underlayCache.set(src, img);
+  img.onload = () => onLoad?.();
+  img.src = src;
+  return null;
+}
 
 /* ---------------- shared item geometry (also used by hit-testing) ---------------- */
 
@@ -156,14 +196,12 @@ export function footprintOf(store: Store, it: Item): Point[] | null {
 
 /** An item's plan outline in world coordinates (custom footprint or the bounding rect). */
 export function itemOutlineWorld(store: Store, it: Item): Point[] {
-  const local =
-    footprintOf(store, it) ??
-    [
-      { x: -it.w / 2, y: -it.d / 2 },
-      { x: it.w / 2, y: -it.d / 2 },
-      { x: it.w / 2, y: it.d / 2 },
-      { x: -it.w / 2, y: it.d / 2 },
-    ];
+  const local = footprintOf(store, it) ?? [
+    { x: -it.w / 2, y: -it.d / 2 },
+    { x: it.w / 2, y: -it.d / 2 },
+    { x: it.w / 2, y: it.d / 2 },
+    { x: -it.w / 2, y: it.d / 2 },
+  ];
   return local.map((p) => {
     const r = rot(p, it.rotation);
     return { x: it.x + r.x, y: it.y + r.y };
@@ -198,6 +236,16 @@ export function sortedItems(store: Store): Item[] {
   return [...store.design.items].sort((a, b) => layer(a) - layer(b));
 }
 
+/** Fill a closed polygon in world units — wall slabs and their joint patches. */
+function fillPoly(ctx: CanvasRenderingContext2D, poly: Point[]): void {
+  if (poly.length < 3) return;
+  ctx.beginPath();
+  ctx.moveTo(poly[0].x, poly[0].y);
+  for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
+  ctx.closePath();
+  ctx.fill();
+}
+
 /* ---------------- the renderer ---------------- */
 
 export function renderPlan(
@@ -225,6 +273,9 @@ export function renderPlan(
   ctx.translate(panX, panY);
   ctx.scale(zoom, zoom);
   const hair = 1 / zoom;
+
+  // ---- tracing underlay (below every drawn layer) ----
+  if (opts.underlay) drawUnderlay(ctx, store, opts.onUnderlayLoad);
 
   const gridStep = zoom > 55 ? 0.1 : 0.5;
   ctx.lineWidth = hair;
@@ -379,7 +430,9 @@ export function renderPlan(
       color: ghost.valid ? armed.color : '#d66',
       selected: false,
       pxPerM: zoom,
-      footprint: armedPart ? (footprintPolygon(armedPart, armed.w, armed.d) ?? undefined) : undefined,
+      footprint: armedPart
+        ? (footprintPolygon(armedPart, armed.w, armed.d) ?? undefined)
+        : undefined,
     });
     ctx.restore();
     ctx.globalAlpha = 1;
@@ -388,35 +441,32 @@ export function renderPlan(
   // ---- walls ----
   ctx.lineCap = 'butt';
   const walls = store.allWalls();
-  for (const g of walls) {
-    // both halves of a partition describe the same slab — draw the owner's
-    if (g.shared && !g.shared.owner) continue;
-    // selecting either half highlights the one partition on screen
-    const selectedWall = sel.kind === 'wall' && (sel.id === g.id || sel.id === g.shared?.wallId);
-    const mine = !opts.roomEmphasis || g.roomId === activeId || g.shared?.roomId === activeId;
-    ctx.strokeStyle = selectedWall ? ACCENT : mine ? INK : MUTED;
-    ctx.lineWidth = g.thickness;
-    // the slab sits outside the room-side face; extend it past both corners
-    // so the joints close
-    const off = bandCenter(g);
-    const ext = bandExtend(g);
-    ctx.beginPath();
-    ctx.moveTo(g.a.x - g.dir.x * ext + g.inward.x * off, g.a.y - g.dir.y * ext + g.inward.y * off);
-    ctx.lineTo(g.b.x + g.dir.x * ext + g.inward.x * off, g.b.y + g.dir.y * ext + g.inward.y * off);
-    ctx.stroke();
+  // both halves of a partition describe the same slab — draw the owner's
+  const drawnWalls = walls.filter((g) => !g.shared || g.shared.owner);
+  // selecting either half highlights the one partition on screen
+  const wallSelected = (g: RoomWall): boolean =>
+    sel.kind === 'wall' && (sel.id === g.id || sel.id === g.shared?.wallId);
+  const wallMine = (g: RoomWall): boolean =>
+    !opts.roomEmphasis || g.roomId === activeId || g.shared?.roomId === activeId;
+  // a joint takes the strongest ink of the walls meeting there
+  const wallInk = (gs: RoomWall[]): string =>
+    gs.some(wallSelected) ? ACCENT : gs.some(wallMine) ? INK : MUTED;
 
-    if (g.shared) {
-      // hairline down the seam, so a partition reads apart from an exterior wall
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = hair;
-      ctx.beginPath();
-      ctx.moveTo(g.a.x, g.a.y);
-      ctx.lineTo(g.b.x, g.b.y);
-      ctx.stroke();
-    }
+  // junction patches go UNDER the slabs: only what a slab does not already
+  // cover — the true gap — shows the joint's colour, so a patch that merely
+  // overlaps a neighbouring room's wall cannot bleed ink into it
+  for (const j of wallJoints(walls)) {
+    ctx.fillStyle = wallInk(j.walls);
+    fillPoly(ctx, j.hull);
+  }
+
+  for (const g of drawnWalls) {
+    // slabs are butt-ended — the patches above close every junction
+    ctx.fillStyle = wallInk([g]);
+    fillPoly(ctx, slabQuad(g));
 
     // dimension label — only for walls the active room can actually edit
-    if (!mine) continue;
+    if (!wallMine(g)) continue;
     const mid = wallPoint(g, g.len / 2);
     // a partition has no "outside" to hang the label off; sit it on the seam
     const lblOff = g.shared ? 0 : 0.32;
@@ -427,10 +477,22 @@ export function renderPlan(
       y: mid.y - g.inward.y * lblOff,
       text: fmtCm(g.len),
       angle: ang,
-      color: selectedWall ? ACCENT : '#8a877f',
+      color: wallSelected(g) ? ACCENT : '#8a877f',
       size: 12,
-      bold: selectedWall,
+      bold: wallSelected(g),
     });
+  }
+
+  // hairline down each seam, so a partition reads apart from an exterior wall —
+  // last, or a joint patch would bury the end of it
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = hair;
+  for (const g of drawnWalls) {
+    if (!g.shared) continue;
+    ctx.beginPath();
+    ctx.moveTo(g.a.x, g.a.y);
+    ctx.lineTo(g.b.x, g.b.y);
+    ctx.stroke();
   }
 
   // ---- add-room ghost ----
@@ -452,14 +514,20 @@ export function renderPlan(
     ctx.setLineDash([]);
     ctx.restore();
     const c = polygonCentroid(poly);
+    const ghost = overlays.roomGhost;
     labels.push({
       x: c.x,
       y: c.y,
-      text: overlays.roomGhost.attached ? 'New room · shares this wall' : 'New room',
+      text: ghost.attached || ghost.flush ? 'New room · shares this wall' : 'New room',
       color: ACCENT,
       size: 12,
       bold: true,
     });
+  }
+
+  // ---- draw-room ring ----
+  if (opts.ghosts && overlays?.drawRing) {
+    drawDrawRing(ctx, overlays.drawRing, zoom, hair, labels);
   }
 
   // ---- openings ----
@@ -592,6 +660,83 @@ export function renderPlan(
     ctx.fillStyle = l.color ?? INK;
     ctx.fillText(l.text, 0, 0);
     ctx.restore();
+  }
+}
+
+/**
+ * The imported photo, in world units: the ctx is already in metres, so scaling
+ * by `scale` (m per image pixel) lets drawImage place the bitmap at its natural
+ * pixel size. Rotation and scaling both pivot on the image's top-left, which is
+ * exactly the anchor `underlay.x/y` names.
+ */
+function drawUnderlay(ctx: CanvasRenderingContext2D, store: Store, onLoad?: () => void): void {
+  const ref = store.underlayRef();
+  if (!ref || !ref.u.visible) return;
+  const img = underlayImage(ref.src, onLoad);
+  if (!img) return;
+  ctx.save();
+  ctx.globalAlpha = ref.u.opacity;
+  ctx.translate(ref.u.x, ref.u.y);
+  ctx.rotate(ref.u.rotation);
+  ctx.scale(ref.u.scale, ref.u.scale);
+  ctx.drawImage(img, 0, 0);
+  ctx.restore();
+}
+
+/**
+ * The draw-room tool's ring: clicked segments solid, the pending one dashed to
+ * the cursor (and on round to the start once it would close), every segment
+ * labelled in cm, and the first corner ringed as the close target.
+ */
+function drawDrawRing(
+  ctx: CanvasRenderingContext2D,
+  ring: DrawRing,
+  zoom: number,
+  hair: number,
+  labels: Label[]
+): void {
+  const pts = ring.pts;
+  if (!pts.length) return;
+  const seg = (a: Point, b: Point): void => {
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    // hang the length off the segment so it never sits under the line
+    const len = Math.max(1e-6, Math.hypot(b.x - a.x, b.y - a.y));
+    labels.push({
+      x: (a.x + b.x) / 2 - ((b.y - a.y) / len) * 0.2,
+      y: (a.y + b.y) / 2 + ((b.x - a.x) / len) * 0.2,
+      text: fmtCm(len),
+      color: ACCENT,
+      size: 11,
+      bold: true,
+    });
+  };
+
+  ctx.strokeStyle = ACCENT;
+  ctx.lineWidth = hair * 2;
+  for (let i = 1; i < pts.length; i++) seg(pts[i - 1], pts[i]);
+  if (ring.hover) {
+    ctx.setLineDash([hair * 7, hair * 5]);
+    seg(pts[pts.length - 1], ring.hover);
+    if (ring.closing) seg(ring.hover, pts[0]);
+    ctx.setLineDash([]);
+  }
+
+  ctx.fillStyle = '#fff';
+  for (const p of pts) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3.5 / zoom, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = hair * 1.6;
+    ctx.stroke();
+  }
+  if (pts.length >= 3) {
+    ctx.beginPath();
+    ctx.arc(pts[0].x, pts[0].y, (ring.closing ? 9 : 6.5) / zoom, 0, Math.PI * 2);
+    ctx.lineWidth = hair * (ring.closing ? 2.4 : 1.4);
+    ctx.stroke();
   }
 }
 

@@ -5,7 +5,7 @@
  * is what makes them cheap to keep forever.
  */
 
-import { clamp, insetPolygon, projectOnWall, wallPoint, type WallGeom } from './geometry';
+import { clamp, insetPolygon, projectOnWall, wallPoint } from './geometry';
 import { defaultRoomStyle, ringWalls } from './rooms';
 import { uid, type Corner, type Item, type Opening, type RoomStyle } from './types';
 
@@ -52,9 +52,10 @@ export function migrate5to6(d: Raw): Raw {
   };
 
   if (corners.length >= 3) {
-    const t = Number.isFinite(style.wallThickness) && style.wallThickness > 0
-      ? style.wallThickness
-      : defaultRoomStyle().wallThickness;
+    const t =
+      Number.isFinite(style.wallThickness) && style.wallThickness > 0
+        ? style.wallThickness
+        : defaultRoomStyle().wallThickness;
     // a null inset (self-intersecting, over-thick, or clockwise input) leaves
     // the polygon on the old centreline — off by t/2, but never destroyed
     const inner = insetPolygon(corners, t / 2);

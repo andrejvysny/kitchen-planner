@@ -7,7 +7,13 @@ import {
   resolveInterior,
 } from '../../model/interior';
 import { cabinetFaceSize, interiorBox, type Cavity } from '../../model/panels';
-import type { CabinetPartDef, Interior, InteriorElement, LeafZone, Zone, ZoneFill } from '../../model/types';
+import type {
+  CabinetPartDef,
+  Interior,
+  InteriorElement,
+  LeafZone,
+  ZoneFill,
+} from '../../model/types';
 import {
   countLeaves,
   MAX_DEPTH,
@@ -43,7 +49,8 @@ function interiorOf(leaf: LeafZone): Interior | undefined {
 }
 
 function leafCaption(leaf: LeafZone): string {
-  if (leaf.fill === 'drawers') return `${leaf.drawers ?? 1} drawer${(leaf.drawers ?? 1) > 1 ? 's' : ''}`;
+  if (leaf.fill === 'drawers')
+    return `${leaf.drawers ?? 1} drawer${(leaf.drawers ?? 1) > 1 ? 's' : ''}`;
   const interior = interiorOf(leaf);
   if (leaf.fill === 'open') {
     if (interior?.mode === 'custom') return 'open · custom';
@@ -69,6 +76,7 @@ export class ZoneCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private toolbar: HTMLElement;
+  private ro: ResizeObserver;
   private onChange: () => void;
   private drag: DividerLine | null = null;
   selection: number[] | null = null;
@@ -94,10 +102,15 @@ export class ZoneCanvas {
     this.canvas.addEventListener('pointercancel', (e) => this.onUp(e));
     this.canvas.addEventListener('dblclick', (e) => this.onDblClick(e));
 
-    const ro = new ResizeObserver(() => this.draw());
-    ro.observe(container);
+    this.ro = new ResizeObserver(() => this.draw());
+    this.ro.observe(container);
     this.renderToolbar();
     this.draw();
+  }
+
+  /** Stop observing — the studio replaces this editor on every rail re-render. */
+  dispose(): void {
+    this.ro.disconnect();
   }
 
   /* ---------------- selection + edits ---------------- */
@@ -298,7 +311,13 @@ export class ZoneCanvas {
     const tb = this.toolbar;
     tb.innerHTML = '';
     const leaf = this.selectedLeaf();
-    const btn = (label: string, title: string, fn: () => void, disabled = false, active = false) => {
+    const btn = (
+      label: string,
+      title: string,
+      fn: () => void,
+      disabled = false,
+      active = false
+    ) => {
       const b = document.createElement('button');
       b.className = `btn choice-btn${active ? ' active' : ''}`;
       b.textContent = label;
@@ -318,7 +337,12 @@ export class ZoneCanvas {
       (this.selection?.length ?? 0) + 1 <= MAX_DEPTH;
     btn('⬍ Split', 'Split the zone into top + bottom', () => this.split('h'), !canSplit);
     btn('⬌ Split', 'Split the zone into left + right', () => this.split('v'), !canSplit);
-    btn('Merge', 'Merge this zone back into its neighbours (Delete)', () => this.merge(), !leaf || !this.selection?.length);
+    btn(
+      'Merge',
+      'Merge this zone back into its neighbours (Delete)',
+      () => this.merge(),
+      !leaf || !this.selection?.length
+    );
 
     const sep = document.createElement('span');
     sep.className = 'zone-toolbar-sep';
@@ -332,9 +356,21 @@ export class ZoneCanvas {
       return;
     }
     for (const fill of Object.keys(FILL_LABELS) as ZoneFill[]) {
-      btn(FILL_LABELS[fill], `Fill this zone with: ${FILL_LABELS[fill].toLowerCase()}`, () => this.setFill(fill), false, leaf.fill === fill);
+      btn(
+        FILL_LABELS[fill],
+        `Fill this zone with: ${FILL_LABELS[fill].toLowerCase()}`,
+        () => this.setFill(fill),
+        false,
+        leaf.fill === fill
+      );
     }
-    const stepper = (label: string, get: () => number, set: (v: number) => void, min: number, max: number) => {
+    const stepper = (
+      label: string,
+      get: () => number,
+      set: (v: number) => void,
+      min: number,
+      max: number
+    ) => {
       const holder = document.createElement('span');
       holder.className = 'zone-stepper stepper';
       holder.innerHTML = `<label>${label}</label><button>−</button><span>${get()}</span><button>+</button>`;
@@ -373,7 +409,13 @@ export class ZoneCanvas {
       }
     }
     if (leaf.fill === 'drawers') {
-      stepper('Drawers', () => leaf.drawers ?? 2, (v) => (leaf.drawers = v), 1, 5);
+      stepper(
+        'Drawers',
+        () => leaf.drawers ?? 2,
+        (v) => (leaf.drawers = v),
+        1,
+        5
+      );
     }
     if (['door', 'doorPair', 'glass', 'open'].includes(leaf.fill)) {
       btn('Interior…', 'Edit shelves and internal drawers (double-click the zone)', () =>
@@ -397,14 +439,38 @@ export class ZoneCanvas {
           leaf.interior = fresh;
           return fresh;
         };
-        stepper('Shelves', () => (interiorOf(leaf)?.mode === 'auto' ? (interiorOf(leaf) as { shelves: number }).shelves : 0), (v) => (auto().shelves = v), 0, MAX_AUTO_SHELVES);
-        stepper('Inner drawers', () => (interiorOf(leaf)?.mode === 'auto' ? (interiorOf(leaf) as { innerDrawers: number }).innerDrawers : 0), (v) => (auto().innerDrawers = v), 0, MAX_AUTO_DRAWERS);
+        stepper(
+          'Shelves',
+          () =>
+            interiorOf(leaf)?.mode === 'auto'
+              ? (interiorOf(leaf) as { shelves: number }).shelves
+              : 0,
+          (v) => (auto().shelves = v),
+          0,
+          MAX_AUTO_SHELVES
+        );
+        stepper(
+          'Inner drawers',
+          () =>
+            interiorOf(leaf)?.mode === 'auto'
+              ? (interiorOf(leaf) as { innerDrawers: number }).innerDrawers
+              : 0,
+          (v) => (auto().innerDrawers = v),
+          0,
+          MAX_AUTO_DRAWERS
+        );
       }
     }
   }
 
   private renderInteriorToolbar(
-    btn: (label: string, title: string, fn: () => void, disabled?: boolean, active?: boolean) => HTMLButtonElement
+    btn: (
+      label: string,
+      title: string,
+      fn: () => void,
+      disabled?: boolean,
+      active?: boolean
+    ) => HTMLButtonElement
   ): void {
     const tb = this.toolbar;
     const leaf = this.interiorLeaf();
@@ -422,7 +488,12 @@ export class ZoneCanvas {
     btn('＋ Shelf', 'Add a shelf in the largest free gap', () => this.addElement('shelf'), full);
     btn('＋ Drawer', 'Add an internal drawer box', () => this.addElement('drawerBox'), full);
     btn('＋ Rail', 'Add a wardrobe hanging rail', () => this.addElement('rail'), full);
-    btn('Delete', 'Remove the selected element (Delete)', () => this.deleteElement(), this.elemSel === null);
+    btn(
+      'Delete',
+      'Remove the selected element (Delete)',
+      () => this.deleteElement(),
+      this.elemSel === null
+    );
     // auto spacing only knows shelves and drawers — resetting would drop rails
     const hasRail = els.some((e) => e.kind === 'rail');
     btn(
@@ -438,7 +509,11 @@ export class ZoneCanvas {
     if (sel) {
       // edits go through ensureCustom so an auto interior converts first;
       // indices survive because conversion preserves the resolved order
-      const cmInput = (label: string, value: number, apply: (el: InteriorElement, m: number) => void) => {
+      const cmInput = (
+        label: string,
+        value: number,
+        apply: (el: InteriorElement, m: number) => void
+      ) => {
         const holder = document.createElement('span');
         holder.className = 'zone-stepper';
         holder.innerHTML = `<label>${label}</label><input type="number" step="1" style="width:56px">`;
@@ -465,7 +540,9 @@ export class ZoneCanvas {
       hint.className = 'studio-caption';
       const mode = (leaf.interior ?? defaultInterior(leaf.fill))?.mode ?? 'auto';
       hint.textContent =
-        mode === 'custom' ? 'custom · drag shelves and drawers' : 'auto · drag an element to customize';
+        mode === 'custom'
+          ? 'custom · drag shelves and drawers'
+          : 'auto · drag an element to customize';
       tb.appendChild(hint);
     }
   }
@@ -639,13 +716,13 @@ export class ZoneCanvas {
     if (this.interiorPath) return;
     const r = this.canvas.getBoundingClientRect();
     const v = this.view();
-    const f = { x: (e.clientX - r.left - v.ox) / v.scale, y: (v.oy - (e.clientY - r.top)) / v.scale };
+    const f = {
+      x: (e.clientX - r.left - v.ox) / v.scale,
+      y: (v.oy - (e.clientY - r.top)) / v.scale,
+    };
     const hit = 6 / v.scale;
     for (const d of this.dividers()) {
-      const near =
-        d.dir === 'v'
-          ? Math.abs(f.x - d.x) < hit
-          : Math.abs(f.y - d.y) < hit;
+      const near = d.dir === 'v' ? Math.abs(f.x - d.x) < hit : Math.abs(f.y - d.y) < hit;
       if (!near) continue;
       const split = zoneAtPath(this.part.face, d.path);
       if (split && split.kind === 'split') {
@@ -729,7 +806,7 @@ export class ZoneCanvas {
         ctx.setLineDash([4, 3]);
         for (const el of elements) {
           const ey = 0.015 + el.y + (el.kind === 'drawerBox' ? el.h : 0);
-          const y = a.y + hpx - ((ey) / r.h) * hpx;
+          const y = a.y + hpx - (ey / r.h) * hpx;
           ctx.beginPath();
           ctx.moveTo(a.x + 8, y);
           ctx.lineTo(a.x + wpx - 8, y);

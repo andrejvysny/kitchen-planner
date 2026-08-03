@@ -111,15 +111,22 @@ export class PartStudio {
     this.keyHandler = null;
     this.preview?.dispose();
     this.preview = null;
+    this.disposeCanvases();
     this.freeform = null;
     this.board = null;
-    this.polyCanvas = null;
-    this.zoneCanvas = null;
     this.part = null;
     this.overlay?.remove();
     this.overlay = null;
     this.onClose();
     return true;
+  }
+
+  /** Drop the canvas editors so their ResizeObservers stop watching dead nodes. */
+  private disposeCanvases(): void {
+    this.polyCanvas?.dispose();
+    this.polyCanvas = null;
+    this.zoneCanvas?.dispose();
+    this.zoneCanvas = null;
   }
 
   /* ---------------- states ---------------- */
@@ -199,8 +206,7 @@ export class PartStudio {
     rail.innerHTML = '';
     this.freeform = null;
     this.board = null;
-    this.polyCanvas = null;
-    this.zoneCanvas = null;
+    this.disposeCanvases();
     if (this.preview) this.preview.onPick = null;
 
     if (part.type === 'cabinet') {

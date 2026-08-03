@@ -7,6 +7,16 @@
 export const DESIGN_KEY = 'interior-planner-design-v1';
 export const PARTS_KEY = 'interior-planner-parts-v1';
 export const NAV_KEY = 'interior-planner-nav-v1';
+/** Raw autosave text stashed the first time it fails to parse/sanitize on
+ * load, so a corrupted save is never silently replaced by the demo design. */
+export const RECOVERY_KEY = 'interior-planner-design-recovery-v1';
+/**
+ * The floor-plan tracing photo, as a data URL. Deliberately its own key: the
+ * Design is JSON-cloned per undo step and per autosave, so image bytes must
+ * never live in it (see types.ts `Underlay`). No legacy fallback — the feature
+ * postdates the rename.
+ */
+export const UNDERLAY_KEY = 'interior-planner-underlay-v1';
 
 export const LEGACY_DESIGN_KEYS = ['kitchen-planner-design-v1'] as const;
 export const LEGACY_PARTS_KEYS = ['kitchen-planner-parts-v1'] as const;

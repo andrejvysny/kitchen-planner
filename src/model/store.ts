@@ -1,7 +1,7 @@
 import { catalogDef, defaultParams, FLOOR_COLORS, hasCatalogDef, type CatalogDef } from './catalog';
 import { runChecks, type Warning } from './checks';
 import { hasPreset, presetPart } from './presets';
-import { clamp, dist, polygonBounds, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
+import { clamp, dist, polygonBounds, polygonIsSimple, projectOnWall, signedArea, wallGeom, wallPoint, worldToLocal, type WallGeom } from './geometry';
 import { hasMaterial } from './materials';
 import { DESIGN_VERSION, migrateDesign } from './migrate';
 import { applianceTowerPart, samplePart, sanitizePart, toCatalogDef } from './parts';
@@ -9,6 +9,7 @@ import {
   allWalls,
   defaultRoomStyle,
   makeRoom,
+  nextWeldSeam,
   rectangleSizeOf,
   rehomeOpening,
   reidCorners,
@@ -25,11 +26,12 @@ import {
   type RoomWall,
 } from './rooms';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from './sky';
-import type { Attachment, ChangeInfo, Corner, CustomPartDef, Design, DesignVar, Item, Opening, Point, Room, RoomStyle, Selection, WallVisMode } from './types';
+import type { Attachment, ChangeInfo, Corner, CustomPartDef, Design, DesignVar, Item, Opening, Point, Room, RoomStyle, Selection, Underlay, WallVisMode } from './types';
 import { uid } from './types';
 import { syncAttachments } from './attach';
 import { OpenFronts } from './openFronts';
-import { DESIGN_KEY, LEGACY_DESIGN_KEYS, LEGACY_PARTS_KEYS, PARTS_KEY, readKey } from './storageKeys';
+import { DESIGN_KEY, LEGACY_DESIGN_KEYS, LEGACY_PARTS_KEYS, PARTS_KEY, readKey, RECOVERY_KEY, UNDERLAY_KEY } from './storageKeys';
+import { sanitizeUnderlay } from './underlay';
 import { detach, isVarRef, refId, toVarRef, VAR_FALLBACK } from './variables';
 
 export { DESIGN_VERSION };
@@ -42,6 +44,8 @@ type EventMap = {
   pose: void;
   /** the room subsequent edits target changed — ephemeral, never serialized */
   activeRoom: string;
+  /** a localStorage write just changed ok/fail state; payload = now failing */
+  savefail: boolean;
 };
 
 type Handler<T> = (payload: T) => void;
@@ -57,6 +61,8 @@ export interface AddRoomOptions {
   at?: Point;
   /** adjacent: grow off an existing exterior wall, optionally on a sub-span of it */
   against?: { wallId: string; span?: { t0: number; t1: number } };
+  /** free-drawn corner ring (m, plan space); wins over `at` and `against` */
+  polygon?: Point[];
   style?: Partial<RoomStyle>;
 }
 
@@ -66,6 +72,10 @@ const ROOM_GAP = 1;
 const MIN_ROOM_SIDE = 1;
 /** splitWall's own clamp — no cut leaves a stub shorter than this. */
 const MIN_WALL_SEG = 0.1;
+/** Smallest drawn ring worth keeping (m²) — below this it is a stray click. */
+const MIN_ROOM_AREA = 0.5;
+/** Each pass consumes one seam; a room has far fewer neighbours than this. */
+const MAX_WELD_PASSES = 12;
 
 export class Store {
   design: Design;
@@ -79,6 +89,7 @@ export class Store {
     history: [],
     pose: [],
     activeRoom: [],
+    savefail: [],
   };
 
   /** ephemeral like the selection: never serialized, never in an undo step */
@@ -91,6 +102,12 @@ export class Store {
   /** spatial checks are ephemeral like openFronts: derived, never serialized */
   private checksCache: Warning[] = [];
   private checksDirty = true;
+
+  /** true once a localStorage write has thrown, until one succeeds again */
+  private saveFailing = false;
+
+  /** underlay data URL, read through once; `undefined` = not read yet */
+  private underlayBytes: string | null | undefined;
 
   constructor(design: Design) {
     this.design = design;
@@ -180,6 +197,7 @@ export class Store {
     this.lastCommitted = json;
     this.revalidateActiveRoom();
     this.select({ kind: 'none' });
+    this.openFronts.clear(); // stale poses must not survive an undo/redo design swap
     this.saveSharedLibrary(); // undoing a part fork/save must not orphan it in the library
     this.autosave();
     this.notify({ structural: true });
@@ -205,22 +223,135 @@ export class Store {
   autosave(): void {
     try {
       localStorage.setItem(DESIGN_KEY, JSON.stringify(this.design));
+      this.markSaveResult(true);
     } catch {
-      /* storage may be unavailable — ignore */
+      this.markSaveResult(false); // storage full or blocked — surfaced in the status bar
     }
   }
 
+  /** Emits 'savefail' only on an ok↔fail transition, not on every save call. */
+  private markSaveResult(ok: boolean): void {
+    if (this.saveFailing === !ok) return;
+    this.saveFailing = !ok;
+    this.emit('savefail', this.saveFailing);
+  }
+
+  /** Whether the last localStorage write attempt (autosave or library) failed. */
+  savingFailed(): boolean {
+    return this.saveFailing;
+  }
+
   static loadAutosaved(): Design | null {
+    let raw: string | null;
     try {
-      const raw = readKey(DESIGN_KEY, LEGACY_DESIGN_KEYS);
-      return raw ? sanitizeDesign(JSON.parse(raw)) : null;
+      raw = readKey(DESIGN_KEY, LEGACY_DESIGN_KEYS);
+    } catch {
+      return null; // storage itself is inaccessible — nothing to back up
+    }
+    if (raw === null) return null;
+    try {
+      const design = sanitizeDesign(JSON.parse(raw));
+      if (design) return design;
+    } catch {
+      /* malformed JSON is exactly the case the recovery backup exists for */
+    }
+    Store.stashRecovery(raw);
+    return null;
+  }
+
+  /** First unusable autosave payload wins — never clobber an existing backup. */
+  private static stashRecovery(raw: string): void {
+    try {
+      if (localStorage.getItem(RECOVERY_KEY) === null) localStorage.setItem(RECOVERY_KEY, raw);
+    } catch {
+      /* storage may be unavailable — nothing more we can do */
+    }
+  }
+
+  /** The raw text of the first unrecoverable autosave, if any is stashed. */
+  static recoveryPayload(): string | null {
+    try {
+      return localStorage.getItem(RECOVERY_KEY);
     } catch {
       return null;
     }
   }
 
+  /** Call once the user has downloaded (or explicitly dismissed) the backup. */
+  static clearRecovery(): void {
+    try {
+      localStorage.removeItem(RECOVERY_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /* ---------------- reference underlay ---------------- */
+
+  /**
+   * The tracing photo's data URL, or null. Kept OUT of the design (see
+   * types.ts `Underlay`): undo snapshots and autosave are JSON copies of the
+   * whole design, so the bytes get their own key and are not undoable.
+   */
+  underlaySrc(): string | null {
+    if (this.underlayBytes === undefined) {
+      try {
+        this.underlayBytes = localStorage.getItem(UNDERLAY_KEY);
+      } catch {
+        this.underlayBytes = null; // storage blocked — behave as if there is none
+      }
+    }
+    return this.underlayBytes;
+  }
+
+  /** Transform + bytes together, or null when either half is missing. */
+  underlayRef(): { src: string; u: Underlay } | null {
+    const u = this.design.underlay;
+    if (!u) return null;
+    const src = this.underlaySrc();
+    return src ? { src, u } : null;
+  }
+
+  /**
+   * Install (or drop) the reference photo. Writes the side key first: the
+   * design must never point at bytes that were not stored. Returns false when
+   * the write failed — the caller surfaces that; the ⚠ status flag is already
+   * lit by markSaveResult. Caller commits.
+   */
+  setUnderlay(src: string | null, transform?: Underlay): boolean {
+    // an image with nowhere to sit would be invisible and unreachable — the
+    // JSON-import path relies on the design already carrying its transform
+    const placed = transform ?? this.design.underlay;
+    if (src && !placed) return false;
+    try {
+      if (src) localStorage.setItem(UNDERLAY_KEY, src);
+      else localStorage.removeItem(UNDERLAY_KEY);
+      this.markSaveResult(true);
+    } catch {
+      this.markSaveResult(false);
+      return false;
+    }
+    this.underlayBytes = src;
+    if (src) this.design.underlay = placed;
+    else delete this.design.underlay;
+    this.notify({ structural: false });
+    return true;
+  }
+
+  /** Move / scale / show / lock the reference. Caller commits. */
+  updateUnderlay(patch: Partial<Underlay>, info: ChangeInfo = { structural: false }): void {
+    const u = this.design.underlay;
+    if (!u) return;
+    Object.assign(u, patch);
+    this.notify(info);
+  }
+
   exportJson(): string {
-    return JSON.stringify(this.design, null, 2);
+    const src = this.design.underlay ? this.underlaySrc() : null;
+    // the photo is not part of the Design, so a saved file carries it as one
+    // extra top-level field; sanitizeDesign drops it again on the way back in
+    const payload = src ? { ...this.design, underlaySrc: src } : this.design;
+    return JSON.stringify(payload, null, 2);
   }
 
   /* ---------------- active room ---------------- */
@@ -358,13 +489,16 @@ export class Store {
 
   /**
    * Add a room and make it active. Freestanding (`at`, or neither anchor) drops
-   * an axis-aligned w×d rectangle; `against` grows one off an existing wall and
-   * is the ONLY way a shared partition is born — the seam corners copy the host
+   * an axis-aligned w×d rectangle, `polygon` takes a free-drawn ring, and
+   * `against` grows one off an existing wall — the seam corners copy the host
    * corners bit-identically, which is what makes rooms.ts' shared-edge
-   * detection deterministic. `at` wins if both anchors are given.
+   * detection deterministic. `polygon` wins over `at`, which wins over
+   * `against`. Whatever the path, the new room is then WELDED onto every room
+   * it landed flush with, so adjacency alone is enough to make a partition.
    *
    * Returns null when `against` names no wall or names one that is already a
-   * partition (it has a room on each side; callers disable the action).
+   * partition (it has a room on each side; callers disable the action), and
+   * when `polygon` is not a usable ring.
    *
    * KNOWN side effect of `against`: the host wall stops being exterior, so its
    * slab moves from fully outside the polygon to straddling it (faceOffset
@@ -378,15 +512,87 @@ export class Store {
     const w = Math.max(MIN_ROOM_SIDE, opts.w ?? 4);
     const d = Math.max(MIN_ROOM_SIDE, opts.d ?? 3);
     const style = { ...defaultRoomStyle(), ...opts.style };
-    const room =
-      opts.against && !opts.at
+    const room = opts.polygon
+      ? this.roomFromPolygon(opts.polygon, name, style)
+      : opts.against && !opts.at
         ? this.roomAgainstWall(opts.against, name, d, style)
         : makeRoom({ name, ...(opts.at ?? this.freeRoomSpot()), w, d, style });
     if (!room) return null;
     this.design.rooms.push(room);
+    this.weld(room.id);
     this.setActiveRoom(room.id);
     this.notify({ structural: true });
     return room;
+  }
+
+  /**
+   * The `polygon` half of addRoom: a room straight off a drawn ring. Clicks
+   * closer together than a wall segment collapse into one corner; anything
+   * that is not a simple ring of real area is refused outright rather than
+   * repaired, since only the user knows what they meant to draw.
+   */
+  private roomFromPolygon(pts: Point[], name: string, style: RoomStyle): Room | null {
+    const corners: Corner[] = [];
+    for (const p of pts) {
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+      const last = corners[corners.length - 1];
+      if (last && dist(last, p) < MIN_WALL_SEG) continue;
+      corners.push({ id: uid('c'), x: p.x, y: p.y });
+    }
+    // a ring closed by clicking the first corner again ends on its own start
+    if (corners.length > 2 && dist(corners[0], corners[corners.length - 1]) < MIN_WALL_SEG) {
+      corners.pop();
+    }
+    if (corners.length < 3 || !polygonIsSimple(corners)) return null;
+    if (Math.abs(signedArea(corners)) < MIN_ROOM_AREA) return null;
+    const room: Room = { id: uid('room'), name, corners, style, wallVisibility: {} };
+    // the ring is drawn in whatever order the clicks came; CCW is the invariant
+    return normalizeRoom(this.design, room);
+  }
+
+  /**
+   * Make every stretch where `roomId` lies flush against another room an actual
+   * partition: corners are inserted (and hairline gaps closed) until both rings
+   * traverse one edge in opposite directions, which is all rooms.ts' shared-edge
+   * detection needs. No seam is ever stored — sharing stays derived. Returns
+   * whether anything moved. Caller commits.
+   */
+  weldRoom(roomId: string): boolean {
+    const welded = this.weld(roomId);
+    if (welded) this.notify({ structural: true });
+    return welded;
+  }
+
+  /** weldRoom without the notify — for callers that announce the change themselves. */
+  private weld(roomId: string): boolean {
+    let welded = false;
+    for (let pass = 0; pass < MAX_WELD_PASSES; pass++) {
+      const seam = nextWeldSeam(this.design.rooms, roomId);
+      if (!seam) break;
+      const before = this.sharedCount();
+      // deepest cut first: a wall keeps its id for the stretch BEFORE the cut,
+      // so a shallower t still names the right wall afterwards
+      for (const s of [...seam.splits].sort((a, b) => b.t - a.t)) {
+        this.splitWallRaw(s.roomId, s.wallId, s.t, s.at);
+      }
+      for (const m of seam.moves) {
+        const c = this.cornerById(m.cornerId);
+        if (c) {
+          c.x = m.x;
+          c.y = m.y;
+        }
+      }
+      for (const id of seam.roomIds) this.renormalizeRoom(id);
+      welded = true;
+      // a seam that did not become a partition never will — stop before the
+      // next pass proposes the same surgery on an already-cut ring
+      if (this.sharedCount() <= before) break;
+    }
+    return welded;
+  }
+
+  private sharedCount(): number {
+    return this.allWalls().filter((w) => w.shared).length;
   }
 
   /** Min-corner of a spot clear of every existing room: right of them all. */
@@ -807,7 +1013,8 @@ export class Store {
 
   /* ---------------- custom parts ---------------- */
 
-  upsertCustomPart(part: CustomPartDef): void {
+  /** Add/replace a custom part def without notifying — callers own the notify. */
+  private applyCustomPart(part: CustomPartDef): void {
     const idx = this.design.customParts.findIndex((p) => p.id === part.id);
     if (idx >= 0) this.design.customParts[idx] = part;
     else this.design.customParts.push(part);
@@ -815,6 +1022,10 @@ export class Store {
     // that no longer resolve detach to the world instead of dangling
     syncAttachments(this.design);
     this.saveSharedLibrary();
+  }
+
+  upsertCustomPart(part: CustomPartDef): void {
+    this.applyCustomPart(part);
     this.notify({ structural: true });
   }
 
@@ -830,15 +1041,18 @@ export class Store {
     const copy = JSON.parse(JSON.stringify(src)) as CustomPartDef;
     copy.id = uid('part');
     copy.name = `${src.name} (custom)`.slice(0, 32);
-    this.upsertCustomPart(copy);
-    this.updateItem(itemId, { defId: copy.id });
+    this.applyCustomPart(copy);
+    it.defId = copy.id;
+    this.notify({ structural: true });
     return copy;
   }
 
-  /** Delete a part and any placed instances of it. */
+  /** Delete a part and any placed instances of it (plus appliances mounted on them). */
   deleteCustomPart(id: string): number {
-    const used = this.design.items.filter((i) => i.defId === id).length;
-    this.design.items = this.design.items.filter((i) => i.defId !== id);
+    const instances = this.design.items.filter((i) => i.defId === id);
+    const doomed = this.withAttached(new Set(instances.map((i) => i.id)));
+    const used = instances.length;
+    this.design.items = this.design.items.filter((i) => !doomed.has(i.id));
     this.design.customParts = this.design.customParts.filter((p) => p.id !== id);
     this.saveSharedLibrary();
     if (this.selection.kind === 'item' && !this.itemById(this.selection.id)) {
@@ -852,8 +1066,9 @@ export class Store {
   private saveSharedLibrary(): void {
     try {
       localStorage.setItem(PARTS_KEY, JSON.stringify(this.design.customParts));
+      this.markSaveResult(true);
     } catch {
-      /* ignore */
+      this.markSaveResult(false);
     }
   }
 
@@ -891,12 +1106,9 @@ export class Store {
       if (it.attach?.kind === 'counter' && ('x' in patch || 'y' in patch)) {
         const host = this.itemById(it.attach.hostId);
         if (host) {
-          const c = Math.cos(host.rotation);
-          const s = Math.sin(host.rotation);
-          const dx = it.x - host.x;
-          const dy = it.y - host.y;
-          it.attach.u = dx * c + dy * s;
-          it.attach.v = -dx * s + dy * c;
+          const local = worldToLocal({ x: host.x, y: host.y }, host.rotation, { x: it.x, y: it.y });
+          it.attach.u = local.x;
+          it.attach.v = local.y;
         }
       }
       // moving a HOST carries its appliances; either way the caches resettle
@@ -913,6 +1125,9 @@ export class Store {
   setAttachment(id: string, attach: Item['attach']): void {
     const it = this.itemById(id);
     if (!it) return;
+    // a drag re-offers the same anchor on every pointermove — re-notifying would
+    // cost a full 3D rebuild for a no-op
+    if (JSON.stringify(it.attach) === JSON.stringify(attach)) return;
     if (attach) it.attach = attach;
     else delete it.attach;
     syncAttachments(this.design);
@@ -1007,8 +1222,9 @@ export class Store {
       materialRot: patch.materialRot,
     };
     this.design.variables.push(v);
-    // colour changes force a geometry rebuild, so keep this structural
-    this.notify({ structural: true });
+    // nothing references a brand-new variable yet, so no mesh can change colour;
+    // binding it to a slot later is what notifies structurally
+    this.notify({ structural: false });
     return v;
   }
 
@@ -1192,8 +1408,11 @@ export function sanitizeDesign(raw: unknown): Design | null {
   const rooms: Room[] = [];
   for (const r of d.rooms as unknown[]) {
     if (!r || typeof r !== 'object') continue;
-    const corners = sanitizeCorners((r as Record<string, unknown>).corners);
-    if (corners.length < 3) continue;
+    // near-duplicate adjacent corners (a hand edit, or a lossy round-trip)
+    // would leave a zero-length wall; a self-intersecting ring breaks every
+    // wall/normal computation downstream — both make the room unusable
+    const corners = dedupeAdjacentCorners(sanitizeCorners((r as Record<string, unknown>).corners));
+    if (corners.length < 3 || !polygonIsSimple(corners)) continue;
     rooms.push({ ...(r as Room), corners });
   }
   if (!rooms.length) return null;
@@ -1282,16 +1501,22 @@ export function sanitizeDesign(raw: unknown): Design | null {
     return true;
   });
 
-  // items whose defId resolves nowhere would crash the render loop
-  const partIds = new Set((d.customParts as CustomPartDef[]).map((p) => p.id));
+  // items whose defId resolves nowhere would crash the render loop; a
+  // non-finite x/y/rotation has no sane fallback, so those are dropped too
+  // rather than repaired
+  const partsById = new Map((d.customParts as CustomPartDef[]).map((p) => [p.id, p] as const));
   d.items = (d.items as Item[]).filter(
     (i) =>
       i &&
       typeof i.defId === 'string' &&
-      (partIds.has(i.defId) || hasPreset(i.defId) || hasCatalogDef(i.defId))
+      (partsById.has(i.defId) || hasPreset(i.defId) || hasCatalogDef(i.defId)) &&
+      Number.isFinite(i.x) &&
+      Number.isFinite(i.y) &&
+      Number.isFinite(i.rotation)
   );
   const roomIds = new Set(rooms.map((r) => r.id));
   for (const i of d.items as Item[]) {
+    repairItemDims(i, partsById);
     if (i.material !== undefined && !hasMaterial(i.material)) delete i.material;
     if (i.counterMaterial !== undefined && !hasMaterial(i.counterMaterial)) delete i.counterMaterial;
     if (i.materialRot !== true) delete i.materialRot;
@@ -1320,6 +1545,13 @@ export function sanitizeDesign(raw: unknown): Design | null {
   if (typeof d.defaultFrontVar !== 'string' || !varIds.has(d.defaultFrontVar)) delete d.defaultFrontVar;
   if (typeof d.defaultAccentVar !== 'string' || !varIds.has(d.defaultAccentVar)) delete d.defaultAccentVar;
   d.scene = sanitizeScene(d.scene);
+  // the tracing photo travels alongside a saved file as an extra top-level
+  // field; it is NOT part of a Design, so it never survives this gate (the
+  // load handler pulls it off the raw JSON and hands it to store.setUnderlay)
+  delete d.underlaySrc;
+  const underlay = sanitizeUnderlay(d.underlay);
+  if (underlay) d.underlay = underlay;
+  else delete d.underlay;
   d.version = DESIGN_VERSION;
 
   const design = normalizeDesign(d as unknown as Design);
@@ -1327,6 +1559,28 @@ export function sanitizeDesign(raw: unknown): Design | null {
   for (const it of design.items) it.roomId = (roomOfItem(design, it) ?? design.rooms[0]).id;
   sanitizeAttachments(design);
   return design;
+}
+
+/**
+ * Non-finite/non-positive w/d/h fall back to the resolved def's own dims
+ * (design-local custom part, preset, then catalog — the same resolution
+ * order partOf/defOf use at runtime); elevation just zeros, since 0 is
+ * always a legal height above the floor.
+ */
+function repairItemDims(i: Item, partsById: Map<string, CustomPartDef>): void {
+  const fallback = defaultDimsFor(i.defId, partsById);
+  if (!Number.isFinite(i.w) || i.w <= 0) i.w = fallback.w;
+  if (!Number.isFinite(i.d) || i.d <= 0) i.d = fallback.d;
+  if (!Number.isFinite(i.h) || i.h <= 0) i.h = fallback.h;
+  if (!Number.isFinite(i.elevation)) i.elevation = 0;
+}
+
+/** The caller already knows defId resolves; 0.6×0.6×0.9 only guards a def
+ * whose own dims are somehow missing/invalid. */
+function defaultDimsFor(defId: string, partsById: Map<string, CustomPartDef>): { w: number; d: number; h: number } {
+  const src = partsById.get(defId) ?? presetPart(defId) ?? (hasCatalogDef(defId) ? catalogDef(defId) : undefined);
+  const ok = src && [src.w, src.d, src.h].every((n) => Number.isFinite(n) && n > 0);
+  return ok ? { w: src!.w, d: src!.d, h: src!.h } : { w: 0.6, d: 0.6, h: 0.9 };
 }
 
 /**
@@ -1377,6 +1631,19 @@ function sanitizeCorners(raw: unknown): Corner[] {
       y: r.y as number,
     });
   }
+  return out;
+}
+
+/** Collapse a corner onto its predecessor (wrap-around last→first included)
+ * when they sit within 1e-6 — a degenerate zero-length wall in disguise. */
+function dedupeAdjacentCorners(corners: Corner[]): Corner[] {
+  const out: Corner[] = [];
+  for (const c of corners) {
+    const prev = out[out.length - 1];
+    if (prev && dist(prev, c) < 1e-6) continue;
+    out.push(c);
+  }
+  if (out.length > 1 && dist(out[0], out[out.length - 1]) < 1e-6) out.pop();
   return out;
 }
 

@@ -295,6 +295,28 @@ export interface DesignVar {
   materialRot?: boolean;
 }
 
+/**
+ * Placement of the floor-plan tracing photo. TRANSFORM ONLY — the image bytes
+ * live in their own localStorage key (storageKeys.ts UNDERLAY_KEY), because a
+ * Design is JSON-cloned for every undo step and every autosave, and a multi-MB
+ * data URL there would blow both up. Consequence: moving/scaling the reference
+ * is undoable, swapping or removing the photo itself is not.
+ */
+export interface Underlay {
+  /** world position of the image's TOP-LEFT pixel (m) */
+  x: number;
+  y: number;
+  /** meters per image pixel (> 0) */
+  scale: number;
+  /** rotation about the top-left corner, radians */
+  rotation: number;
+  /** 0..1 */
+  opacity: number;
+  visible: boolean;
+  /** locked underlays are completely inert to plan gestures */
+  locked: boolean;
+}
+
 export interface Design {
   version: 6;
   /** ≥1 room; rooms[0] is the fallback active room and the shared-edge owner tiebreak */
@@ -311,6 +333,8 @@ export interface Design {
   /** var id applied to a new item's accent colour when set */
   defaultAccentVar?: string;
   scene: Scene;
+  /** tracing photo placement; the image itself is stored outside the design */
+  underlay?: Underlay;
 }
 
 export type Selection =

@@ -124,6 +124,8 @@ describe('designBounds', () => {
 describe('PRINT_OPTS', () => {
   it('turns every interactive layer off and lights all rooms equally', () => {
     expect(PRINT_OPTS).toEqual({
+      // the tracing photo is a reference, never part of the printed drawing
+      underlay: false,
       handles: false,
       guides: false,
       ghosts: false,

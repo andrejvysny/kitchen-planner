@@ -389,6 +389,20 @@ html, body {
 #canvas2d { cursor: default; }
 #pane3d { background: #e8e6e1; }
 
+/* shown while the WebGL context is lost and the browser restores it */
+.gl-lost {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(232, 230, 225, 0.9);
+  font-size: 13px;
+  color: var(--ink-soft);
+  z-index: 5;
+}
+
+.gl-lost[hidden] { display: none; }
+
 .pane-badge {
   position: absolute;
   top: 10px;
@@ -1156,6 +1170,36 @@ html, body {
 }
 
 .statusbar-spacer { flex: 1; }
+
+.statusbar-warn { color: var(--danger); font-weight: 600; }
+
+/* ---------- Recovery banner ---------- */
+
+.recovery-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--panel-border);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.recovery-banner span { flex: 1; }
+
+.recovery-banner button {
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 5px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.recovery-banner button:hover { background: #e6e4df; }
 
 /* ---------- Scrollbars ---------- */
 

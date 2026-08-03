@@ -1,3 +1,69 @@
+# M6 — Room authoring (auto-share walls · draw tool · photo underlay)
+
+- [x] F1 auto-share adjacent rooms (Opus, diff reviewed): snapRoomRect ghost
+  snap, nextWeldSeam planner + Store.weldRoom (partial-overlap splits, nudges,
+  locked partition corners, convergence guard), corner-drag snapPointToRooms;
+  welds on every addRoom path + corner-gesture end (+27 unit, E2E 36/37)
+- [x] F2 draw-room tool (same agent): AddRoomOptions.polygon, DrawRing overlay
+  in renderPlan, ✎ buttons, Esc/Enter, closeOtherTools() dedupe (399 unit)
+- [x] F3 floor-plan photo underlay (Opus, diff reviewed): src/model/underlay.ts
+  pure module, UNDERLAY_KEY side storage (bytes never in Design/undo),
+  1600px JPEG downscale, 2-click calibration via measure overlay, drag/lock/
+  opacity, exportJson embeds src, PRINT_OPTS off (+16 unit)
+
+- [x] F4 wall-joint rendering fix (Opus, diff reviewed + screenshots checked):
+  slabQuad butt-ended fills, wallJoints convex patches with miter apexes
+  (MITER_LIMIT 4 bevel on acute), joints under slabs in 2D (no ink bleed),
+  3D prisms w/ polygonOffset + visibility tied to incident walls; known limit
+  documented: overlapping rooms crossing mid-span still interpenetrate
+  (+11 unit)
+
+FINAL VERIFY: lint 0, typecheck clean, 426/426 unit, 104/104 E2E, build
+clean, screenshots eyeballed. All uncommitted on master.
+
+(W4 tooling + W5 cleanup from M5 run AFTER M6 lands, so lint sweep touches
+final code once.)
+
+---
+
+# M5 — Hardening milestone (audit fixes)
+
+Plan: ~/.claude/plans/thorough-review-validation-whimsical-brook.md
+Each wave ends green: `npx tsc --noEmit && npm run test:unit && npm run build && node test/interact.mjs`
+
+- [x] W1 P0 correctness (inline): deleteCustomPart cascade via withAttached,
+  restore() clears openFronts, GLB export catch → status hint; 2 regression
+  tests (348 unit green, tsc clean)
+- [x] W2 P1 perf + P4.4/4.5 leaks (Opus agent, diff reviewed): rAF-coalesced
+  rebuilds + flushRebuild (items getter/picking/snapshot/GLB), setActive gate
+  on 2D-only mode, setAttachment equality guard, addVariable non-structural,
+  ground cached, pmrem disposed, StudioPreview/ResizeObserver/blob-URL leaks
+  fixed, WebGL context-loss overlay; CLAUDE.md contract updated (agent verified
+  100/100 E2E; final integrated verify pending)
+- [x] W3a P2 data safety (Sonnet, diff reviewed): RECOVERY_KEY stash-on-fail +
+  boot banner (download/dismiss), savefail event + #status-savefail, item
+  numeric repair (repairItemDims), corner dedupe + polygonIsSimple room gate
+- [x] W3b P3 test gaps (Sonnet, diff reviewed): storageKeys/migrate/undo-depth
+  units (+18), setMacOverride + __kpForceMac unlocks 7 wheel checks on ubuntu
+  CI, BOM-sheet popup-fallback E2E, KP_BASE_URL parametrized (isolated run
+  100/100 E2E)
+- [x] W4 P4.1-4.3 tooling (Sonnet): eslint@10 flat + typescript-eslint@8 +
+  prettier config (repo-wide reformat deferred to own commit — 47 files
+  pending), tsconfig noUnused* on, tsconfig.test.json + typecheck script,
+  CI lint/typecheck steps; 11 dead-code fixes, zones.test type bug fixed;
+  flagged: plan2d pointerWorld orphan removed, interact.mjs assertion-less
+  evaluate, npm audit needs vite major bump
+
+FINAL VERIFY (M5+M6 complete): lint 0 errors, typecheck clean, 415/415 unit,
+104/104 E2E, build clean. All uncommitted on master.
+- [x] W5 P5 cleanup (Sonnet, diff reviewed): 3 dead exports deleted,
+  localToWorld/worldToLocal in geometry.ts (attach + worktops + store
+  converted; snapping.ts left — vector decomposition, not point transform),
+  forkPartForItem single notify via applyCustomPart, NEXT_STEPS.md de-staled
+  (415/415)
+
+---
+
 # M4 — Polish pack (touch parity · continuous worktops · plan sheet)
 
 Plan: ~/.claude/plans/act-as-senior-software-elegant-unicorn.md, "MILESTONE 4"

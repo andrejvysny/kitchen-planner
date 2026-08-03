@@ -124,17 +124,22 @@ export class StudioPreview {
     return null;
   }
 
+  /** Drop the current preview meshes and their GPU buffers. */
+  private clearMeshes(): void {
+    if (!this.meshGroup) return;
+    this.scene.remove(this.meshGroup);
+    this.meshGroup.traverse((o) => {
+      const m = o as THREE.Mesh;
+      m.geometry?.dispose();
+      const mat = m.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
+      else mat?.dispose();
+    });
+    this.meshGroup = null;
+  }
+
   refresh(part: CustomPartDef, selectedBoardId?: string | null): void {
-    if (this.meshGroup) {
-      this.scene.remove(this.meshGroup);
-      this.meshGroup.traverse((o) => {
-        const m = o as THREE.Mesh;
-        m.geometry?.dispose();
-        const mat = m.material as THREE.Material | THREE.Material[] | undefined;
-        if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
-        else mat?.dispose();
-      });
-    }
+    this.clearMeshes();
     const fake: Item = {
       id: 'preview',
       defId: part.id,
@@ -182,6 +187,7 @@ export class StudioPreview {
   dispose(): void {
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
+    this.clearMeshes(); // the last previewed part still holds GPU buffers
     this.controls.dispose();
     this.renderer.dispose();
   }

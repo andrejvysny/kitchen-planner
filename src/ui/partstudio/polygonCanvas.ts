@@ -26,6 +26,7 @@ export class PolygonCanvas {
   private part: BoardPartDef;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
+  private ro: ResizeObserver;
   private onChange: () => void;
   private drag: PolyDrag = { kind: 'none' };
   selection: PolySelection = { kind: 'none' };
@@ -44,9 +45,14 @@ export class PolygonCanvas {
     this.canvas.addEventListener('pointerup', (e) => this.onUp(e));
     this.canvas.addEventListener('pointercancel', (e) => this.onUp(e));
 
-    const ro = new ResizeObserver(() => this.draw());
-    ro.observe(container);
+    this.ro = new ResizeObserver(() => this.draw());
+    this.ro.observe(container);
     this.draw();
+  }
+
+  /** Stop observing — the studio replaces this editor on every rail re-render. */
+  dispose(): void {
+    this.ro.disconnect();
   }
 
   /** True when the current outline + holes are usable. */

@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { catalogDef } from '../../src/model/catalog';
 import { projectOnWall, signedArea, wallPoint } from '../../src/model/geometry';
 import { toCatalogDef } from '../../src/model/parts';
 import { presetPart } from '../../src/model/presets';
 import { allWalls, openingsOfWall, rectangleSizeOf, wallByIdIn } from '../../src/model/rooms';
 import { snapItem } from '../../src/model/snapping';
+import { DESIGN_KEY, UNDERLAY_KEY } from '../../src/model/storageKeys';
+import { initialUnderlay } from '../../src/model/underlay';
 import {
   DESIGN_VERSION,
   emptyDesign,
@@ -185,6 +187,208 @@ describe('sanitizeDesign', () => {
     expect(new Set(ids).size).toBe(ids.length);
     // the first room keeps the authored ids
     expect(d.rooms[0].corners.map((k) => k.id)).toEqual(['c0', 'c1', 'c2', 'c3']);
+  });
+
+  it('drops items with non-finite x/y/rotation and repairs corrupt w/d/h/elevation from the resolved def', () => {
+    const raw = {
+      version: 6,
+      rooms: [{ id: 'r', name: 'A', corners: RECT() }],
+      items: [
+        // no sane position fallback exists — dropped outright
+        { id: 'nan-x', defId: 'nightstand', x: NaN, y: 1, rotation: 0, w: 0.45, d: 0.4, h: 0.52, elevation: 0, color: '#fff' },
+        { id: 'inf-rot', defId: 'nightstand', x: 1, y: 1, rotation: Infinity, w: 0.45, d: 0.4, h: 0.52, elevation: 0, color: '#fff' },
+        // kept: every size/elevation field corrupt in a different way
+        {
+          id: 'corrupt',
+          defId: 'nightstand', // preset dims: w 0.45, d 0.4, h 0.52 — none match the generic 0.6/0.6/0.9 fallback
+          x: 1,
+          y: 1,
+          rotation: 0,
+          w: -1, // negative
+          d: 0.7, // valid — must survive untouched
+          h: 'tall' as unknown as number, // wrong type
+          elevation: Infinity,
+          color: '#fff',
+        },
+        // boundary: exactly zero is also "not positive"
+        { id: 'zero-w', defId: 'nightstand', x: 2, y: 1, rotation: 0, w: 0, d: 0.4, h: 0.52, elevation: 0, color: '#fff' },
+      ],
+    };
+    const d = sanitizeDesign(raw)!;
+    expect(d.items.map((i) => i.id)).toEqual(['corrupt', 'zero-w']);
+    const corrupt = d.items.find((i) => i.id === 'corrupt')!;
+    expect(corrupt.w).toBeCloseTo(0.45);
+    expect(corrupt.d).toBeCloseTo(0.7); // already valid — not clamped to the def's own 0.4
+    expect(corrupt.h).toBeCloseTo(0.52);
+    expect(corrupt.elevation).toBe(0);
+    expect(d.items.find((i) => i.id === 'zero-w')!.w).toBeCloseTo(0.45);
+  });
+
+  it('drops a self-intersecting (bowtie) room ring', () => {
+    // a-b and d-e are the crossing diagonals of the same rectangle
+    const bowtie = [c('a', 0, 0), c('b', 4, 3), c('d', 4, 0), c('e', 0, 3)];
+    expect(sanitizeDesign({ version: 6, rooms: [{ id: 'r', name: 'A', corners: bowtie }] })).toBeNull();
+  });
+
+  it('collapses a near-duplicate adjacent corner (including wrap-around) without breaking a valid ring', () => {
+    const withForwardDupe = [
+      c('a', 0, 0),
+      c('a2', 1e-9, 1e-9), // collapses into 'a'
+      c('b', 4, 0),
+      c('d', 4, 3),
+      c('e', 0, 3),
+    ];
+    const forward = sanitizeDesign({ version: 6, rooms: [{ id: 'r', name: 'A', corners: withForwardDupe }] })!;
+    expect(forward).not.toBeNull();
+    expect(forward.rooms[0].corners.map((k) => k.id)).toEqual(['a', 'b', 'd', 'e']);
+
+    const withWrapDupe = [c('a', 0, 0), c('b', 4, 0), c('d', 4, 3), c('e', 0, 3), c('f', 1e-9, 1e-9)];
+    const wrapped = sanitizeDesign({ version: 6, rooms: [{ id: 'r', name: 'A', corners: withWrapDupe }] })!;
+    expect(wrapped).not.toBeNull();
+    expect(wrapped.rooms[0].corners.map((k) => k.id)).toHaveLength(4);
+    expect(wrapped.rooms[0].corners.map((k) => k.id)).not.toContain('f');
+  });
+
+  it('keeps a valid underlay transform and drops a malformed one', () => {
+    const withUnderlay = (underlay: unknown) =>
+      sanitizeDesign({ ...emptyDesign(), rooms: [{ id: 'r', name: 'A', corners: RECT() }], underlay })!;
+
+    const good = { x: -1.5, y: 0.25, scale: 0.005, rotation: 0.2, opacity: 0.4, visible: true, locked: false };
+    expect(withUnderlay({ ...good }).underlay).toEqual(good);
+    // out-of-range opacity is clamped (a fixable slider value)…
+    expect(withUnderlay({ ...good, opacity: 9 }).underlay!.opacity).toBe(1);
+    // …but an unusable placement number has no sane fallback: the field goes
+    expect(withUnderlay({ ...good, scale: NaN }).underlay).toBeUndefined();
+    expect(withUnderlay({ ...good, scale: 0 }).underlay).toBeUndefined();
+    expect(withUnderlay({ ...good, x: 'left' }).underlay).toBeUndefined();
+    expect(withUnderlay('nope').underlay).toBeUndefined();
+    expect('underlay' in withUnderlay(undefined)).toBe(false);
+  });
+
+  it('drops the underlaySrc travel field — image bytes are not part of a Design', () => {
+    const d = sanitizeDesign({
+      ...emptyDesign(),
+      rooms: [{ id: 'r', name: 'A', corners: RECT() }],
+      underlay: { x: 0, y: 0, scale: 0.01, rotation: 0, opacity: 0.5, visible: true, locked: false },
+      underlaySrc: 'data:image/jpeg;base64,AAAA',
+    })!;
+    expect(d.underlay).toBeDefined();
+    expect('underlaySrc' in d).toBe(false);
+    expect(JSON.stringify(d)).not.toContain('underlaySrc');
+  });
+});
+
+describe('persistence (localStorage)', () => {
+  // This suite runs in node (no jsdom) like storageKeys.test.ts — stub a
+  // minimal Map-backed Storage rather than pull in a jsdom dependency.
+  class FakeStorage {
+    private map = new Map<string, string>();
+    getItem(key: string): string | null {
+      return this.map.has(key) ? this.map.get(key)! : null;
+    }
+    setItem(key: string, value: string): void {
+      this.map.set(key, value);
+    }
+    removeItem(key: string): void {
+      this.map.delete(key);
+    }
+  }
+
+  let fake: FakeStorage;
+
+  beforeEach(() => {
+    fake = new FakeStorage();
+    (globalThis as unknown as { localStorage: FakeStorage }).localStorage = fake;
+  });
+
+  afterEach(() => {
+    delete (globalThis as unknown as { localStorage?: FakeStorage }).localStorage;
+  });
+
+  it('has nothing to recover when there is no autosave at all', () => {
+    expect(Store.loadAutosaved()).toBeNull();
+    expect(Store.recoveryPayload()).toBeNull();
+  });
+
+  it('stashes the raw payload in the recovery key once, never overwriting a later failure', () => {
+    fake.setItem(DESIGN_KEY, JSON.stringify({ version: 1 })); // pre-v5: no migration path
+    expect(Store.loadAutosaved()).toBeNull();
+    expect(Store.recoveryPayload()).toBe(JSON.stringify({ version: 1 }));
+
+    fake.setItem(DESIGN_KEY, JSON.stringify({ version: 99 })); // a second, different failure
+    expect(Store.loadAutosaved()).toBeNull();
+    expect(Store.recoveryPayload()).toBe(JSON.stringify({ version: 1 })); // first failure still wins
+
+    Store.clearRecovery();
+    expect(Store.recoveryPayload()).toBeNull();
+  });
+
+  it('flags a localStorage write failure and clears the flag once a save succeeds again', () => {
+    const store = new Store(rectDesign());
+    const events: boolean[] = [];
+    store.on('savefail', (failing) => events.push(failing));
+
+    const realSetItem = fake.setItem.bind(fake);
+    fake.setItem = () => {
+      throw new Error('quota exceeded');
+    };
+    store.autosave();
+    expect(store.savingFailed()).toBe(true);
+    expect(events).toEqual([true]);
+
+    store.autosave(); // repeated failure — only the ok→fail transition emits
+    expect(events).toEqual([true]);
+
+    fake.setItem = realSetItem;
+    store.autosave();
+    expect(store.savingFailed()).toBe(false);
+    expect(events).toEqual([true, false]);
+  });
+
+  it('stores the underlay image beside the design and removes it again', () => {
+    const store = new Store(rectDesign());
+    const src = 'data:image/jpeg;base64,AAAA';
+    const t = initialUnderlay(1000, 500, { x: 2, y: 1.5 });
+
+    expect(store.underlaySrc()).toBeNull();
+    expect(store.underlayRef()).toBeNull();
+
+    expect(store.setUnderlay(src, t)).toBe(true);
+    expect(fake.getItem(UNDERLAY_KEY)).toBe(src);
+    expect(store.design.underlay).toEqual(t);
+    expect(store.underlayRef()).toEqual({ src, u: t });
+    // the bytes stay OUT of the design: undo snapshots and autosave never see them
+    expect(JSON.stringify(store.design)).not.toContain(src);
+    expect(fake.getItem(DESIGN_KEY) ?? '').not.toContain(src);
+
+    expect(store.setUnderlay(null)).toBe(true);
+    expect(fake.getItem(UNDERLAY_KEY)).toBeNull();
+    expect(store.design.underlay).toBeUndefined();
+    expect(store.underlaySrc()).toBeNull();
+    expect(store.underlayRef()).toBeNull();
+  });
+
+  it('reports a failed underlay write without pointing the design at missing bytes', () => {
+    const store = new Store(rectDesign());
+    fake.setItem = () => {
+      throw new Error('quota exceeded');
+    };
+    expect(store.setUnderlay('data:image/jpeg;base64,AAAA', initialUnderlay(10, 10, { x: 0, y: 0 }))).toBe(false);
+    expect(store.design.underlay).toBeUndefined();
+    expect(store.savingFailed()).toBe(true);
+  });
+
+  it('exports the reference photo alongside the design, and only when there is one', () => {
+    const store = new Store(rectDesign());
+    expect(JSON.parse(store.exportJson()).underlaySrc).toBeUndefined();
+
+    const src = 'data:image/jpeg;base64,AAAA';
+    store.setUnderlay(src, initialUnderlay(800, 600, { x: 0, y: 0 }));
+    const out = JSON.parse(store.exportJson());
+    expect(out.underlaySrc).toBe(src);
+    expect(out.underlay.scale).toBeGreaterThan(0);
+    // and the round trip puts it back exactly where sanitizeDesign left it
+    expect(sanitizeDesign(out)!.underlay).toEqual(store.design.underlay);
   });
 });
 
@@ -670,6 +874,167 @@ describe('rooms CRUD', () => {
     expect(store.activeRoomId).toBe(store.design.rooms[0].id);
     expect(store.roomById(store.activeRoomId)).toBeTruthy();
     expect(allWalls(store.design.rooms)).toHaveLength(4);
+  });
+});
+
+describe('room welding', () => {
+  const seam = (store: Store) => store.allWalls().filter((w) => w.shared);
+  /** the wall a partition is drawn from, i.e. the owning half */
+  const owner = (store: Store) => seam(store).find((w) => w.shared!.owner)!;
+
+  it('a free room placed flush against another shares the wall', () => {
+    const store = new Store(rectDesign()); // 4 × 3 at the origin
+    const b = store.addRoom({ at: { x: 4, y: 0 }, w: 4, d: 3, name: 'B' })!;
+    const pair = seam(store);
+    expect(pair).toHaveLength(2);
+    expect(pair.filter((w) => w.shared!.owner)).toHaveLength(1);
+    expect(owner(store).roomId).toBe(store.design.rooms[0].id);
+    expect(owner(store).len).toBeCloseTo(3);
+    expect(store.roomById(b.id)!.corners).toHaveLength(4); // nothing to cut
+    expect(store.design.rooms[0].corners).toHaveLength(4);
+  });
+
+  it('welds a hairline-offset room by pulling its corners onto the host', () => {
+    const store = new Store(rectDesign());
+    const b = store.addRoom({ at: { x: 4.0006, y: 0 }, w: 4, d: 3, name: 'B' })!;
+    expect(seam(store)).toHaveLength(2);
+    for (const c of store.roomById(b.id)!.corners.filter((k) => k.x < 5)) {
+      expect(c.x).toBe(4); // exactly, not 4.0006 — the seam hash is unforgiving
+    }
+  });
+
+  it('a partial overlap cuts the longer wall in three, sharing the middle', () => {
+    const store = new Store(rectDesign());
+    const b = store.addRoom({ at: { x: 4, y: 1 }, w: 2, d: 1, name: 'B' })!;
+
+    const a = store.design.rooms[0];
+    expect(a.corners).toHaveLength(6); // 4 + one cut at each end of the overlap
+    expect(store.roomById(b.id)!.corners).toHaveLength(4); // B's side already fits
+    const pair = seam(store);
+    expect(pair).toHaveLength(2);
+    const hostSide = pair.find((w) => w.roomId === a.id)!;
+    expect(hostSide.len).toBeCloseTo(1);
+    expect(hostSide.a).toMatchObject({ x: 4, y: 1 });
+    expect(hostSide.b).toMatchObject({ x: 4, y: 2 });
+    // the stretches above and below the seam stay exterior
+    expect(store.wallsOf(a.id).filter((w) => w.shared)).toHaveLength(1);
+    expect(signedArea(a.corners)).toBeGreaterThan(0);
+  });
+
+  it('a staggered overlap cuts both rings', () => {
+    const store = new Store(rectDesign());
+    const b = store.addRoom({ at: { x: 4, y: 1 }, w: 2, d: 4, name: 'B' })!;
+    expect(store.design.rooms[0].corners).toHaveLength(5);
+    expect(store.roomById(b.id)!.corners).toHaveLength(5);
+    expect(seam(store)).toHaveLength(2);
+    expect(owner(store).len).toBeCloseTo(2); // y 1 → 3, where the two rooms meet
+  });
+
+  it('an opening on a wall the weld cuts keeps its world position', () => {
+    const store = new Store(rectDesign());
+    const o = store.addOpening(catalogDef('window'), 'c1', 1.5); // world (4, 1.5)
+    const before = wallPoint(store.wallById(o.wallId)!, o.offset);
+
+    store.addRoom({ at: { x: 4, y: 0.5 }, w: 2, d: 2, name: 'B' });
+
+    expect(store.design.rooms[0].corners).toHaveLength(6);
+    const wall = store.wallById(o.wallId)!;
+    expect(wall.id).not.toBe('c1'); // re-keyed onto the middle segment
+    expect(wall.shared).toBeTruthy();
+    const after = wallPoint(wall, o.offset);
+    expect(after.x).toBeCloseTo(before.x, 9);
+    expect(after.y).toBeCloseTo(before.y, 9);
+  });
+
+  it('leaves rooms that only come close, or barely touch, alone', () => {
+    const store = new Store(rectDesign());
+    store.addRoom({ at: { x: 4.005, y: 0 }, w: 4, d: 3 }); // 5 mm gap
+    expect(seam(store)).toHaveLength(0);
+    store.addRoom({ at: { x: -4, y: 3 }, w: 4, d: 3 }); // corner-to-corner only
+    expect(seam(store)).toHaveLength(0);
+    expect(store.design.rooms.every((r) => r.corners.length === 4)).toBe(true);
+  });
+
+  it('weldRoom is idempotent and never un-shares an existing partition', () => {
+    const store = new Store(rectDesign());
+    store.addRoom({ against: { wallId: 'c1' }, d: 3, name: 'B' });
+    const c = store.addRoom({ at: { x: 0, y: 3 }, w: 4, d: 2, name: 'C' })!;
+    expect(seam(store)).toHaveLength(4); // A|B and A|C
+    const before = JSON.stringify(store.design);
+    expect(store.weldRoom(c.id)).toBe(false);
+    expect(store.weldRoom(store.design.rooms[0].id)).toBe(false);
+    expect(JSON.stringify(store.design)).toBe(before);
+  });
+
+  it('weldRoom ignores an unknown room', () => {
+    const store = new Store(rectDesign());
+    expect(store.weldRoom('nope')).toBe(false);
+  });
+});
+
+describe('addRoom({polygon})', () => {
+  const ring = (pts: [number, number][]): Point[] => pts.map(([x, y]) => ({ x, y }));
+
+  it('builds a room from a drawn ring, normalized CCW', () => {
+    const store = new Store(rectDesign());
+    // clicked clockwise on screen — the ring is reversed for us
+    const r = store.addRoom({
+      polygon: ring([[6, 0], [6, 3], [10, 3], [10, 0]]),
+      name: 'Drawn',
+    })!;
+    expect(r.name).toBe('Drawn');
+    expect(signedArea(r.corners)).toBeGreaterThan(0);
+    expect(rectangleSizeOf(r)).toEqual({ w: 4, d: 3 });
+    expect(new Set(r.corners.map((c) => c.id)).size).toBe(4);
+    expect(store.activeRoomId).toBe(r.id);
+    expect(store.floorArea(r.id)).toBeCloseTo(12);
+  });
+
+  it('keeps an L-shaped ring as drawn, and welds it onto a neighbour', () => {
+    const store = new Store(rectDesign());
+    const r = store.addRoom({
+      polygon: ring([[4, 0], [8, 0], [8, 4], [6, 4], [6, 3], [4, 3]]),
+    })!;
+    expect(r.corners).toHaveLength(6);
+    expect(store.floorArea(r.id)).toBeCloseTo(14);
+    expect(store.allWalls().filter((w) => w.shared)).toHaveLength(2);
+  });
+
+  it('collapses clicks closer together than a wall segment', () => {
+    const store = new Store(rectDesign());
+    const r = store.addRoom({
+      polygon: ring([[6, 0], [6.02, 0], [10, 0], [10, 3], [6, 3], [6, 0.01]]),
+    })!;
+    expect(r.corners).toHaveLength(4); // the doubled click and the closing point go
+    expect(rectangleSizeOf(r)).toEqual({ w: 4, d: 3 });
+  });
+
+  it('refuses a ring that is not a usable room, changing nothing', () => {
+    const store = new Store(rectDesign());
+    const before = JSON.stringify(store.design);
+    const bad: Point[][] = [
+      ring([[0, 0], [1, 0]]), // too few corners
+      ring([[6, 0], [10, 0], [6, 3], [10, 3]]), // bow tie: self-intersecting
+      ring([[6, 0], [6.5, 0], [6.5, 0.5], [6, 0.5]]), // 0.25 m², a stray click
+      ring([[6, 0], [7, 0], [8, 0]]), // collinear: no area at all
+      [{ x: 6, y: 0 }, { x: NaN, y: 0 }, { x: 8, y: 2 }],
+    ];
+    for (const polygon of bad) expect(store.addRoom({ polygon })).toBeNull();
+    expect(JSON.stringify(store.design)).toBe(before);
+    expect(store.design.rooms).toHaveLength(1);
+  });
+
+  it('wins over at/against and still lands on the drawn spot', () => {
+    const store = new Store(rectDesign());
+    const r = store.addRoom({
+      polygon: ring([[6, 0], [9, 0], [9, 2], [6, 2]]),
+      at: { x: -9, y: -9 },
+      against: { wallId: 'c1' },
+      w: 1,
+      d: 1,
+    })!;
+    expect(rectangleSizeOf(r)).toEqual({ w: 3, d: 2 });
+    expect(store.design.rooms).toHaveLength(2);
   });
 });
 

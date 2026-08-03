@@ -243,6 +243,16 @@ describe('Store lifecycle with attachments', () => {
     expect(store.itemById(applId)?.attach).toBeTruthy();
   });
 
+  it('deleting a custom part cascades to appliances on its instances', async () => {
+    const { store, hostId, applId } = await storeWith();
+    const fork = store.forkPartForItem(hostId)!; // host becomes a design-local custom part
+    store.commit();
+    store.deleteCustomPart(fork.id);
+    store.commit();
+    expect(store.itemById(hostId)).toBeUndefined();
+    expect(store.itemById(applId)).toBeUndefined(); // mounted sink went with it
+  });
+
   it('duplicating the host rehomes copies of its appliances', async () => {
     const { store, hostId } = await storeWith();
     const copy = store.duplicateItem(hostId)!;

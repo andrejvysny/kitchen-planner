@@ -1,5 +1,5 @@
 import { catalogDef, hasCatalogDef, type CatalogDef } from './catalog';
-import { clamp } from './geometry';
+import { clamp, localToWorld, worldToLocal } from './geometry';
 import {
   cabinetFaceSize,
   GAP,
@@ -65,17 +65,12 @@ const itemById = (design: Design, id: string): Item | undefined =>
 
 /** width axis = (cos r, sin r); front axis (+v) = (−sin r, cos r) in plan space */
 function hostToWorld(host: Item, u: number, v: number): Point {
-  const c = Math.cos(host.rotation);
-  const s = Math.sin(host.rotation);
-  return { x: host.x + u * c - v * s, y: host.y + u * s + v * c };
+  return localToWorld({ x: host.x, y: host.y }, host.rotation, { x: u, y: v });
 }
 
 function worldToHost(host: Item, p: Point): { u: number; v: number } {
-  const c = Math.cos(host.rotation);
-  const s = Math.sin(host.rotation);
-  const dx = p.x - host.x;
-  const dy = p.y - host.y;
-  return { u: dx * c + dy * s, v: -dx * s + dy * c };
+  const l = worldToLocal({ x: host.x, y: host.y }, host.rotation, p);
+  return { u: l.x, v: l.y };
 }
 
 /** the host part scaled to the instance's dimensions, for face math */

@@ -16,11 +16,6 @@ import { cabinetTreeFromCounts, sanitizeZone } from './zones';
 export const MAX_BOARDS = 40;
 export const MAX_OUTLINE_POINTS = 16;
 
-export const TEMPLATE_LABELS: Record<'cabinet' | 'desk', string> = {
-  cabinet: 'Cabinet / shelving',
-  desk: 'Desk / table',
-};
-
 export function newCabinetPart(): CabinetPartDef {
   return {
     id: uid('part'),

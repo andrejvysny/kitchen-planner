@@ -47,6 +47,7 @@
             </div>
           </div>
           <input type="file" id="file-input" accept=".json,application/json" hidden />
+          <input type="file" id="underlay-input" accept="image/*" hidden />
         </div>
       </header>
 
@@ -85,6 +86,7 @@
             </div>
             <div id="measure-controls">
               <button id="btn-room" title="Add a room — click in the plan, or hover a wall to attach it">▧</button>
+              <button id="btn-draw-room" title="Draw a room — click each corner, click the first again (or Enter) to close">✎</button>
               <button id="btn-measure" title="Measure distances — click two points (snaps to corners, edges & walls)">📏</button>
               <button id="btn-checks" title="Show clearance warnings">⚠</button>
             </div>
@@ -113,6 +115,7 @@
 
       <footer id="statusbar">
         <span id="status-hint"></span>
+        <span id="status-savefail" class="statusbar-warn" hidden>⚠ Changes are NOT being saved — storage full or blocked</span>
         <span class="statusbar-spacer"></span>
         <span id="status-info"></span>
       </footer>

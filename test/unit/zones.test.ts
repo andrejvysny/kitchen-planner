@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Zone } from '../../src/model/types';
+import type { Zone, ZoneFill } from '../../src/model/types';
 import {
   cabinetTreeFromCounts,
   countLeaves,
@@ -17,9 +17,9 @@ import {
   zoneAtPoint,
 } from '../../src/model/zones';
 
-const leaf = (fill: Zone extends { fill: infer F } ? F : never = 'door' as never): Zone => ({
+const leaf = (fill: ZoneFill = 'door'): Zone => ({
   kind: 'leaf',
-  fill: fill as 'door',
+  fill,
 });
 
 describe('walkZones', () => {
@@ -49,7 +49,10 @@ describe('walkZones', () => {
       kind: 'split',
       dir: 'v',
       weights: [1, 1],
-      children: [leaf(), { kind: 'split', dir: 'h', weights: [1, 3], children: [leaf('drawers'), leaf('open')] }],
+      children: [
+        leaf(),
+        { kind: 'split', dir: 'h', weights: [1, 3], children: [leaf('drawers'), leaf('open')] },
+      ],
     };
     const hit = zoneAtPoint(tree, 1.0, 1.0, 0.75, 0.1);
     expect(hit).not.toBeNull();
@@ -91,7 +94,8 @@ describe('splitZone / mergeZone', () => {
       tree = splitZone(tree, path, i % 2 ? 'h' : 'v', 2);
       path = [...path, 0];
     }
-    const depth = (z: Zone): number => (z.kind === 'leaf' ? 0 : 1 + Math.max(...z.children.map(depth)));
+    const depth = (z: Zone): number =>
+      z.kind === 'leaf' ? 0 : 1 + Math.max(...z.children.map(depth));
     expect(depth(tree)).toBeLessThanOrEqual(MAX_DEPTH);
   });
 });
@@ -118,10 +122,7 @@ describe('normalizeZones / sanitizeZone', () => {
       kind: 'split',
       dir: 'h',
       weights: [2, 2],
-      children: [
-        { kind: 'split', dir: 'h', weights: [1, 1], children: [leaf(), leaf()] },
-        leaf(),
-      ],
+      children: [{ kind: 'split', dir: 'h', weights: [1, 1], children: [leaf(), leaf()] }, leaf()],
     };
     const out = normalizeZones(messy);
     expect(out.kind).toBe('split');
@@ -139,7 +140,10 @@ describe('normalizeZones / sanitizeZone', () => {
 
   it('sanitizeZone survives junk and depth bombs', () => {
     expect(sanitizeZone(null)).toEqual({ kind: 'leaf', fill: 'door' });
-    expect(sanitizeZone({ kind: 'leaf', fill: 'nonsense' })).toEqual({ kind: 'leaf', fill: 'door' });
+    expect(sanitizeZone({ kind: 'leaf', fill: 'nonsense' })).toEqual({
+      kind: 'leaf',
+      fill: 'door',
+    });
     expect(sanitizeZone({ kind: 'split', dir: 'h', weights: [], children: [] })).toEqual({
       kind: 'leaf',
       fill: 'door',
@@ -149,7 +153,12 @@ describe('normalizeZones / sanitizeZone', () => {
       bomb = { kind: 'split', dir: i % 2 ? 'h' : 'v', weights: [1], children: [bomb] };
     }
     expect(sanitizeZone(bomb)).toEqual({ kind: 'leaf', fill: 'door' });
-    const nan = sanitizeZone({ kind: 'split', dir: 'h', weights: [NaN, 1], children: [leaf(), leaf()] });
+    const nan = sanitizeZone({
+      kind: 'split',
+      dir: 'h',
+      weights: [NaN, 1],
+      children: [leaf(), leaf()],
+    });
     if (nan.kind === 'split') {
       expect(nan.weights.every((w) => Number.isFinite(w) && w > 0)).toBe(true);
     }
@@ -197,8 +206,17 @@ describe('interior + hinge round-trip', () => {
       dir: 'h',
       weights: [1, 1],
       children: [
-        { kind: 'leaf', fill: 'door', hinge: 'right', interior: { mode: 'auto', shelves: 2, innerDrawers: 1 } },
-        { kind: 'leaf', fill: 'open', interior: { mode: 'custom', elements: [{ kind: 'shelf', y: 0.3 }] } },
+        {
+          kind: 'leaf',
+          fill: 'door',
+          hinge: 'right',
+          interior: { mode: 'auto', shelves: 2, innerDrawers: 1 },
+        },
+        {
+          kind: 'leaf',
+          fill: 'open',
+          interior: { mode: 'custom', elements: [{ kind: 'shelf', y: 0.3 }] },
+        },
       ],
     };
     const out = normalizeZones(tree);
@@ -234,7 +252,11 @@ describe('walkSplits', () => {
       kind: 'split',
       dir: 'v',
       weights: [1, 1, 2],
-      children: [leaf(), leaf(), { kind: 'split', dir: 'h', weights: [1, 1], children: [leaf(), leaf()] }],
+      children: [
+        leaf(),
+        leaf(),
+        { kind: 'split', dir: 'h', weights: [1, 1], children: [leaf(), leaf()] },
+      ],
     };
     const bs = walkSplits(tree, 1.0, 0.8);
     // 3 v-children → 2 vertical boundaries; nested h-split → 1 horizontal

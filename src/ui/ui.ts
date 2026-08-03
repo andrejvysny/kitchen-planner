@@ -7,7 +7,14 @@ import {
   WALL_COLORS,
   type CatalogDef,
 } from '../model/catalog';
+import { polygonBounds } from '../model/geometry';
 import { footprintPolygon, toCatalogDef } from '../model/parts';
+import {
+  initialUnderlay,
+  UNDERLAY_JPEG_Q,
+  UNDERLAY_MAX_PX,
+  underlayScaleFrom,
+} from '../model/underlay';
 import { hasPreset, PRESETS } from '../model/presets';
 import {
   COUNTER_MATERIALS,
@@ -25,7 +32,7 @@ import { navInput, setNavInput } from '../model/navPref';
 import { openPrintSheet } from '../print/sheet';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../model/sky';
 import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
-import type { Item, Selection, WallVisMode } from '../model/types';
+import type { Item, Selection, Underlay, WallVisMode } from '../model/types';
 import { isVarRef, refId, resolveColor, toVarRef } from '../model/variables';
 import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
@@ -71,6 +78,7 @@ export class UI {
     this.renderProps();
     this.wireTabs();
     this.wireTopbar();
+    this.wireUnderlay();
     this.wireKeyboard();
 
     store.on('selection', () => {
@@ -100,6 +108,11 @@ export class UI {
       this.renderOutline();
       this.updateInfo();
     });
+    // persistent — stays lit across unrelated hint messages until a save succeeds
+    store.on('savefail', (failing) => {
+      ($('#status-savefail') as HTMLElement).hidden = !failing;
+    });
+    ($('#status-savefail') as HTMLElement).hidden = !store.savingFailed();
     this.updateUndoButtons();
     this.updateInfo();
   }
@@ -785,10 +798,15 @@ export class UI {
       });
       list.appendChild(row);
     }
-    const addRow = this.el('<div class="btn-row"><button class="btn">＋ Add room</button></div>');
-    addRow.querySelector('button')!.addEventListener('click', () => this.plan.setRoomTool(true));
+    const addRow = this.el(
+      '<div class="btn-row"><button class="btn">＋ Add room</button><button class="btn">✎ Draw room</button></div>'
+    );
+    const addBtns = addRow.querySelectorAll('button');
+    addBtns[0].addEventListener('click', () => this.plan.setRoomTool(true));
+    addBtns[1].addEventListener('click', () => this.plan.setDrawRoom(true));
     list.appendChild(addRow);
 
+    this.underlaySection(root);
     this.checksSection(root, this.store.warnings(), { cap: 12 });
 
     const rect = this.store.rectangleSize();
@@ -900,6 +918,155 @@ export class UI {
         4 · Place lights, then set the mood in <b>Lighting</b> (sun direction & height, brightness)<br>
         Create your own parametric furniture with <b>＋ New part</b></div>`)
     );
+  }
+
+  /* ---------- reference underlay ---------- */
+
+  /**
+   * Tracing-photo controls. The photo itself lives outside the design (see
+   * types.ts `Underlay`), so this section keys off `underlayRef()` — both
+   * halves present — not off the transform alone.
+   */
+  private underlaySection(root: HTMLElement): void {
+    const sec = this.section(root, 'Reference photo');
+    const ref = this.store.underlayRef();
+    if (!ref) {
+      const row = this.el('<div class="btn-row"><button class="btn">Import photo…</button></div>');
+      (row.querySelector('button') as HTMLButtonElement).addEventListener('click', () => this.pickUnderlay());
+      sec.appendChild(row);
+      sec.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Trace an existing floor plan: import it, drag it under the room, then calibrate its scale.</p>`));
+      return;
+    }
+
+    const u = ref.u;
+    this.sliderRow(sec, 'Opacity', Math.round(u.opacity * 100),
+      (v) => this.store.updateUnderlay({ opacity: v / 100 }),
+      { min: 0, max: 100, step: 1, fmt: (v) => `${Math.round(v)}%` });
+
+    const calRow = this.el('<div class="btn-row"><button class="btn underlay-calibrate">Calibrate scale</button></div>');
+    const calBtn = calRow.querySelector('button') as HTMLButtonElement;
+    calBtn.classList.toggle('active', this.plan.calibrateOn);
+    calBtn.addEventListener('click', () => this.plan.setCalibrate(!this.plan.calibrateOn));
+    sec.appendChild(calRow);
+
+    this.underlayToggles(sec, u);
+
+    const manage = this.el('<div class="btn-row"><button class="btn">Replace…</button><button class="btn danger">Remove</button></div>');
+    const [replaceBtn, removeBtn] = Array.from(manage.querySelectorAll('button'));
+    replaceBtn.addEventListener('click', () => this.pickUnderlay());
+    removeBtn.addEventListener('click', () => {
+      this.store.setUnderlay(null);
+      this.store.commit();
+      this.renderProps();
+    });
+    sec.appendChild(manage);
+    sec.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">1 photo pixel = ${(u.scale * 100).toFixed(2)} cm · drag the photo in the plan to move it</p>`));
+  }
+
+  /** Show/hide + lock, relabelling in place so neither needs a panel rebuild. */
+  private underlayToggles(sec: HTMLElement, u: Underlay): void {
+    const row = this.el('<div class="btn-row"><button class="btn"></button><button class="btn"></button></div>');
+    const [visBtn, lockBtn] = Array.from(row.querySelectorAll('button'));
+    const relabel = () => {
+      visBtn.textContent = u.visible ? 'Hide' : 'Show';
+      lockBtn.textContent = u.locked ? '🔒 Locked' : '🔓 Unlocked';
+      lockBtn.classList.toggle('active', u.locked);
+    };
+    const flip = (patch: Partial<Underlay>) => {
+      this.store.updateUnderlay(patch);
+      this.store.commit();
+      relabel();
+    };
+    visBtn.addEventListener('click', () => flip({ visible: !u.visible }));
+    lockBtn.addEventListener('click', () => flip({ locked: !u.locked }));
+    relabel();
+    sec.appendChild(row);
+  }
+
+  private pickUnderlay(): void {
+    ($('#underlay-input') as HTMLInputElement).click();
+  }
+
+  /** Import + calibration wiring; the file input itself lives in index.html. */
+  private wireUnderlay(): void {
+    const input = $('#underlay-input') as HTMLInputElement;
+    input.addEventListener('change', async () => {
+      const f = input.files?.[0];
+      input.value = '';
+      if (f) await this.importUnderlay(f);
+    });
+    this.plan.onCalibrateChange = () =>
+      $('#props-inner')
+        .querySelector('.underlay-calibrate')
+        ?.classList.toggle('active', this.plan.calibrateOn);
+    this.plan.onCalibrateDone = (d) => this.applyCalibration(d);
+  }
+
+  private async importUnderlay(f: File): Promise<void> {
+    let img: { src: string; w: number; h: number };
+    try {
+      img = await this.downscaleImage(f);
+    } catch {
+      $('#status-hint').textContent = 'Could not read that image — try a JPEG or PNG';
+      return;
+    }
+    const b = polygonBounds(this.store.activeRoom().corners);
+    const center = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
+    if (!this.store.setUnderlay(img.src, initialUnderlay(img.w, img.h, center))) {
+      $('#status-hint').textContent =
+        'Could not store the reference photo — browser storage is full or blocked';
+      return;
+    }
+    this.store.commit();
+    this.renderProps();
+    $('#status-hint').textContent =
+      'Reference photo placed — drag it into position, then Calibrate scale';
+  }
+
+  /**
+   * Decode, cap the long edge and re-encode as JPEG. Photos go into a
+   * localStorage key, so the raw megapixels of a phone shot are both useless
+   * for tracing and a quota hazard.
+   */
+  private async downscaleImage(f: File): Promise<{ src: string; w: number; h: number }> {
+    const dataUrl = await new Promise<string>((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result as string);
+      r.onerror = () => rej(new Error('read'));
+      r.readAsDataURL(f);
+    });
+    const img = await new Promise<HTMLImageElement>((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error('decode'));
+      i.src = dataUrl;
+    });
+    const long = Math.max(img.naturalWidth, img.naturalHeight);
+    if (!long) throw new Error('empty');
+    const k = Math.min(1, UNDERLAY_MAX_PX / long);
+    const cnv = document.createElement('canvas');
+    cnv.width = Math.max(1, Math.round(img.naturalWidth * k));
+    cnv.height = Math.max(1, Math.round(img.naturalHeight * k));
+    cnv.getContext('2d')!.drawImage(img, 0, 0, cnv.width, cnv.height);
+    return { src: cnv.toDataURL('image/jpeg', UNDERLAY_JPEG_Q), w: cnv.width, h: cnv.height };
+  }
+
+  /** The two calibration clicks spanned `dWorld` m — ask what that really is. */
+  private applyCalibration(dWorld: number): void {
+    const u = this.store.design.underlay;
+    if (!u) return;
+    const answer = prompt('How long is that distance in reality? (cm)');
+    const cm = Number(answer);
+    if (answer === null || !Number.isFinite(cm) || cm <= 0) {
+      $('#status-hint').textContent = 'Scale calibration cancelled';
+      return;
+    }
+    const scale = underlayScaleFrom(dWorld, u.scale, cm / 100);
+    this.store.updateUnderlay({ scale });
+    this.store.commit();
+    this.renderProps();
+    $('#status-hint').textContent =
+      `Reference scaled: that span is ${Math.round(cm)} cm · 1 photo pixel = ${(scale * 100).toFixed(2)} cm`;
   }
 
   /** Global lighting controls (shown in the no-selection panel). */
@@ -1237,6 +1404,7 @@ export class UI {
     const setView = (mode: '2d' | 'split' | '3d') => {
       $('#pane2d').classList.toggle('hidden', mode === '3d');
       $('#pane3d').classList.toggle('hidden', mode === '2d');
+      this.view.setActive(mode !== '2d'); // a hidden 3D pane renders nothing
       document.querySelectorAll<HTMLElement>('#view-toggle button').forEach((b) =>
         b.classList.toggle('active', b.dataset.view === mode));
     };
@@ -1314,9 +1482,20 @@ export class UI {
       fileInput.value = '';
       if (!f) return;
       try {
-        const d = sanitizeDesign(JSON.parse(await f.text()));
+        const raw: unknown = JSON.parse(await f.text());
+        const d = sanitizeDesign(raw);
         if (!d) throw new Error('bad file');
+        // the reference photo rides ALONGSIDE the design (it is never part of
+        // it, so sanitizeDesign drops the field) — reinstall it afterwards, and
+        // never let a photo-less file resurrect the previous one
+        const src = (raw as { underlaySrc?: unknown }).underlaySrc;
+        const hasSrc = typeof src === 'string' && !!src;
+        if (!hasSrc) delete d.underlay;
         this.store.replaceDesign(d);
+        if (hasSrc && d.underlay && !this.store.setUnderlay(src as string)) {
+          $('#status-hint').textContent =
+            'Design loaded, but the reference photo could not be stored — storage is full or blocked';
+        }
         this.plan.zoomFit();
       } catch {
         $('#status-hint').textContent = 'Could not read that file — is it an interior-design.json?';
@@ -1335,6 +1514,8 @@ export class UI {
         this.download(URL.createObjectURL(blob), 'interior.glb');
         $('#status-hint').textContent =
           'interior.glb exported — in Blender: File → Import → glTF 2.0';
+      } catch {
+        $('#status-hint').textContent = 'GLB export failed — try again after a reload.';
       } finally {
         btn.disabled = false;
       }
@@ -1359,6 +1540,10 @@ export class UI {
     const roomBtn = $('#btn-room');
     roomBtn.addEventListener('click', () => this.plan.setRoomTool(!this.plan.roomToolOn));
     this.plan.onRoomToolChange = () => roomBtn.classList.toggle('active', this.plan.roomToolOn);
+
+    const drawBtn = $('#btn-draw-room');
+    drawBtn.addEventListener('click', () => this.plan.setDrawRoom(!this.plan.drawRoomOn));
+    this.plan.onDrawRoomChange = () => drawBtn.classList.toggle('active', this.plan.drawRoomOn);
     document.querySelectorAll<HTMLElement>('#cam-controls button').forEach((b) =>
       b.addEventListener('click', () => {
         this.view.setPreset(b.dataset.cam as CamPreset);
@@ -1372,6 +1557,8 @@ export class UI {
     a.href = url;
     a.download = name;
     a.click();
+    // the click consumed the URL synchronously; hand the blob's memory back
+    if (url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   private downloadText(text: string, name: string, type: string): void {
@@ -1417,6 +1604,8 @@ export class UI {
       const url = URL.createObjectURL(new Blob([bomHtml(bom)], { type: 'text/html' }));
       const w = window.open(url, '_blank');
       if (!w) this.download(url, 'interior-bom.html');
+      // the opened tab keeps reading the URL while it loads — outlive that, then free it
+      else setTimeout(() => URL.revokeObjectURL(url), 60_000);
       $('#status-hint').textContent = w
         ? 'Printable sheet opened in a new tab'
         : 'Pop-ups are blocked — interior-bom.html downloaded instead';
@@ -1458,12 +1647,21 @@ export class UI {
       if (e.key === 'Escape') {
         if (this.studio.isOpen()) this.studio.handleEscape();
         else if (this.plan.armedDef) this.plan.setArmed(null);
+        else if (this.plan.calibrateOn) this.plan.setCalibrate(false);
         else if (this.plan.measureOn) this.plan.setMeasure(false);
         else if (this.plan.roomToolOn) this.plan.setRoomTool(false);
+        else if (this.plan.drawRoomOn) this.plan.cancelDrawRoom();
         else this.store.select({ kind: 'none' });
         return;
       }
       if (typing || this.studio.isOpen()) return;
+
+      // Enter closes the ring the draw-room tool is building
+      if (e.key === 'Enter' && this.plan.drawRoomOn) {
+        e.preventDefault();
+        this.plan.closeDrawRoom();
+        return;
+      }
 
       const sel = this.store.selection;
       const mod = e.ctrlKey || e.metaKey;

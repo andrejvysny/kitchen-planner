@@ -9,14 +9,14 @@ import { findHost } from '../model/attach';
 import { hostContexts } from '../model/worktops';
 import type { HostContext } from '../model/panels';
 import { snapItem } from '../model/snapping';
-import { openingsOfWall, styleOfItem } from '../model/rooms';
+import { openingsOfWall, roomById, styleOfItem, wallJoints, type RoomWall } from '../model/rooms';
 import type { Store } from '../model/store';
 import type { Corner, Item, Opening, Point } from '../model/types';
 import { AMBIENT_DAY, skyState } from '../model/sky';
 import { resolveFinish } from '../model/variables';
 import { buildItemGroup, lightLocalY, shade } from './itemMeshes';
 import { collectMotionUnits, setFrontPoses, stepFrontPoses, withClosedPoses } from './partMeshes';
-import { scaleBoxUV, surfMat } from './meshKit';
+import { prism, scaleBoxUV, surfMat } from './meshKit';
 import { resolveDevice } from '../model/navPref';
 import { isMac, wheelGesture, type WheelLike } from './wheelInput';
 
@@ -42,6 +42,12 @@ interface WallEntry {
   inward: THREE.Vector3;
   mid: THREE.Vector3;
   height: number;
+}
+
+/** A junction patch and the wall groups it closes — it shows while any is up. */
+interface JointEntry {
+  mesh: THREE.Mesh;
+  walls: WallEntry[];
 }
 
 interface CeilingEntry {
@@ -97,15 +103,22 @@ export class View3D {
 
   private roomGroup = new THREE.Group();
   private itemsGroup = new THREE.Group();
+  private ground: THREE.Mesh;
   private walls: WallEntry[] = [];
+  private joints: JointEntry[] = [];
   private ceilings: CeilingEntry[] = [];
   private camRoomAt: Point = { x: Infinity, y: Infinity };
   private camRoomId: string | null = null;
-  private items = new Map<string, ItemEntry>();
+  private itemEntries = new Map<string, ItemEntry>();
+
+  /** false while the 3D pane is hidden: no rendering, structural edits just queue */
+  private active = true;
+  private rebuildQueued = false;
+  private rebuildRaf = 0;
+  private contextLost = false;
 
   private hemi: THREE.HemisphereLight;
   private sun: THREE.DirectionalLight;
-  private pmrem: THREE.PMREMGenerator;
   private bg = new THREE.Color();
   private sunDir = new THREE.Vector3();
 
@@ -136,8 +149,6 @@ export class View3D {
 
     // area lights (LED strip) need their LTC lookup tables initialised once
     RectAreaLightUniformsLib.init();
-    // procedural image-based environment for reflections + soft fill (no asset files)
-    this.pmrem = new THREE.PMREMGenerator(this.renderer);
     this.initEnvironment();
 
     this.camera = new THREE.PerspectiveCamera(52, 1, 0.05, 120);
@@ -163,15 +174,28 @@ export class View3D {
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
+    // the shadow-catching disc is identical after every rebuild, so it lives
+    // outside the groups the rebuild disposes
+    this.ground = new THREE.Mesh(
+      new THREE.CircleGeometry(40, 40),
+      new THREE.MeshStandardMaterial({ color: '#c8c9c4', roughness: 0.95 })
+    );
+    this.ground.rotation.x = -Math.PI / 2;
+    this.ground.position.y = -0.012;
+    this.ground.receiveShadow = true;
+    this.ground.name = 'Ground';
+    this.scene.add(this.ground);
+
     this.scene.add(this.roomGroup);
     this.scene.add(this.itemsGroup);
 
     const parent = canvas.parentElement!;
     new ResizeObserver(() => this.resize()).observe(parent);
     this.resize();
+    this.initContextLoss(canvas, parent);
 
     store.on('change', (info) => {
-      if (info.structural) this.rebuild();
+      if (info.structural) this.queueRebuild();
       else this.softUpdate();
     });
     store.on('selection', () => this.applySelectionTint());
@@ -210,13 +234,33 @@ export class View3D {
 
   private animate = (): void => {
     requestAnimationFrame(this.animate);
+    // hidden pane or a dead GL context: nothing on screen can change
+    if (!this.active || this.contextLost) return;
     this.controls.update();
     this.updateWallVisibility();
-    for (const entry of this.items.values()) {
+    for (const entry of this.itemEntries.values()) {
       if (entry.units.length) stepFrontPoses(entry.units);
     }
     this.renderer.render(this.scene, this.camera);
   };
+
+  /**
+   * Show/hide gate for the 3D pane. While inactive the loop renders nothing and
+   * structural edits only mark the scene dirty, so a session spent in the 2D
+   * pane costs no GPU work at all.
+   */
+  setActive(active: boolean): void {
+    if (this.active === active) return;
+    this.active = active;
+    if (!active) {
+      // an in-flight frame would rebuild for nobody; the flag keeps the debt
+      if (this.rebuildRaf) cancelAnimationFrame(this.rebuildRaf);
+      this.rebuildRaf = 0;
+      return;
+    }
+    this.resize(); // the pane had zero size while hidden
+    this.flushRebuild();
+  }
 
   private updateWallVisibility(): void {
     const camPos = this.camera.position;
@@ -240,6 +284,10 @@ export class View3D {
         ? camRoom === w.roomId || camRoom === w.twinRoomId || camPos.y > w.height || facing
         : facing;
     }
+    // a patch belongs to no single wall, so it stays up while any wall it
+    // closes is up — hiding it with only one neighbour gone would re-open the
+    // corner of the wall still on screen
+    for (const j of this.joints) j.mesh.visible = j.walls.some((w) => w.group.visible);
     for (const c of this.ceilings) {
       const mode = rooms.find((r) => r.id === c.roomId)?.ceilingVisibility ?? 'auto';
       c.mesh.visible = mode === 'auto' ? camPos.y < c.height - 0.05 : mode === 'show';
@@ -313,15 +361,47 @@ export class View3D {
     });
   }
 
+  /**
+   * Item id → scene entry. Reading it settles any queued rebuild first, so a
+   * synchronous caller never sees geometry from before the last mutation.
+   */
+  get items(): ReadonlyMap<string, ItemEntry> {
+    this.flushRebuild();
+    return this.itemEntries;
+  }
+
+  /**
+   * Structural changes arrive in bursts (a drag emits one per pointermove), and
+   * only the last one of a frame is visible — so they coalesce into a single
+   * rebuild per frame instead of one per notify.
+   */
+  private queueRebuild(): void {
+    this.rebuildQueued = true;
+    // hidden pane: stay dirty until setActive(true) or a synchronous reader flushes
+    if (!this.active || this.rebuildRaf) return;
+    this.rebuildRaf = requestAnimationFrame(() => {
+      this.rebuildRaf = 0;
+      this.flushRebuild();
+    });
+  }
+
+  /** Run a queued rebuild now — for consumers that read the scene synchronously. */
+  flushRebuild(): void {
+    if (!this.rebuildQueued) return;
+    this.rebuildQueued = false;
+    this.rebuild();
+  }
+
   rebuild(): void {
     this.disposeGroup(this.roomGroup);
     this.roomGroup.clear();
     this.disposeGroup(this.itemsGroup);
     this.itemsGroup.clear();
-    this.items.clear();
+    this.itemEntries.clear();
     // fresh materials come back untinted, so nothing is applied any more
     this.appliedTints.clear();
     this.walls = [];
+    this.joints = [];
     this.ceilings = [];
 
     this.buildRooms();
@@ -334,18 +414,9 @@ export class View3D {
 
   private buildRooms(): void {
     const design = this.store.design;
+    // the shared ground disc only shows once there is something standing on it
+    this.ground.visible = design.rooms.length > 0;
     if (!design.rooms.length) return;
-
-    // ground catches shadows around the rooms
-    const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(40, 40),
-      new THREE.MeshStandardMaterial({ color: '#c8c9c4', roughness: 0.95 })
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.012;
-    ground.receiveShadow = true;
-    ground.name = 'Ground';
-    this.roomGroup.add(ground);
 
     const walls = this.store.allWalls();
     let wallIdx = 0;
@@ -358,7 +429,12 @@ export class View3D {
       // floor — ShapeGeometry UVs are the plan coords in meters, so shared
       // material textures (repeat = 1/tile) land at real-world scale directly
       const shape = new THREE.Shape(corners.map((p) => new THREE.Vector2(p.x, p.y)));
-      const floorFin = resolveFinish(design, style.floorColor, style.floorMaterial, style.floorMaterialRot);
+      const floorFin = resolveFinish(
+        design,
+        style.floorColor,
+        style.floorMaterial,
+        style.floorMaterialRot
+      );
       const floorMat = floorFin.material
         ? surfMat(floorFin)
         : new THREE.MeshStandardMaterial({ color: floorFin.color, roughness: 0.88 });
@@ -386,14 +462,18 @@ export class View3D {
         const t = g.thickness;
         // corners are the room-side wall FACE, so the slab hangs outside it
         const zc = g.faceOffset - t / 2;
-        const ext = t - g.faceOffset;
 
         const group = new THREE.Group();
         group.name = `Wall_${++wallIdx}`;
         group.position.set(g.a.x, 0, g.a.y);
         group.rotation.y = -g.angle;
 
-        const wallFin = resolveFinish(design, style.wallColor, style.wallMaterial, style.wallMaterialRot);
+        const wallFin = resolveFinish(
+          design,
+          style.wallColor,
+          style.wallMaterial,
+          style.wallMaterialRot
+        );
         const wallMat = wallFin.material
           ? surfMat(wallFin)
           : new THREE.MeshStandardMaterial({ color: wallFin.color, roughness: 0.94 });
@@ -414,7 +494,9 @@ export class View3D {
           group.add(m);
         };
 
-        let cursor = -ext; // extend into corners so joints close
+        // butt ends: the slab spans exactly [0, len] and buildJoints fills the
+        // corners, so opening offsets keep measuring from the true wall start
+        let cursor = 0;
         for (const o of openings) {
           const oL = o.offset - o.width / 2;
           const oR = o.offset + o.width / 2;
@@ -424,7 +506,7 @@ export class View3D {
           this.buildOpening(group, o, t, zc);
           cursor = oR;
         }
-        addSeg(cursor, g.len + ext, 0, H);
+        addSeg(cursor, g.len, 0, H);
 
         this.roomGroup.add(group);
         const mid = wallPoint(g, g.len / 2);
@@ -438,6 +520,51 @@ export class View3D {
           height: H,
         });
       }
+    }
+
+    this.buildJoints(walls);
+  }
+
+  /**
+   * One prism per welded junction, filling what the butt-ended slabs leave open
+   * at partition tees, four-room crossings and oblique corners. The patch
+   * outline is pure model geometry (`wallJoints`); here it only gains a height
+   * — the tallest room meeting there — and a material. Junction rooms virtually
+   * always share a style, so the first incident wall's room supplies the wall
+   * finish rather than blending several. The material is polygon-offset because
+   * a patch may sit flush inside a slab it also fills past.
+   */
+  private buildJoints(walls: RoomWall[]): void {
+    const design = this.store.design;
+    const byWallId = new Map(this.walls.map((w) => [w.id, w]));
+    for (const j of wallJoints(walls)) {
+      const styles = j.walls.flatMap((w) =>
+        [w.roomId, w.shared?.roomId].flatMap((id) => {
+          const style = id ? roomById(design.rooms, id)?.style : undefined;
+          return style ? [style] : [];
+        })
+      );
+      if (!styles.length) continue;
+      const h = Math.max(...styles.map((s) => s.wallHeight));
+      const fin = resolveFinish(
+        design,
+        styles[0].wallColor,
+        styles[0].wallMaterial,
+        styles[0].wallMaterialRot
+      );
+      const mat = fin.material
+        ? surfMat(fin)
+        : new THREE.MeshStandardMaterial({ color: fin.color, roughness: 0.94 });
+      mat.polygonOffset = true;
+      mat.polygonOffsetFactor = -1;
+      mat.polygonOffsetUnits = -1;
+      const mesh = prism(this.roomGroup, j.hull, h, mat, 0);
+      mesh.name = 'WallJoint';
+      const entries = j.walls.flatMap((w) => {
+        const e = byWallId.get(w.id);
+        return e ? [e] : [];
+      });
+      this.joints.push({ mesh, walls: entries });
     }
   }
 
@@ -472,7 +599,10 @@ export class View3D {
       );
       glass.position.set(0, o.sill + o.height / 2, 0);
       g.add(glass);
-      const mullion = new THREE.Mesh(new THREE.BoxGeometry(0.04, o.height - fw * 2, 0.035), frameMat);
+      const mullion = new THREE.Mesh(
+        new THREE.BoxGeometry(0.04, o.height - fw * 2, 0.035),
+        frameMat
+      );
       mullion.position.set(0, o.sill + o.height / 2, 0);
       g.add(mullion);
     } else {
@@ -543,13 +673,13 @@ export class View3D {
     }
 
     this.itemsGroup.add(group);
-    this.items.set(item.id, { group, light, bulbs, units });
+    this.itemEntries.set(item.id, { group, light, bulbs, units });
     this.placeItem(item);
   }
 
   /** Push the open-front view state to every unit; the RAF loop animates. */
   private applyFrontPoses(): void {
-    for (const [id, entry] of this.items) {
+    for (const [id, entry] of this.itemEntries) {
       if (entry.units.length) {
         setFrontPoses(entry.units, (unit) => this.store.openFronts.isOpen(id, unit));
       }
@@ -583,7 +713,7 @@ export class View3D {
   }
 
   private *allUnits(): Iterable<{ itemId: string; unit: string }> {
-    for (const [itemId, entry] of this.items) {
+    for (const [itemId, entry] of this.itemEntries) {
       for (const u of entry.units) {
         yield { itemId, unit: u.userData.motionUnit as string };
       }
@@ -591,7 +721,7 @@ export class View3D {
   }
 
   private placeItem(item: Item): void {
-    const entry = this.items.get(item.id);
+    const entry = this.itemEntries.get(item.id);
     if (!entry) return;
     const def = this.store.defOf(item.defId);
     const H = styleOfItem(this.store.design, item).wallHeight;
@@ -641,7 +771,11 @@ export class View3D {
     const pts = this.allCorners();
     const xs = pts.map((p) => p.x);
     const ys = pts.map((p) => p.y);
-    const span = Math.max(8, (Math.max(...xs) - Math.min(...xs)) / 2 + 2, (Math.max(...ys) - Math.min(...ys)) / 2 + 2);
+    const span = Math.max(
+      8,
+      (Math.max(...xs) - Math.min(...xs)) / 2 + 2,
+      (Math.max(...ys) - Math.min(...ys)) / 2 + 2
+    );
     const cam = this.sun.shadow.camera;
     cam.left = -span;
     cam.right = span;
@@ -655,7 +789,7 @@ export class View3D {
     const boost = 1.44 * nightness; // 0 day → 1.15 night
     let shadows = 0;
     for (const item of this.store.design.items) {
-      const entry = this.items.get(item.id);
+      const entry = this.itemEntries.get(item.id);
       if (!entry) continue;
       const def = this.store.defOf(item.defId);
       const lp = item.light;
@@ -695,15 +829,42 @@ export class View3D {
 
   /** One-time procedural PMREM environment (neutral RoomEnvironment) for reflections + fill. */
   private initEnvironment(): void {
+    // procedural image-based environment for reflections + soft fill (no asset files)
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
     const envScene = new RoomEnvironment();
-    const target = this.pmrem.fromScene(envScene, 0.04);
+    const target = pmrem.fromScene(envScene, 0.04);
     this.scene.environment = target.texture;
     this.disposeGroup(envScene); // frees the throwaway env geometry/materials
+    pmrem.dispose(); // the baked texture outlives the generator's scratch targets
+  }
+
+  /**
+   * A lost GPU context (driver reset, tab backgrounded too long) leaves every
+   * buffer dead. preventDefault asks the browser to hand a new context back;
+   * everything is rebuilt from the store on top of it.
+   */
+  private initContextLoss(canvas: HTMLCanvasElement, parent: HTMLElement): void {
+    const overlay = document.createElement('div');
+    overlay.className = 'gl-lost';
+    overlay.textContent = '3D view paused — restoring…';
+    overlay.hidden = true;
+    parent.appendChild(overlay);
+
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.contextLost = true;
+      overlay.hidden = false;
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.contextLost = false;
+      overlay.hidden = true;
+      this.rebuild(); // relights as part of the rebuild
+    });
   }
 
   /** Writes (or clears, with `null`) an item's emissive tint. Bulbs keep their glow. */
   private setTint(id: string, color: string | null): void {
-    const entry = this.items.get(id);
+    const entry = this.itemEntries.get(id);
     if (!entry) return;
     entry.group.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -791,7 +952,7 @@ export class View3D {
   private updateGizmo(): void {
     if (!this.gizmo) return; // selection tint runs once before the gizmo exists
     const sel = this.store.selection;
-    const entry = sel.kind === 'item' ? this.items.get(sel.id) : undefined;
+    const entry = sel.kind === 'item' ? this.itemEntries.get(sel.id) : undefined;
     // attached appliances derive their pose from the host — no move gizmo
     const attached = sel.kind === 'item' && !!this.store.itemById(sel.id)?.attach;
     if (entry && !attached) this.gizmo.attach(entry.group);
@@ -801,6 +962,7 @@ export class View3D {
   /* ---------------- picking & dragging ---------------- */
 
   private pointerRay(e: PointerEvent): THREE.Raycaster {
+    this.flushRebuild(); // picking must hit the geometry the user is looking at
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -943,6 +1105,7 @@ export class View3D {
   /* ---------------- export ---------------- */
 
   snapshotPNG(): string {
+    this.flushRebuild();
     const gizmoVisible = this.gizmo.visible;
     this.gizmo.visible = false; // keep the move handles out of the exported image
     this.renderer.render(this.scene, this.camera);
@@ -957,6 +1120,7 @@ export class View3D {
    * materials and lighting are meant to be authored in Blender.
    */
   async exportGLB(): Promise<Blob> {
+    this.flushRebuild();
     const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
 
     // clear every tint (selection + warnings) so none bakes into exported materials
@@ -969,7 +1133,7 @@ export class View3D {
     const roomClone = this.roomGroup.clone(true);
     roomClone.name = 'Rooms';
     // export closed geometry: open-preview poses are view state, not model
-    const allUnits = [...this.items.values()].flatMap((e) => e.units);
+    const allUnits = [...this.itemEntries.values()].flatMap((e) => e.units);
     const itemsClone = withClosedPoses(allUnits, () => this.itemsGroup.clone(true));
     itemsClone.name = 'Furniture';
     root.add(roomClone, itemsClone);

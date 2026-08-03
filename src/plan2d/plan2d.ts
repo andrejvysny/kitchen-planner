@@ -1,4 +1,4 @@
-import { isWallMounted, snapsToWall, type CatalogDef } from '../model/catalog';
+import { isWallMounted, type CatalogDef } from '../model/catalog';
 import {
   clamp,
   pointInPolygon,
@@ -7,7 +7,7 @@ import {
   rot,
   wallPoint,
 } from '../model/geometry';
-import type { RoomWall } from '../model/rooms';
+import { snapPointToRooms, snapRoomRect, type RoomWall } from '../model/rooms';
 import { nearestWall, snapItem, type Guide } from '../model/snapping';
 import type { Store } from '../model/store';
 import type { Item, Opening, Point } from '../model/types';
@@ -15,6 +15,7 @@ import { resolveDevice } from '../model/navPref';
 import { isMac, type WheelLike } from '../view3d/wheelInput';
 import { findHost } from '../model/attach';
 import { hitRadius, PinchGesture } from './pinch';
+import { underlayHits } from '../model/underlay';
 import {
   bandCenter,
   footprintOf,
@@ -22,6 +23,8 @@ import {
   renderPlan,
   rotateHandlePos,
   sortedItems,
+  underlayImage,
+  type DrawRing,
   type ItemGhost,
   type Measure,
   type OpeningGhost,
@@ -31,6 +34,8 @@ import {
 /** Seed size of a room dropped by the add-room tool (m). */
 const NEW_ROOM_W = 4;
 const NEW_ROOM_D = 3;
+/** Ortho assist for the draw-room tool — snapping.ts' ALIGN_SNAP_DIST. */
+const DRAW_ALIGN = 0.06;
 /** How close to a wall the cursor must be for the tool to attach the room to it. */
 const ROOM_WALL_REACH = 0.45;
 /**
@@ -50,7 +55,9 @@ type Drag =
   | { type: 'corner'; id: string }
   | { type: 'opening'; id: string }
   | { type: 'rotate'; id: string }
-  | { type: 'measure'; sx: number; sy: number; moved: boolean };
+  | { type: 'measure'; sx: number; sy: number; moved: boolean }
+  /** dragging the tracing photo; `ox/oy` = grab offset from its top-left */
+  | { type: 'underlay'; ox: number; oy: number; sx: number; sy: number; moved: boolean };
 
 export class Plan2D {
   private canvas: HTMLCanvasElement;
@@ -72,6 +79,18 @@ export class Plan2D {
   private measure: Measure = { a: null, b: null, hover: null, snapped: false, measuring: false };
 
   /**
+   * Underlay scale calibration: the measure tool's two-click gesture, but the
+   * points are NEVER snapped (they mark features in the photo, not in the
+   * model) and the completed distance is handed to the owner, which asks for
+   * the real-world length and rescales.
+   */
+  calibrateOn = false;
+  onCalibrateChange: (() => void) | null = null;
+  /** the two clicks were `dWorld` metres apart at the current scale */
+  onCalibrateDone: ((dWorld: number) => void) | null = null;
+  private calibrate: Measure = { a: null, b: null, hover: null, snapped: false, measuring: false };
+
+  /**
    * Whether the advisory (warn / info) findings are drawn. Errors ignore this
    * and always show: a cabinet inside another one is never worth hiding.
    */
@@ -82,12 +101,16 @@ export class Plan2D {
   onRoomToolChange: (() => void) | null = null;
   private roomGhost: RoomGhost | null = null;
 
+  drawRoomOn = false;
+  onDrawRoomChange: (() => void) | null = null;
+  private drawPts: Point[] = [];
+  private drawHover: Point | null = null;
+
   private ghost: ItemGhost | null = null;
   private ghostOpening: OpeningGhost | null = null;
   private drag: Drag = { type: 'none' };
   private pinch = new PinchGesture(); // two-finger pinch-zoom / pan (touch)
   private guides: Guide[] = [];
-  private pointerWorld: Point = { x: 0, y: 0 };
   private raf = 0;
   private fitted = false;
   private readonly isMac = isMac(navigator.platform, navigator.userAgent);
@@ -125,6 +148,7 @@ export class Plan2D {
         this.ghost = null;
         this.ghostOpening = null;
         this.roomGhost = null;
+        this.drawHover = null; // the ring stays; only its rubber band leaves
         this.requestDraw();
       }
     });
@@ -186,21 +210,48 @@ export class Plan2D {
 
   /* ---------------- arming (placement from catalog) ---------------- */
 
-  setArmed(def: CatalogDef | null): void {
-    this.armedDef = def;
-    this.ghost = null;
-    this.ghostOpening = null;
-    // arming, measuring and the room tool are mutually exclusive
-    if (def && this.measureOn) {
+  /** Arming, measuring, calibrating and the room tools take gestures — only one may be live. */
+  private closeOtherTools(keep: 'armed' | 'measure' | 'room' | 'draw' | 'calibrate'): void {
+    if (keep !== 'calibrate' && this.calibrateOn) {
+      this.calibrateOn = false;
+      this.resetCalibrate();
+      this.onCalibrateChange?.();
+    }
+    if (keep !== 'armed' && this.armedDef) {
+      this.armedDef = null;
+      this.ghost = null;
+      this.ghostOpening = null;
+      this.onArmedChange?.();
+    }
+    if (keep !== 'measure' && this.measureOn) {
       this.measureOn = false;
       this.resetMeasure();
       this.onMeasureChange?.();
     }
-    if (def && this.roomToolOn) {
+    if (keep !== 'room' && this.roomToolOn) {
       this.roomToolOn = false;
       this.roomGhost = null;
       this.onRoomToolChange?.();
     }
+    if (keep !== 'draw' && this.drawRoomOn) {
+      this.drawRoomOn = false;
+      this.resetDrawRing();
+      this.onDrawRoomChange?.();
+    }
+  }
+
+  /** Whichever tool owns the cursor wants a crosshair. */
+  private toolCursor(): string {
+    return this.armedDef || this.measureOn || this.roomToolOn || this.drawRoomOn || this.calibrateOn
+      ? 'crosshair'
+      : 'default';
+  }
+
+  setArmed(def: CatalogDef | null): void {
+    this.armedDef = def;
+    this.ghost = null;
+    this.ghostOpening = null;
+    if (def) this.closeOtherTools('armed');
     this.canvas.style.cursor = def ? 'crosshair' : 'default';
     this.updateHint();
     this.onArmedChange?.();
@@ -216,22 +267,62 @@ export class Plan2D {
   setMeasure(on: boolean): void {
     this.measureOn = on;
     this.resetMeasure();
-    // arming, measuring and the room tool are mutually exclusive
-    if (on && this.armedDef) {
-      this.armedDef = null;
-      this.ghost = null;
-      this.ghostOpening = null;
-      this.onArmedChange?.();
-    }
-    if (on && this.roomToolOn) {
-      this.roomToolOn = false;
-      this.roomGhost = null;
-      this.onRoomToolChange?.();
-    }
+    if (on) this.closeOtherTools('measure');
     this.canvas.style.cursor = on ? 'crosshair' : 'default';
     this.updateHint();
     this.onMeasureChange?.();
     this.requestDraw();
+  }
+
+  /* ---------------- underlay calibration ---------------- */
+
+  private resetCalibrate(): void {
+    this.calibrate = { a: null, b: null, hover: null, snapped: false, measuring: false };
+  }
+
+  setCalibrate(on: boolean): void {
+    this.calibrateOn = on;
+    this.resetCalibrate();
+    if (on) this.closeOtherTools('calibrate');
+    this.canvas.style.cursor = on ? 'crosshair' : 'default';
+    this.updateHint();
+    this.onCalibrateChange?.();
+    this.requestDraw();
+  }
+
+  /** The second click closes the span and hands its length to the owner. */
+  private calibrateClick(w: Point): void {
+    if (!this.calibrate.measuring) {
+      this.calibrate = { a: w, b: null, hover: w, snapped: false, measuring: true };
+      this.updateHint();
+      this.requestDraw();
+      return;
+    }
+    const a = this.calibrate.a!;
+    this.calibrate.b = w;
+    this.calibrate.measuring = false;
+    // paint the finished span NOW: the owner answers with a blocking prompt,
+    // and a requestAnimationFrame draw would not land until after it closes
+    this.draw();
+    const d = Math.hypot(w.x - a.x, w.y - a.y);
+    if (d > 1e-6) this.onCalibrateDone?.(d);
+    this.setCalibrate(false);
+  }
+
+  /* ---------------- tracing underlay ---------------- */
+
+  /**
+   * Whether a plan drag should grab the photo instead of panning. Requires the
+   * pointer to be OVER the image: outside it the plan still pans, so an
+   * unlocked underlay never takes the pan gesture hostage.
+   */
+  private hitUnderlay(w: Point): boolean {
+    const ref = this.store.underlayRef();
+    if (!ref || !ref.u.visible || ref.u.locked) return false;
+    // a hover can beat the first draw to the cache, so this path arms the
+    // redraw callback too — whichever caller creates the entry owns it
+    const img = underlayImage(ref.src, () => this.requestDraw());
+    return !!img && underlayHits(ref.u, img.naturalWidth, img.naturalHeight, w);
   }
 
   /* ---------------- checks overlay ---------------- */
@@ -251,22 +342,89 @@ export class Plan2D {
   setRoomTool(on: boolean): void {
     this.roomToolOn = on;
     this.roomGhost = null;
-    // arming, measuring and the room tool are mutually exclusive
-    if (on && this.armedDef) {
-      this.armedDef = null;
-      this.ghost = null;
-      this.ghostOpening = null;
-      this.onArmedChange?.();
-    }
-    if (on && this.measureOn) {
-      this.measureOn = false;
-      this.resetMeasure();
-      this.onMeasureChange?.();
-    }
+    if (on) this.closeOtherTools('room');
     this.canvas.style.cursor = on ? 'crosshair' : 'default';
     this.updateHint();
     this.onRoomToolChange?.();
     this.requestDraw();
+  }
+
+  /* ---------------- draw-room tool ---------------- */
+
+  private resetDrawRing(): void {
+    this.drawPts = [];
+    this.drawHover = null;
+  }
+
+  setDrawRoom(on: boolean): void {
+    this.drawRoomOn = on;
+    this.resetDrawRing();
+    if (on) this.closeOtherTools('draw');
+    this.canvas.style.cursor = on ? 'crosshair' : 'default';
+    this.updateHint();
+    this.onDrawRoomChange?.();
+    this.requestDraw();
+  }
+
+  /** Esc drops the in-progress ring first; only an empty one disarms the tool. */
+  cancelDrawRoom(): void {
+    if (!this.drawPts.length) {
+      this.setDrawRoom(false);
+      return;
+    }
+    this.resetDrawRing();
+    this.updateHint();
+    this.requestDraw();
+  }
+
+  /**
+   * Where the pending vertex would land: another room's corner or wall wins
+   * outright (that flushness is what the weld turns into a partition), else the
+   * 5 cm grid with an ortho assist onto the previous and first vertices.
+   */
+  private snapDrawPoint(w: Point): Point {
+    const near = snapPointToRooms(this.store.design.rooms, w);
+    if (near.hit) return near.p;
+    const p = { x: Math.round(w.x * 20) / 20, y: Math.round(w.y * 20) / 20 };
+    for (const v of [this.drawPts[this.drawPts.length - 1], this.drawPts[0]]) {
+      if (!v) continue;
+      if (Math.abs(w.x - v.x) < DRAW_ALIGN) p.x = v.x;
+      if (Math.abs(w.y - v.y) < DRAW_ALIGN) p.y = v.y;
+    }
+    return p;
+  }
+
+  /** Is `p` on the ring's first vertex, i.e. on the close target? */
+  private onCloseTarget(p: Point | null): boolean {
+    const first = this.drawPts[0];
+    if (!p || !first || this.drawPts.length < 3) return false;
+    return Math.hypot(p.x - first.x, p.y - first.y) * this.zoom < hitRadius(10);
+  }
+
+  private addDrawPoint(p: Point): void {
+    if (this.onCloseTarget(p)) {
+      this.closeDrawRoom();
+      return;
+    }
+    // a double-click's second press repeats the first — never a zero-length wall
+    const last = this.drawPts[this.drawPts.length - 1];
+    if (last && Math.hypot(p.x - last.x, p.y - last.y) < 1e-6) return;
+    this.drawPts.push(p);
+    this.updateHint();
+    this.requestDraw();
+  }
+
+  /** Turn the drawn ring into a room. An unusable outline stays up to be fixed. */
+  closeDrawRoom(): void {
+    if (this.drawPts.length < 3) return;
+    const room = this.store.addRoom({ polygon: this.drawPts });
+    if (!room) {
+      this.onHint('That outline is not a usable room — it crosses itself or is too small');
+      return;
+    }
+    this.store.select({ kind: 'none' }); // the new room's panel is the no-selection one
+    this.store.commit();
+    this.setDrawRoom(false);
   }
 
   /**
@@ -315,9 +473,18 @@ export class Plan2D {
         attached: true,
       };
     }
-    // free-standing: a w×d rectangle centred on the cursor, on the drag grid
-    const x = Math.round((w.x - NEW_ROOM_W / 2) * 20) / 20;
-    const y = Math.round((w.y - NEW_ROOM_D / 2) * 20) / 20;
+    // free-standing: a w×d rectangle centred on the cursor. A side within reach
+    // of another room goes exactly flush with it (addRoom then welds the two
+    // into a partition); the drag grid only rules the axes that did not snap.
+    const flush = snapRoomRect(
+      this.store.design.rooms,
+      w.x - NEW_ROOM_W / 2,
+      w.y - NEW_ROOM_D / 2,
+      NEW_ROOM_W,
+      NEW_ROOM_D
+    );
+    const x = flush.snappedX ? flush.x : Math.round(flush.x * 20) / 20;
+    const y = flush.snappedY ? flush.y : Math.round(flush.y * 20) / 20;
     return {
       poly: [
         { x, y },
@@ -327,6 +494,7 @@ export class Plan2D {
       ],
       opts: { at: { x, y }, w: NEW_ROOM_W, d: NEW_ROOM_D },
       attached: false,
+      flush: flush.snappedX || flush.snappedY,
     };
   }
 
@@ -397,8 +565,26 @@ export class Plan2D {
   /* ---------------- hints ---------------- */
 
   private updateHint(): void {
+    if (this.calibrateOn) {
+      this.onHint(
+        this.calibrate.measuring
+          ? 'Click the other end of the known distance · Esc cancels'
+          : 'Click both ends of a distance you know in the photo · Esc cancels'
+      );
+      return;
+    }
     if (this.roomToolOn) {
-      this.onHint('Click to place a room · hover a wall to attach it · Shift keeps the tool · Esc cancels');
+      this.onHint(
+        'Click to place a room · hover a wall to attach it · Shift keeps the tool · Esc cancels'
+      );
+      return;
+    }
+    if (this.drawRoomOn) {
+      this.onHint(
+        this.drawPts.length >= 3
+          ? 'Click the first corner (or Enter) to close the room · Esc discards it'
+          : 'Click each corner of the room · corners snap to neighbouring rooms · Esc exits'
+      );
       return;
     }
     if (this.measureOn) {
@@ -411,24 +597,34 @@ export class Plan2D {
     }
     if (this.armedDef) {
       if (this.armedDef.opening) {
-        this.onHint(`Click on a wall to place the ${this.armedDef.label.toLowerCase()} · Esc cancels`);
+        this.onHint(
+          `Click on a wall to place the ${this.armedDef.label.toLowerCase()} · Esc cancels`
+        );
       } else if (this.armedDef.marker) {
-        this.onHint(`Click near a wall to mark the ${this.armedDef.label.toLowerCase()} · Shift places several · Esc cancels`);
+        this.onHint(
+          `Click near a wall to mark the ${this.armedDef.label.toLowerCase()} · Shift places several · Esc cancels`
+        );
       } else {
-        this.onHint('Click to place · items snap to walls and neighbours · Shift places several · Esc cancels');
+        this.onHint(
+          'Click to place · items snap to walls and neighbours · Shift places several · Esc cancels'
+        );
       }
       return;
     }
     const sel = this.store.selection;
     switch (sel.kind) {
       case 'item':
-        this.onHint('Drag to move · click again for the item underneath · R rotates · arrows nudge · Ctrl+D duplicates · Delete removes');
+        this.onHint(
+          'Drag to move · click again for the item underneath · R rotates · arrows nudge · Ctrl+D duplicates · Delete removes'
+        );
         break;
       case 'corner':
         this.onHint('Drag the corner to reshape the room · Delete removes it');
         break;
       case 'wall':
-        this.onHint('Edit the wall length in the panel · drag ◆ on a wall to bend it · double-click adds a corner');
+        this.onHint(
+          'Edit the wall length in the panel · drag ◆ on a wall to bend it · double-click adds a corner'
+        );
         break;
       case 'opening':
         this.onHint('Drag to slide along the wall · size it in the panel · Delete removes');
@@ -550,7 +746,9 @@ export class Plan2D {
     if (e.pointerType === 'touch') {
       if (this.pinch.down(e.pointerId, s)) {
         // second finger: abandon the single-finger gesture, start pinch zoom/pan
-        if (['corner', 'opening', 'item', 'rotate'].includes(this.drag.type)) this.store.commit();
+        if (['corner', 'opening', 'item', 'rotate', 'underlay'].includes(this.drag.type)) {
+          this.store.commit();
+        }
         this.drag = { type: 'pinch' };
         this.guides = [];
         this.canvas.setPointerCapture(e.pointerId);
@@ -577,7 +775,13 @@ export class Plan2D {
         this.measure.measuring = false;
         this.drag = { type: 'none' };
       } else {
-        this.measure = { a: snap.p, b: null, hover: snap.p, snapped: snap.snapped, measuring: true };
+        this.measure = {
+          a: snap.p,
+          b: null,
+          hover: snap.p,
+          snapped: snap.snapped,
+          measuring: true,
+        };
         this.drag = { type: 'measure', sx: s.x, sy: s.y, moved: false };
       }
       this.updateHint();
@@ -585,9 +789,21 @@ export class Plan2D {
       return;
     }
 
+    // calibrating the underlay: two raw (never snapped) clicks on the photo
+    if (this.calibrateOn) {
+      this.calibrateClick(w);
+      return;
+    }
+
     // dropping a new room
     if (this.roomToolOn) {
       this.placeRoom(w, e.shiftKey);
+      return;
+    }
+
+    // drawing one corner by corner
+    if (this.drawRoomOn) {
+      this.addDrawPoint(this.snapDrawPoint(w));
       return;
     }
 
@@ -644,8 +860,28 @@ export class Plan2D {
       this.store.select({ kind: 'wall', id: wallId });
       return;
     }
+    // nothing modelled here: an unlocked photo under the cursor takes the drag
+    if (this.hitUnderlay(w)) {
+      const u = this.store.design.underlay!;
+      this.drag = {
+        type: 'underlay',
+        ox: w.x - u.x,
+        oy: w.y - u.y,
+        sx: s.x,
+        sy: s.y,
+        moved: false,
+      };
+      return;
+    }
     // empty space: maybe-pan; deselect on plain click
-    this.drag = { type: 'maybe-pan', sx: s.x, sy: s.y, panX0: this.panX, panY0: this.panY, moved: false };
+    this.drag = {
+      type: 'maybe-pan',
+      sx: s.x,
+      sy: s.y,
+      panX0: this.panX,
+      panY0: this.panY,
+      moved: false,
+    };
   }
 
   private placeArmed(w: Point, keep: boolean): void {
@@ -686,7 +922,6 @@ export class Plan2D {
   private onPointerMove(e: PointerEvent): void {
     const s = { x: e.offsetX, y: e.offsetY };
     const w = this.toWorld(s.x, s.y);
-    this.pointerWorld = w;
     if (this.pinch.has(e.pointerId)) this.pinch.track(e.pointerId, s);
 
     switch (this.drag.type) {
@@ -733,7 +968,8 @@ export class Plan2D {
         let y = Math.round(w.y * 20) / 20;
         // axis-lock to neighbouring corners for easy orthogonal rooms
         const dragId = (this.drag as { id: string }).id;
-        const c = this.store.roomOfCorner(dragId)?.corners ?? [];
+        const room = this.store.roomOfCorner(dragId);
+        const c = room?.corners ?? [];
         const idx = c.findIndex((k) => k.id === dragId);
         if (idx >= 0) {
           const prev = c[(idx - 1 + c.length) % c.length];
@@ -750,7 +986,14 @@ export class Plan2D {
             }
           }
         }
-        this.store.moveCorner((this.drag as { id: string }).id, x, y);
+        // another room's corner or wall wins over both: landing exactly on it
+        // is what lets endGesture weld the two rings into a partition
+        const flush = snapPointToRooms(this.store.design.rooms, w, room?.id);
+        if (flush.hit) {
+          x = flush.p.x;
+          y = flush.p.y;
+        }
+        this.store.moveCorner(dragId, x, y);
         return;
       }
       case 'opening': {
@@ -781,7 +1024,11 @@ export class Plan2D {
             this.store.setAttachment(it.id, hit.attach);
           } else {
             if (it.attach) this.store.setAttachment(it.id, undefined);
-            this.store.updateItem(it.id, { x: p.x, y: p.y }, { structural: false, transient: true });
+            this.store.updateItem(
+              it.id,
+              { x: p.x, y: p.y },
+              { structural: false, transient: true }
+            );
           }
           return;
         }
@@ -812,6 +1059,19 @@ export class Plan2D {
         this.requestDraw();
         return;
       }
+      case 'underlay': {
+        const d = this.drag;
+        // below the threshold this is still a click (which deselects), so the
+        // photo must not creep on a shaky press
+        if (!d.moved && Math.hypot(s.x - d.sx, s.y - d.sy) <= 4) return;
+        d.moved = true;
+        this.canvas.style.cursor = 'grabbing';
+        this.store.updateUnderlay(
+          { x: w.x - d.ox, y: w.y - d.oy },
+          { structural: false, transient: true }
+        );
+        return;
+      }
       case 'none':
         break;
     }
@@ -819,6 +1079,22 @@ export class Plan2D {
     // add-room tool: preview exactly what a click would build
     if (this.roomToolOn) {
       this.roomGhost = this.roomGhostAt(w);
+      this.canvas.style.cursor = 'crosshair';
+      this.requestDraw();
+      return;
+    }
+
+    // draw-room tool: rubber-band the pending vertex
+    if (this.drawRoomOn) {
+      this.drawHover = this.snapDrawPoint(w);
+      this.canvas.style.cursor = 'crosshair';
+      this.requestDraw();
+      return;
+    }
+
+    // calibrating, between clicks: rubber-band from the first raw point
+    if (this.calibrateOn) {
+      this.calibrate.hover = w;
       this.canvas.style.cursor = 'crosshair';
       this.requestDraw();
       return;
@@ -852,7 +1128,12 @@ export class Plan2D {
       } else {
         const res = snapItem(this.store, this.armedDef, null, w.x, w.y, 0);
         const needWall = this.armedDef.marker || isWallMounted(this.armedDef);
-        this.ghost = { x: res.x, y: res.y, rotation: res.rotation, valid: !needWall || !!res.wallId };
+        this.ghost = {
+          x: res.x,
+          y: res.y,
+          rotation: res.rotation,
+          valid: !needWall || !!res.wallId,
+        };
         this.ghostOpening = null;
         this.guides = res.guides;
       }
@@ -868,7 +1149,9 @@ export class Plan2D {
           ? 'move'
           : this.hitWall(w)
             ? 'pointer'
-            : 'default';
+            : this.hitUnderlay(w)
+              ? 'grab'
+              : 'default';
     this.canvas.style.cursor = hover;
   }
 
@@ -893,8 +1176,9 @@ export class Plan2D {
       this.requestDraw();
       return;
     }
-    if (wasDrag.type === 'maybe-pan' && !wasDrag.moved) {
-      // a click on empty floor of another room switches to it; a drag only pans
+    if ((wasDrag.type === 'maybe-pan' || wasDrag.type === 'underlay') && !wasDrag.moved) {
+      // a click on empty floor of another room switches to it; a drag only
+      // pans (or, over the photo, moves it)
       const roomId = this.hitRoom(this.toWorld(wasDrag.sx, wasDrag.sy));
       if (roomId) this.store.setActiveRoom(roomId);
       this.store.select({ kind: 'none' });
@@ -902,7 +1186,12 @@ export class Plan2D {
     if (wasDrag.type === 'maybe-split') {
       this.store.select({ kind: 'wall', id: wasDrag.wallId });
     }
-    if (wasDrag.type === 'item' && !wasDrag.moved && wasDrag.cycleTo && wasDrag.cycleTo !== wasDrag.id) {
+    if (
+      wasDrag.type === 'item' &&
+      !wasDrag.moved &&
+      wasDrag.cycleTo &&
+      wasDrag.cycleTo !== wasDrag.id
+    ) {
       this.store.select({ kind: 'item', id: wasDrag.cycleTo });
     }
     this.endGesture();
@@ -913,9 +1202,14 @@ export class Plan2D {
     const wasDrag = this.drag;
     this.drag = { type: 'none' };
     this.guides = [];
-    this.canvas.style.cursor =
-      this.armedDef || this.measureOn || this.roomToolOn ? 'crosshair' : 'default';
-    if (['corner', 'opening', 'item', 'rotate'].includes(wasDrag.type)) {
+    this.canvas.style.cursor = this.toolCursor();
+    if (wasDrag.type === 'corner') {
+      // welding cuts other rings, so it belongs at the end of the gesture —
+      // never on the pointermoves that drag the corner there
+      const room = this.store.roomOfCorner(wasDrag.id);
+      if (room) this.store.weldRoom(room.id);
+    }
+    if (['corner', 'opening', 'item', 'rotate', 'underlay'].includes(wasDrag.type)) {
       this.store.commit();
     }
     this.requestDraw();
@@ -940,7 +1234,11 @@ export class Plan2D {
 
   private onDblClick(e: PointerEvent | MouseEvent): void {
     const w = this.toWorld(e.offsetX, e.offsetY);
-    if (this.armedDef || this.roomToolOn) return;
+    if (this.drawRoomOn) {
+      this.closeDrawRoom(); // the two presses already placed the last corner
+      return;
+    }
+    if (this.armedDef || this.roomToolOn || this.calibrateOn) return;
     if (this.hitItem(w) || this.hitOpening(w)) return;
     const wallId = this.hitWall(w);
     if (wallId) {
@@ -964,6 +1262,15 @@ export class Plan2D {
     });
   }
 
+  private drawRing(): DrawRing | null {
+    if (!this.drawRoomOn || !this.drawPts.length) return null;
+    return {
+      pts: this.drawPts,
+      hover: this.drawHover,
+      closing: this.onCloseTarget(this.drawHover),
+    };
+  }
+
   private draw(): void {
     const ctx = this.ctx;
     const dpr = window.devicePixelRatio || 1;
@@ -973,14 +1280,25 @@ export class Plan2D {
       this.store,
       { zoom: this.zoom, panX: this.panX, panY: this.panY, cssW: this.cssW, cssH: this.cssH },
       // on screen every layer is live; only the ⚠ advisory findings are opt-in
-      { handles: true, guides: true, ghosts: true, measure: this.measureOn, checks: true, roomEmphasis: true },
+      {
+        underlay: true,
+        onUnderlayLoad: () => this.requestDraw(),
+        handles: true,
+        guides: true,
+        ghosts: true,
+        // calibration reuses the measurement overlay for its two-point span
+        measure: this.measureOn || this.calibrateOn,
+        checks: true,
+        roomEmphasis: true,
+      },
       {
         guides: this.guides,
         armedDef: this.armedDef,
         ghost: this.ghost,
         ghostOpening: this.ghostOpening,
         roomGhost: this.roomToolOn ? this.roomGhost : null,
-        measure: this.measure,
+        drawRing: this.drawRing(),
+        measure: this.calibrateOn ? this.calibrate : this.measure,
         advisoryChecks: this.checksOn,
       }
     );

@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
 
+const baseUrl = process.env.KP_BASE_URL ?? 'http://localhost:4173/';
 const executablePath = process.env.KP_CHROMIUM_PATH || undefined;
 const browser = await chromium.launch({
   ...(executablePath ? { executablePath } : {}),
@@ -10,7 +11,17 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 page.on('dialog', (d) => d.accept());
 
-await page.goto('http://localhost:4173/', { waitUntil: 'networkidle' });
+// KITCHENP-13: force mac-gated wheel/trackpad handling on every platform (the
+// checks below dispatch synthetic wheel events regardless of the real OS —
+// see window.__kpForceMac in main.ts / setMacOverride in
+// src/view3d/wheelInput.ts). addInitScript re-applies on every navigation
+// (including the page.reload() calls later in this file), so one call here
+// covers the whole run.
+await page.addInitScript(() => {
+  window.__kpForceMac = true;
+});
+
+await page.goto(baseUrl, { waitUntil: 'networkidle' });
 await page.waitForTimeout(1500);
 // deterministic state: empty 4x3 room, no items
 await page.evaluate(() => localStorage.clear());
@@ -674,8 +685,10 @@ await page.waitForTimeout(200);
 // macOS mouse notch goes through the OS acceleration curve and lands as a small
 // delta whose wheelDeltaY is NOT a multiple of 120, which the old code read as a
 // two-finger swipe and panned. `accel` reproduces that; `swipe` is the trackpad
-// it must not break. Runs on macOS CI only, since the trackpad remap is mac-gated.
-const isMacRun = await page.evaluate(() => /mac/i.test(navigator.platform));
+// it must not break. The trackpad remap is mac-gated in app code, so this runs
+// under a forced mac override (window.__kpForceMac, set via addInitScript at
+// the top of this file) rather than a real-OS check — it now runs on every CI
+// platform instead of only a macOS runner.
 const sendWheel = (sel, init) =>
   page.evaluate(
     ([s, i]) => {
@@ -690,75 +703,73 @@ const accel = { deltaX: 0, deltaY: 12 };
 // A two-finger swipe: sub-pixel with sideways drift.
 const swipe = { deltaX: 0.5, deltaY: 2.5 };
 
-if (isMacRun) {
-  const setNav = (mode) => page.evaluate((m) => window.__kp.setNavInput(m), mode);
-  const plan2d = () => page.evaluate(() => ({ zoom: window.__kp.plan.zoom, panY: window.__kp.plan.panY }));
+const setNav = (mode) => page.evaluate((m) => window.__kp.setNavInput(m), mode);
+const plan2d = () => page.evaluate(() => ({ zoom: window.__kp.plan.zoom, panY: window.__kp.plan.panY }));
 
-  // --- 2D plan ---
-  await setNav('auto');
-  const z0 = await plan2d();
-  await sendWheel('#canvas2d', accel);
-  await page.waitForTimeout(150);
-  const z1 = await plan2d();
-  results.push(['2D accelerated mouse notch zooms', Math.abs(z1.zoom - z0.zoom) > 0.5]);
+// --- 2D plan ---
+await setNav('auto');
+const z0 = await plan2d();
+await sendWheel('#canvas2d', accel);
+await page.waitForTimeout(150);
+const z1 = await plan2d();
+results.push(['2D accelerated mouse notch zooms', Math.abs(z1.zoom - z0.zoom) > 0.5]);
 
-  await setNav('auto');
-  const p0 = await plan2d();
-  await sendWheel('#canvas2d', swipe);
-  await page.waitForTimeout(150);
-  const p1 = await plan2d();
-  results.push([
-    '2D trackpad swipe still pans',
-    Math.abs(p1.panY - p0.panY) > 0.5 && Math.abs(p1.zoom - p0.zoom) < 1e-6,
-  ]);
+await setNav('auto');
+const p0 = await plan2d();
+await sendWheel('#canvas2d', swipe);
+await page.waitForTimeout(150);
+const p1 = await plan2d();
+results.push([
+  '2D trackpad swipe still pans',
+  Math.abs(p1.panY - p0.panY) > 0.5 && Math.abs(p1.zoom - p0.zoom) < 1e-6,
+]);
 
-  // --- 3D ---
-  await setNav('auto');
-  const c0 = await cam3d();
-  await sendWheel('#canvas3d', accel);
-  await page.waitForTimeout(150);
-  const c1 = await cam3d();
-  results.push(['3D accelerated mouse notch zooms', Math.abs(c1.dist - c0.dist) > 1e-3]);
+// --- 3D ---
+await setNav('auto');
+const c0 = await cam3d();
+await sendWheel('#canvas3d', accel);
+await page.waitForTimeout(150);
+const c1 = await cam3d();
+results.push(['3D accelerated mouse notch zooms', Math.abs(c1.dist - c0.dist) > 1e-3]);
 
-  await setNav('auto');
-  const c2 = await cam3d();
-  await sendWheel('#canvas3d', swipe);
-  await page.waitForTimeout(150);
-  const c3 = await cam3d();
-  results.push([
-    '3D trackpad swipe still pans',
-    navMoved(c2.tgt, c3.tgt) > 1e-4 && Math.abs(c2.dist - c3.dist) < 1e-3,
-  ]);
+await setNav('auto');
+const c2 = await cam3d();
+await sendWheel('#canvas3d', swipe);
+await page.waitForTimeout(150);
+const c3 = await cam3d();
+results.push([
+  '3D trackpad swipe still pans',
+  navMoved(c2.tgt, c3.tgt) > 1e-4 && Math.abs(c2.dist - c3.dist) < 1e-3,
+]);
 
-  // --- the manual override, which is the guaranteed fix for a high-resolution
-  // wheel that Auto cannot tell apart from a trackpad ---
-  await setNav('mouse');
-  const m0 = await plan2d();
-  await sendWheel('#canvas2d', swipe); // trackpad-shaped, but forced to mouse
-  await page.waitForTimeout(150);
-  const m1 = await plan2d();
-  // A 2.5px delta is a small dolly, so assert only that zoom moved — the pan
-  // path is the one that provably never touches zoom.
-  results.push(['Nav: Mouse forces zoom on swipe-shaped deltas', Math.abs(m1.zoom - m0.zoom) > 1e-6]);
+// --- the manual override, which is the guaranteed fix for a high-resolution
+// wheel that Auto cannot tell apart from a trackpad ---
+await setNav('mouse');
+const m0 = await plan2d();
+await sendWheel('#canvas2d', swipe); // trackpad-shaped, but forced to mouse
+await page.waitForTimeout(150);
+const m1 = await plan2d();
+// A 2.5px delta is a small dolly, so assert only that zoom moved — the pan
+// path is the one that provably never touches zoom.
+results.push(['Nav: Mouse forces zoom on swipe-shaped deltas', Math.abs(m1.zoom - m0.zoom) > 1e-6]);
 
-  await setNav('trackpad');
-  const t0 = await plan2d();
-  await sendWheel('#canvas2d', accel); // mouse-shaped, but forced to trackpad
-  await page.waitForTimeout(150);
-  const t1 = await plan2d();
-  results.push([
-    'Nav: Trackpad forces pan on notch-shaped deltas',
-    Math.abs(t1.panY - t0.panY) > 0.5 && Math.abs(t1.zoom - t0.zoom) < 1e-6,
-  ]);
+await setNav('trackpad');
+const t0 = await plan2d();
+await sendWheel('#canvas2d', accel); // mouse-shaped, but forced to trackpad
+await page.waitForTimeout(150);
+const t1 = await plan2d();
+results.push([
+  'Nav: Trackpad forces pan on notch-shaped deltas',
+  Math.abs(t1.panY - t0.panY) > 0.5 && Math.abs(t1.zoom - t0.zoom) < 1e-6,
+]);
 
-  // the toggle cycles and persists
-  await setNav('auto');
-  await page.click('#btn-navinput');
-  const navLabel = await page.textContent('#btn-navinput');
-  const navStored = await page.evaluate(() => localStorage.getItem('interior-planner-nav-v1'));
-  results.push(['nav toggle cycles + persists', navLabel === 'Nav: Mouse' && navStored === 'mouse']);
-  await setNav('auto');
-}
+// the toggle cycles and persists
+await setNav('auto');
+await page.click('#btn-navinput');
+const navLabel = await page.textContent('#btn-navinput');
+const navStored = await page.evaluate(() => localStorage.getItem('interior-planner-nav-v1'));
+results.push(['nav toggle cycles + persists', navLabel === 'Nav: Mouse' && navStored === 'mouse']);
+await setNav('auto');
 
 // 17b. per-item worktop material: chip in the "Worktop" props section paints the counter slab
 const worktopChip = await page.evaluate(() => {
@@ -963,6 +974,30 @@ results.push([
   buyDownload.suggestedFilename() === 'interior-shopping-list.csv' && buyText.includes('Fridge / freezer'),
 ]);
 
+// 20d. Export ▾ → Printable sheet: window.open blocked (as a popup blocker
+// would) falls back to a real file download, and the status hint says so.
+// window.open is restored right after — scenario 35 below needs a real popup
+// for the plan sheet.
+await openExportMenu();
+await page.evaluate(() => {
+  window.__kpRealOpen = window.open;
+  window.open = () => null;
+});
+const [sheetDownload] = await Promise.all([
+  page.waitForEvent('download', { timeout: 20000 }),
+  page.click('[data-export="sheet"]'),
+]);
+const sheetHint = await page.evaluate(() => document.getElementById('status-hint').textContent);
+await page.evaluate(() => {
+  window.open = window.__kpRealOpen;
+  delete window.__kpRealOpen;
+});
+results.push([
+  'printable sheet: blocked popup falls back to a download + status hint',
+  sheetDownload.suggestedFilename() === 'interior-bom.html' &&
+    sheetHint === 'Pop-ups are blocked — interior-bom.html downloaded instead',
+]);
+
 // 21. a pre-v5 autosave has no migration path: the app resets to a fresh
 // design instead of crashing or half-loading it. A partial v5 payload is
 // still repaired in place.
@@ -1069,7 +1104,6 @@ const elevIds = await page.evaluate(() => {
   // top wall of the empty 4x3 room (horizontal, y ~ 0)
   const g = st.allWalls().find((w) => Math.abs(w.dir.y) < 1e-6 && w.a.y < 0.01);
   const def = st.defOf('base-cabinet');
-  const t = st.activeRoom().style.wallThickness;
   const rot = Math.atan2(-g.inward.x, g.inward.y);
   const foot = { x: g.a.x + g.dir.x * (g.len / 2), y: g.a.y + g.dir.y * (g.len / 2) };
   const back = g.faceOffset + def.d / 2; // wall face → item centre
@@ -1252,7 +1286,7 @@ results.push([
 
 await page.click('#btn-openfronts'); // master open
 await page.waitForTimeout(1200);
-const masterOpen = await page.evaluate((arg) => {
+const masterOpen = await page.evaluate(() => {
   const st = window.__kp.store;
   let anyOpen = false;
   for (const [, entry] of window.__kp.view.items) {
@@ -1261,7 +1295,7 @@ const masterOpen = await page.evaluate((arg) => {
     });
   }
   return { all: st.openFronts.allOpen, anyOpen };
-}, null);
+});
 await page.click('#btn-openfronts'); // close again
 await page.waitForTimeout(1200);
 const masterClosed = await page.evaluate(() => !window.__kp.store.openFronts.allOpen);
@@ -1366,7 +1400,7 @@ results.push([
 
 // 29. zone appliance: the demo tower hosts an oven in its niche; the niche is
 // sized by the zone tree and a second claimant is rejected by the sanitizer.
-const zoneAppl = await page.evaluate(() => {
+await page.evaluate(() => {
   const st = window.__kp.store;
   const oven = st.design.items.find((i) => i.defId === 'appl-oven' && i.attach?.kind === 'zone');
   // this runs on the post-step-21 state (3-corner repaired design) — place fresh
@@ -2166,6 +2200,138 @@ results.push([
     sheet.meta.includes('Scale 1:50') &&
     sheet.rows > 5 &&
     sheet.body.includes('Item schedule'),
+]);
+
+// 36. draw-room tool (F2): click an L-shaped ring corner by corner, cancel one
+// with Esc, and close a real one on its first vertex.
+await page.keyboard.press('Escape');
+await page.click('#btn-new'); // deterministic single 4x3 room, no items
+await page.waitForTimeout(600);
+await page.evaluate(() => {
+  const p = window.__kp.plan;
+  p.zoom = 30;
+  p.panX = 20;
+  p.panY = 40;
+  p.requestDraw();
+});
+const drawBb = await paneOffset();
+const clickAt = async (x, y) => {
+  const s = await worldToScreen(x, y);
+  await page.mouse.move(drawBb.x + s.x, drawBb.y + s.y); // hover first, as a user would
+  await page.mouse.click(drawBb.x + s.x, drawBb.y + s.y);
+  await page.waitForTimeout(120);
+};
+
+await page.click('#btn-draw-room');
+const drawArmed = await page.evaluate(() => ({
+  on: window.__kp.plan.drawRoomOn,
+  active: document.getElementById('btn-draw-room').classList.contains('active'),
+  measureOff: window.__kp.plan.measureOn === false,
+}));
+// Esc drops the ring in progress first, and only then the tool itself
+await clickAt(7, 1);
+await clickAt(9, 1);
+await page.keyboard.press('Escape');
+const ringCancelled = await page.evaluate(() => ({
+  ring: window.__kp.plan.drawRing(),
+  on: window.__kp.plan.drawRoomOn,
+  rooms: window.__kp.store.design.rooms.length,
+}));
+results.push([
+  'draw-room tool arms; Esc discards the ring before the tool',
+  drawArmed.on &&
+    drawArmed.active &&
+    drawArmed.measureOff &&
+    ringCancelled.ring === null &&
+    ringCancelled.on === true &&
+    ringCancelled.rooms === 1,
+]);
+
+// an L clear of the 4x3 room at the origin, closed on its first corner
+for (const [x, y] of [[7, 1], [12, 1], [12, 6], [10, 6], [10, 4], [7, 4]]) await clickAt(x, y);
+const midRing = await page.evaluate(() => {
+  const r = window.__kp.plan.drawRing();
+  return { pts: r ? r.pts.length : 0, rooms: window.__kp.store.design.rooms.length };
+});
+await clickAt(7, 1);
+const drawn = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const r = st.design.rooms[st.design.rooms.length - 1];
+  return {
+    n: st.design.rooms.length,
+    corners: r.corners.length,
+    area: st.floorArea(r.id),
+    active: st.activeRoomId === r.id,
+    toolOff: window.__kp.plan.drawRoomOn === false,
+    ortho: r.corners.every((c, i) => {
+      const b = r.corners[(i + 1) % r.corners.length];
+      return Math.abs(c.x - b.x) < 1e-6 || Math.abs(c.y - b.y) < 1e-6;
+    }),
+  };
+});
+results.push([
+  'draw-room tool clicks out an L-shaped room',
+  midRing.pts === 6 &&
+    midRing.rooms === 1 &&
+    drawn.n === 2 &&
+    drawn.corners === 6 &&
+    drawn.ortho &&
+    Math.abs(drawn.area - 19) < 1 &&
+    drawn.active &&
+    drawn.toolOff,
+]);
+await page.keyboard.press('Control+z');
+await page.waitForTimeout(300);
+results.push([
+  'undo removes the drawn room',
+  (await page.evaluate(() => window.__kp.store.design.rooms.length)) === 1,
+]);
+
+// 37. auto-share (F1): a free-standing room dropped near an existing one snaps
+// flush and the contact becomes a partition — no "attach to wall" step.
+await page.click('#btn-new');
+await page.waitForTimeout(600);
+await page.evaluate(() => {
+  const p = window.__kp.plan;
+  p.zoom = 30;
+  p.panX = 20;
+  p.panY = 40;
+  p.requestDraw();
+});
+await page.click('#btn-room');
+// 2.1 m clear of the right wall, so the tool takes the FREE branch, but the
+// ghost's left side is within snapping reach of that wall's line
+const flushGhost = await (async () => {
+  const s = await worldToScreen(6.1, 1.5);
+  await page.mouse.move(drawBb.x + s.x, drawBb.y + s.y);
+  await page.waitForTimeout(150);
+  return page.evaluate(() => {
+    const g = window.__kp.plan.roomGhost;
+    return { attached: g ? g.attached : null, flush: g ? g.flush : null, x: g ? g.poly[0].x : -1 };
+  });
+})();
+await clickAt(6.1, 1.5);
+const welded = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const shared = st.allWalls().filter((w) => w.shared);
+  return {
+    rooms: st.design.rooms.length,
+    shared: shared.length,
+    owners: shared.filter((w) => w.shared.owner).length,
+    len: shared.length ? shared[0].len : 0,
+    corners: st.design.rooms.map((r) => r.corners.length),
+  };
+});
+results.push([
+  'a free room dropped flush shares the wall it touches',
+  flushGhost.attached === false &&
+    flushGhost.flush === true &&
+    Math.abs(flushGhost.x - 4) < 1e-6 &&
+    welded.rooms === 2 &&
+    welded.shared === 2 &&
+    welded.owners === 1 &&
+    Math.abs(welded.len - 3) < 1e-6 &&
+    welded.corners.every((n) => n === 4),
 ]);
 
 let pass = 0;

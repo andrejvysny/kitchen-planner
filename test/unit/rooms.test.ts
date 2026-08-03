@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { insetPolygon, signedArea } from '../../src/model/geometry';
+import { insetPolygon, projectOnWall, signedArea } from '../../src/model/geometry';
 import {
   allWalls,
   defaultRoomStyle,
   makeRoom,
   mirrorOpening,
+  nextWeldSeam,
   rectangleSizeOf,
   reidCorners,
   roomArea,
@@ -12,8 +13,12 @@ import {
   roomContaining,
   roomOfCorner,
   roomOfWall,
+  slabQuad,
+  snapPointToRooms,
+  snapRoomRect,
   wallByIdIn,
   wallIndex,
+  wallJoints,
   wallsOf,
 } from '../../src/model/rooms';
 import type { Corner, Opening, Room } from '../../src/model/types';
@@ -29,8 +34,20 @@ function room(id: string, pts: [number, number][]): Room {
 
 // A and B are 4×3 rectangles abutting on x = 4; the seam coords are written
 // bit-identically, exactly as addRoom({against}) will emit them.
-const rectA = (): Room => room('A', [[0, 0], [4, 0], [4, 3], [0, 3]]);
-const rectB = (): Room => room('B', [[4, 0], [8, 0], [8, 3], [4, 3]]);
+const rectA = (): Room =>
+  room('A', [
+    [0, 0],
+    [4, 0],
+    [4, 3],
+    [0, 3],
+  ]);
+const rectB = (): Room =>
+  room('B', [
+    [4, 0],
+    [8, 0],
+    [8, 3],
+    [4, 3],
+  ]);
 
 /** the pair of walls tagged shared, in [A-side, B-side] order */
 function seam(rooms: Room[]): ReturnType<typeof allWalls> {
@@ -91,19 +108,314 @@ describe('shared-edge detection', () => {
   });
 
   it('rooms touching at a single corner are not shared', () => {
-    const diag = room('C', [[4, 3], [8, 3], [8, 6], [4, 6]]);
+    const diag = room('C', [
+      [4, 3],
+      [8, 3],
+      [8, 6],
+      [4, 6],
+    ]);
     expect(seam([rectA(), diag])).toHaveLength(0);
   });
 
   it('rejects coincident edges traversed in the SAME direction', () => {
     // hand-built: D walks the seam (4,0)→(4,3) just like A does
-    const same = room('D', [[4, 0], [4, 3], [8, 3], [8, 0]]);
+    const same = room('D', [
+      [4, 0],
+      [4, 3],
+      [8, 3],
+      [8, 0],
+    ]);
     expect(seam([rectA(), same])).toHaveLength(0);
   });
 
   it('ignores a room abutting itself', () => {
     const rooms = [rectA()];
     expect(allWalls(rooms).every((w) => w.shared === null)).toBe(true);
+  });
+});
+
+describe('slabQuad', () => {
+  const T = defaultRoomStyle().wallThickness; // 0.1
+
+  /** each quad corner's signed offset along the wall's inward normal */
+  const sides = (w: ReturnType<typeof allWalls>[number]): number[] =>
+    slabQuad(w).map((p) => projectOnWall(w, p).side);
+
+  const near = (got: number[], want: number[]): void =>
+    got.forEach((v, i) => expect(v).toBeCloseTo(want[i]));
+
+  it('hangs an exterior slab wholly outside the room-side face', () => {
+    const w = allWalls([rectA()])[0]; // (0,0) → (4,0), inward = (0,1)
+    const q = slabQuad(w);
+    near(
+      q.flatMap((p) => [p.x, p.y]),
+      [0, 0, 4, 0, 4, -T, 0, -T]
+    );
+    // the inner edge IS the polygon edge; nothing reaches into the room
+    near(sides(w), [0, 0, -T, -T]);
+  });
+
+  it('straddles the seam on a partition', () => {
+    const [wa] = seam([rectA(), rectB()]); // A's (4,0) → (4,3), inward = (-1,0)
+    near(sides(wa), [T / 2, T / 2, -T / 2, -T / 2]);
+    const q = slabQuad(wa);
+    near([q[0].x, q[0].y], [4 - T / 2, 0]);
+    near([q[2].x, q[2].y], [4 + T / 2, 3]);
+  });
+
+  it('stops exactly at both corners — no extension', () => {
+    for (const w of allWalls([rectA(), rectB()])) {
+      const along = slabQuad(w).map((p) => projectOnWall(w, p).t);
+      expect(Math.min(...along)).toBeCloseTo(0);
+      expect(Math.max(...along)).toBeCloseTo(w.len);
+    }
+  });
+});
+
+describe('wallJoints', () => {
+  const T = defaultRoomStyle().wallThickness; // 0.1
+  const area = (hull: { x: number; y: number }[]): number => Math.abs(signedArea(hull));
+  const at = (js: ReturnType<typeof wallJoints>, x: number, y: number) =>
+    js.find((j) => Math.abs(j.at.x - x) < 1e-6 && Math.abs(j.at.y - y) < 1e-6);
+
+  it('closes each corner of a lone room with a t × t square', () => {
+    const joints = wallJoints(allWalls([rectA()]));
+    expect(joints).toHaveLength(4);
+    for (const j of joints) {
+      expect(j.walls).toHaveLength(2);
+      expect(j.hull).toHaveLength(4);
+      expect(area(j.hull)).toBeCloseTo(T * T); // a mitred 90° corner, not a chamfer
+    }
+    // the patch sits OUTSIDE the room, between the two slabs
+    const outer = at(joints, 0, 0)!.hull.find((p) => p.x < 0 && p.y < 0)!;
+    expect(outer.x).toBeCloseTo(-T);
+    expect(outer.y).toBeCloseTo(-T);
+  });
+
+  it('a partition tee collects all three end edges', () => {
+    const joints = wallJoints(allWalls([rectA(), rectB()]));
+    expect(joints).toHaveLength(6); // 4 outer corners + 2 tees
+    for (const [x, y] of [
+      [4, 0],
+      [4, 3],
+    ] as const) {
+      const tee = at(joints, x, y)!;
+      expect(tee.walls).toHaveLength(3); // the partition counts once, not twice
+      expect(tee.walls.filter((w) => w.shared)).toHaveLength(1);
+      expect(tee.walls.every((w) => !w.shared || w.shared.owner)).toBe(true);
+      expect(area(tee.hull)).toBeGreaterThan(0);
+    }
+    // the outer corners of the merged footprint stay square
+    for (const [x, y] of [
+      [0, 0],
+      [0, 3],
+      [8, 0],
+      [8, 3],
+    ] as const) {
+      expect(area(at(joints, x, y)!.hull)).toBeCloseTo(T * T);
+    }
+  });
+
+  it('emits nothing at a collinear weld-split corner', () => {
+    // an extra corner mid-edge: the two slabs are already flush there
+    const split = room('A', [
+      [0, 0],
+      [2, 0],
+      [4, 0],
+      [4, 3],
+      [0, 3],
+    ]);
+    const joints = wallJoints(allWalls([split]));
+    expect(joints).toHaveLength(4);
+    expect(at(joints, 2, 0)).toBeUndefined();
+  });
+
+  it('bevels instead of spiking at a very acute corner', () => {
+    // a 4°-ish wedge: a true miter would run metres out from the corner
+    const spike = room('W', [
+      [0, 0],
+      [8, 0],
+      [8, 0.3],
+    ]);
+    for (const j of wallJoints(allWalls([spike]))) {
+      for (const p of j.hull) {
+        expect(Math.hypot(p.x - j.at.x, p.y - j.at.y)).toBeLessThanOrEqual(4 * T + 1e-9);
+      }
+    }
+  });
+
+  it('skips a dead end and never sees the non-owner twin', () => {
+    const walls = allWalls([rectA(), rectB()]);
+    const joints = wallJoints(walls);
+    expect(joints.flatMap((j) => j.walls).some((w) => w.shared && !w.shared.owner)).toBe(false);
+    // one wall on its own has no junction to close
+    expect(wallJoints([walls[0]])).toHaveLength(0);
+  });
+});
+
+describe('snapRoomRect', () => {
+  // A occupies x 0..4, y 0..3, so its wall lines are x=0, x=4, y=0, y=3
+  it('pulls a side that is within reach exactly onto a wall line', () => {
+    const s = snapRoomRect([rectA()], 4.07, 0.04, 4, 3);
+    expect(s).toMatchObject({ x: 4, y: 0, snappedX: true, snappedY: true });
+  });
+
+  it('snaps the two axes independently', () => {
+    const s = snapRoomRect([rectA()], 4.07, 9, 4, 3);
+    expect(s.x).toBeCloseTo(4);
+    expect(s.snappedX).toBe(true);
+    expect(s.y).toBe(9);
+    expect(s.snappedY).toBe(false);
+  });
+
+  it('reports a snap even when the rectangle is already flush', () => {
+    // callers grid-round the un-snapped axes; saying "no snap" here would let
+    // that rounding undo a placement that is already exact
+    const s = snapRoomRect([rectA()], 4, 0, 4, 3);
+    expect(s).toMatchObject({ x: 4, y: 0, snappedX: true, snappedY: true });
+  });
+
+  it('leaves a rectangle out of reach alone, and ignores skipId', () => {
+    expect(snapRoomRect([rectA()], 4.3, 8, 4, 3)).toMatchObject({
+      x: 4.3,
+      snappedX: false,
+      snappedY: false,
+    });
+    expect(snapRoomRect([rectA()], 4.07, 0.04, 4, 3, 'A')).toMatchObject({
+      x: 4.07,
+      snappedX: false,
+    });
+  });
+
+  it('aligns the far side too, so a room can sit left of a neighbour', () => {
+    const s = snapRoomRect([rectA()], -4.06, 0, 4, 3);
+    expect(s.x).toBeCloseTo(-4); // its RIGHT side lands on x = 0
+    expect(s.snappedX).toBe(true);
+  });
+});
+
+describe('snapPointToRooms', () => {
+  it('a corner wins over the wall it sits on', () => {
+    const s = snapPointToRooms([rectA()], { x: 3.95, y: 0.05 });
+    expect(s).toEqual({ p: { x: 4, y: 0 }, hit: true });
+  });
+
+  it('falls back to the closest point on a wall segment', () => {
+    const s = snapPointToRooms([rectA()], { x: 4.05, y: 1.5 });
+    expect(s.hit).toBe(true);
+    expect(s.p.x).toBeCloseTo(4);
+    expect(s.p.y).toBeCloseTo(1.5);
+  });
+
+  it('returns the point untouched when nothing is in reach', () => {
+    const p = { x: 4.5, y: 1.5 };
+    expect(snapPointToRooms([rectA()], p)).toEqual({ p, hit: false });
+    expect(snapPointToRooms([rectA()], { x: 3.95, y: 0.05 }, 'A').hit).toBe(false);
+  });
+});
+
+describe('nextWeldSeam', () => {
+  it('nudges a hairline-offset seam onto the host, without splitting', () => {
+    // B's left side sits 0.6 mm off x = 4: close enough to weld, far enough
+    // that the endpoint hash buckets differ and sharing has NOT fired
+    const b = room('B', [
+      [4.0006, 0],
+      [8, 0],
+      [8, 3],
+      [4.0006, 3],
+    ]);
+    const rooms = [rectA(), b];
+    expect(seam(rooms)).toHaveLength(0);
+
+    const w = nextWeldSeam(rooms, 'B')!;
+    expect(w.splits).toHaveLength(0);
+    expect(w.moves).toEqual([
+      { cornerId: 'Bc3', x: 4, y: 3 },
+      { cornerId: 'Bc0', x: 4, y: 0 },
+    ]);
+    expect(w.roomIds).toEqual(['B', 'A']);
+  });
+
+  it('cuts the host wall at both ends of a partial overlap', () => {
+    // B covers only y 1..2 of A's 3 m right wall
+    const b = room('B', [
+      [4, 1],
+      [6, 1],
+      [6, 2],
+      [4, 2],
+    ]);
+    const w = nextWeldSeam([rectA(), b], 'B')!;
+    expect(w.moves).toHaveLength(0);
+    // both cuts land on A's right wall (start corner Ac1), at the overlap ends
+    expect(w.splits).toEqual([
+      { roomId: 'A', wallId: 'Ac1', t: 1, at: { x: 4, y: 1 } },
+      { roomId: 'A', wallId: 'Ac1', t: 2, at: { x: 4, y: 2 } },
+    ]);
+  });
+
+  it('cuts BOTH rings when the overlap is staggered', () => {
+    // B runs y 1..5: it overhangs A's wall, so each ring needs one cut
+    const b = room('B', [
+      [4, 1],
+      [6, 1],
+      [6, 5],
+      [4, 5],
+    ]);
+    const w = nextWeldSeam([rectA(), b], 'B')!;
+    expect(w.moves).toHaveLength(0);
+    expect(w.splits).toHaveLength(2);
+    expect(w.splits.find((s) => s.roomId === 'A')).toMatchObject({
+      wallId: 'Ac1',
+      t: 1,
+      at: { x: 4, y: 1 },
+    });
+    // B's left wall runs (4,5) → (4,1); the cut is 2 m down it, at A's corner
+    expect(w.splits.find((s) => s.roomId === 'B')).toMatchObject({
+      wallId: 'Bc3',
+      t: 2,
+      at: { x: 4, y: 3 },
+    });
+  });
+
+  it('returns null for a gap, a short overlap, and an already-shared seam', () => {
+    const off = room('B', [
+      [4.005, 0],
+      [8, 0],
+      [8, 3],
+      [4.005, 3],
+    ]); // 5 mm gap
+    expect(nextWeldSeam([rectA(), off], 'B')).toBeNull();
+    const nib = room('B', [
+      [4, 1],
+      [6, 1],
+      [6, 1.05],
+      [4, 1.05],
+    ]); // 5 cm of contact
+    expect(nextWeldSeam([rectA(), nib], 'B')).toBeNull();
+    expect(nextWeldSeam([rectA(), rectB()], 'B')).toBeNull(); // already shared
+    expect(nextWeldSeam([rectA()], 'A')).toBeNull();
+  });
+
+  it('refuses a cut that would leave a stub too short to be a wall', () => {
+    // the overlap starts 5 cm below A's corner: splitting there is illegal, and
+    // silently sliding the corner 5 cm would be worse than not welding
+    const b = room('B', [
+      [4, 0.05],
+      [6, 0.05],
+      [6, 2],
+      [4, 2],
+    ]);
+    expect(nextWeldSeam([rectA(), b], 'B')).toBeNull();
+  });
+
+  it('never welds two edges traversed the same way (overlapping rooms)', () => {
+    const same = room('D', [
+      [4, 0],
+      [4, 3],
+      [8, 3],
+      [8, 0],
+    ]);
+    expect(nextWeldSeam([rectA(), same], 'D')).toBeNull();
   });
 });
 
@@ -143,7 +455,12 @@ describe('room lookups', () => {
   });
 
   it('overlapping rooms resolve to the last match', () => {
-    const over = room('Z', [[0, 0], [4, 0], [4, 3], [0, 3]]);
+    const over = room('Z', [
+      [0, 0],
+      [4, 0],
+      [4, 3],
+      [0, 3],
+    ]);
     expect(roomContaining([rectA(), over], { x: 2, y: 1 })!.id).toBe('Z');
     expect(roomContaining([over, rectA()], { x: 2, y: 1 })!.id).toBe('A');
   });
@@ -151,10 +468,22 @@ describe('room lookups', () => {
   it('roomArea and rectangleSizeOf', () => {
     expect(roomArea(rectA())).toBeCloseTo(12);
     expect(rectangleSizeOf(rectA())).toEqual({ w: 4, d: 3 });
-    const l = room('L', [[0, 0], [4, 0], [4, 2], [2, 2], [2, 3], [0, 3]]);
+    const l = room('L', [
+      [0, 0],
+      [4, 0],
+      [4, 2],
+      [2, 2],
+      [2, 3],
+      [0, 3],
+    ]);
     expect(roomArea(l)).toBeCloseTo(10);
     expect(rectangleSizeOf(l)).toBeNull();
-    const skew = room('S', [[0, 0], [4, 0.5], [4, 3], [0, 3]]);
+    const skew = room('S', [
+      [0, 0],
+      [4, 0.5],
+      [4, 3],
+      [0, 3],
+    ]);
     expect(rectangleSizeOf(skew)).toBeNull();
   });
 });
@@ -168,8 +497,9 @@ describe('makeRoom / reidCorners', () => {
     expect(rectangleSizeOf(r)!.d).toBeCloseTo(2.5);
     expect(r.corners[0]).toMatchObject({ x: 2, y: -1 });
     expect(new Set(r.corners.map((c) => c.id)).size).toBe(4);
-    expect(new Set(makeRoom({ name: 'x', x: 0, y: 0, w: 1, d: 1 }).corners.map((c) => c.id)))
-      .not.toContain(r.corners[0].id);
+    expect(
+      new Set(makeRoom({ name: 'x', x: 0, y: 0, w: 1, d: 1 }).corners.map((c) => c.id))
+    ).not.toContain(r.corners[0].id);
     expect(r.style).toEqual(defaultRoomStyle());
   });
 

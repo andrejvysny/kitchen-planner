@@ -11,7 +11,19 @@
  * says so). Everything is meters.
  */
 
-import { clamp, dist, distToSegment, pointInPolygon, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
+import {
+  clamp,
+  closestOnSegment,
+  convexHull,
+  dist,
+  distToSegment,
+  pointInPolygon,
+  projectOnWall,
+  signedArea,
+  wallGeom,
+  wallPoint,
+  type WallGeom,
+} from './geometry';
 import {
   uid,
   type Corner,
@@ -110,6 +122,136 @@ export function wallIndex(rooms: Room[]): Map<string, RoomWall> {
 
 export function wallByIdIn(rooms: Room[], wallId: string): RoomWall | undefined {
   return allWalls(rooms).find((w) => w.id === wallId);
+}
+
+/* ---------------- wall slabs + joints ---------------- */
+
+/**
+ * The wall slab as a BUTT-ENDED quad in world space, `[aIn, bIn, bOut, aOut]`:
+ * the room-side face runs `faceOffset` along `inward` from the polygon edge,
+ * the outer face a further `thickness` back. Nothing is extended past a corner
+ * — every junction is closed by `wallJoints` instead, which is the only scheme
+ * that also works for partition↔exterior tees and non-90° corners.
+ */
+export function slabQuad(g: RoomWall): [Point, Point, Point, Point] {
+  const at = (p: Point, o: number): Point => ({
+    x: p.x + g.inward.x * o,
+    y: p.y + g.inward.y * o,
+  });
+  const outer = g.faceOffset - g.thickness;
+  return [at(g.a, g.faceOffset), at(g.b, g.faceOffset), at(g.b, outer), at(g.a, outer)];
+}
+
+/** A welded junction and the convex patch that closes it. */
+export interface Joint {
+  /** the point every incident wall ends at */
+  at: Point;
+  /** convex polygon covering what the butt-ended slabs leave open */
+  hull: Point[];
+  /** the DRAWN walls meeting here — a partition counts once (its owner twin) */
+  walls: RoomWall[];
+}
+
+/**
+ * A miter apex farther than this multiple of the wall thickness is dropped, so
+ * an acute corner gets a bevel instead of a spike (same idea as canvas'
+ * lineJoin miterLimit). Rooms rarely turn tighter than ~30°, which is where
+ * this cuts in.
+ */
+const MITER_LIMIT = 4;
+
+/** One wall's cross-section where it lands on a junction. */
+interface JointEnd {
+  wall: RoomWall;
+  /** the wall endpoint sitting on the junction */
+  at: Point;
+  /** unit direction leading AWAY from the junction along the wall */
+  out: Point;
+  /** the slab's two corners at this end: room-side face, then outer face */
+  inn: Point;
+  outer: Point;
+}
+
+/**
+ * Every welded junction of `walls`, as a convex patch to fill.
+ *
+ * Endpoints are grouped by the same SHARE_QUANT bucket that detects shared
+ * edges, so exactly the corners the model treats as welded produce a joint.
+ * The patch is the convex hull of every incident slab's end cross-section plus
+ * — between each angularly adjacent PAIR of walls — the point where their
+ * facing slab edges meet, which is what makes a plain 90° corner come out
+ * square rather than chamfered. Junctions where that hull is degenerate are
+ * dropped: a lone dead-end, or the collinear pass-through corner a weld split
+ * leaves behind, is already covered by the straight slabs.
+ */
+export function wallJoints(walls: RoomWall[]): Joint[] {
+  const groups = new Map<string, JointEnd[]>();
+  const add = (p: Point, end: JointEnd): void => {
+    const key = `${bucket(p.x)},${bucket(p.y)}`;
+    const list = groups.get(key);
+    if (list) list.push(end);
+    else groups.set(key, [end]);
+  };
+  for (const w of walls) {
+    // both halves of a partition describe the same slab — only the owner draws
+    if (w.shared && !w.shared.owner) continue;
+    const [aIn, bIn, bOut, aOut] = slabQuad(w);
+    add(w.a, { wall: w, at: w.a, out: w.dir, inn: aIn, outer: aOut });
+    add(w.b, { wall: w, at: w.b, out: { x: -w.dir.x, y: -w.dir.y }, inn: bIn, outer: bOut });
+  }
+
+  const joints: Joint[] = [];
+  for (const ends of groups.values()) {
+    if (new Set(ends.map((e) => e.wall.id)).size < 2) continue;
+    const at = jointCentre(ends);
+    const pts = ends.flatMap((e) => [e.inn, e.outer]);
+    const cap = MITER_LIMIT * Math.max(...ends.map((e) => e.wall.thickness));
+    const ring = [...ends].sort(
+      (a, b) => Math.atan2(a.out.y, a.out.x) - Math.atan2(b.out.y, b.out.x)
+    );
+    for (let i = 0; i < ring.length; i++) {
+      const m = miterPoint(ring[i], ring[(i + 1) % ring.length]);
+      if (m && dist(m, at) <= cap) pts.push(m);
+    }
+    const hull = convexHull(pts);
+    if (Math.abs(signedArea(hull)) < 1e-6) continue;
+    joints.push({ at, hull, walls: ends.map((e) => e.wall) });
+  }
+  return joints;
+}
+
+/** Bucketed endpoints agree only to a millimetre; average them so the patch is centred. */
+function jointCentre(ends: JointEnd[]): Point {
+  let x = 0;
+  let y = 0;
+  for (const e of ends) {
+    x += e.at.x;
+    y += e.at.y;
+  }
+  return { x: x / ends.length, y: y / ends.length };
+}
+
+/**
+ * Where the slab edges bounding the sector CCW-between `e` and `f` meet. Each
+ * wall contributes the edge on the side facing that sector: `e`'s left edge and
+ * `f`'s right edge, "left" being the side the left normal of its outgoing
+ * direction points to. Null when the two edges are parallel — the collinear
+ * pass-through a weld split leaves, which needs no patch.
+ */
+function miterPoint(e: JointEnd, f: JointEnd): Point | null {
+  const side = (end: JointEnd, want: 'left' | 'right'): Point => {
+    const n = { x: -end.out.y, y: end.out.x };
+    const innIsLeft = (end.inn.x - end.outer.x) * n.x + (end.inn.y - end.outer.y) * n.y >= 0;
+    return innIsLeft === (want === 'left') ? end.inn : end.outer;
+  };
+  const pe = side(e, 'left');
+  const pf = side(f, 'right');
+  const cross = e.out.x * f.out.y - e.out.y * f.out.x;
+  if (Math.abs(cross) < 1e-9) return null;
+  const dx = pf.x - pe.x;
+  const dy = pf.y - pe.y;
+  const s = (dx * f.out.y - dy * f.out.x) / cross;
+  return { x: pe.x + e.out.x * s, y: pe.y + e.out.y * s };
 }
 
 /* ---------------- room lookups ---------------- */
@@ -221,6 +363,235 @@ export function reidCorners(room: Room): Map<string, string> {
   return map;
 }
 
+/* ---------------- placement snapping ---------------- */
+
+/**
+ * Reach of the room-level snaps. They mirror the item-level ones in
+ * snapping.ts (WALL_SNAP_DIST / EDGE_SNAP_DIST): a placed rectangle or a
+ * dragged corner this close to another room lands EXACTLY on it, which is the
+ * precondition the weld below needs to turn the contact into a partition.
+ */
+export const ROOM_SNAP_REACH = 0.25;
+export const ROOM_CORNER_SNAP = 0.15;
+export const ROOM_EDGE_SNAP = 0.09;
+/** Shortest weldable seam — also the shortest stub splitWall will leave. */
+export const MIN_SEAM = 0.1;
+
+/** Axis-aligned wall lines of every room but `skipId`, split by orientation. */
+function axisLines(rooms: Room[], skipId?: string): { xs: number[]; ys: number[] } {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const r of rooms) {
+    if (r.id === skipId) continue;
+    const c = r.corners;
+    for (let i = 0; i < c.length; i++) {
+      const a = c[i];
+      const b = c[(i + 1) % c.length];
+      if (Math.abs(a.x - b.x) < SHARE_EPS) xs.push(a.x);
+      if (Math.abs(a.y - b.y) < SHARE_EPS) ys.push(a.y);
+    }
+  }
+  return { xs, ys };
+}
+
+/** Shift putting one of `edges` on the nearest line, or null when none is in reach. */
+function flushDelta(lines: number[], edges: number[]): number | null {
+  let best: number | null = null;
+  let bestD = ROOM_SNAP_REACH;
+  for (const line of lines) {
+    for (const e of edges) {
+      const d = Math.abs(line - e);
+      if (d < bestD) {
+        bestD = d;
+        best = line - e;
+      }
+    }
+  }
+  return best;
+}
+
+export interface RectSnap extends Point {
+  snappedX: boolean;
+  snappedY: boolean;
+}
+
+/**
+ * Slide an axis-aligned w×d rectangle (x/y is its min corner) so that a side
+ * within reach of a parallel wall line of another room lands exactly on it.
+ * The two axes snap independently, so a rectangle corner near an existing room
+ * corner ends up coinciding with it. Callers keep their own grid rounding on
+ * whichever axis did not snap.
+ */
+export function snapRoomRect(
+  rooms: Room[],
+  x: number,
+  y: number,
+  w: number,
+  d: number,
+  skipId?: string
+): RectSnap {
+  const { xs, ys } = axisLines(rooms, skipId);
+  const dx = flushDelta(xs, [x, x + w]);
+  const dy = flushDelta(ys, [y, y + d]);
+  return { x: x + (dx ?? 0), y: y + (dy ?? 0), snappedX: dx !== null, snappedY: dy !== null };
+}
+
+export interface PointSnap {
+  p: Point;
+  /** whether a corner or wall of another room was in reach */
+  hit: boolean;
+}
+
+/**
+ * Pull a free point onto another room's geometry: a corner within
+ * ROOM_CORNER_SNAP wins outright, otherwise the closest spot on a wall segment
+ * within ROOM_EDGE_SNAP. `skipId` leaves the room being edited out.
+ */
+export function snapPointToRooms(rooms: Room[], p: Point, skipId?: string): PointSnap {
+  let best: Point | null = null;
+  let bestD = ROOM_CORNER_SNAP;
+  for (const r of rooms) {
+    if (r.id === skipId) continue;
+    for (const c of r.corners) {
+      const d = dist(p, c);
+      if (d < bestD) {
+        bestD = d;
+        best = { x: c.x, y: c.y };
+      }
+    }
+  }
+  if (best) return { p: best, hit: true };
+  bestD = ROOM_EDGE_SNAP;
+  for (const r of rooms) {
+    if (r.id === skipId) continue;
+    const c = r.corners;
+    for (let i = 0; i < c.length; i++) {
+      const q = closestOnSegment(p, c[i], c[(i + 1) % c.length]);
+      const d = dist(p, q);
+      if (d < bestD) {
+        bestD = d;
+        best = q;
+      }
+    }
+  }
+  return best ? { p: best, hit: true } : { p, hit: false };
+}
+
+/* ---------------- welding adjacent rooms ---------------- */
+
+export interface WeldSplit {
+  roomId: string;
+  /** wall to cut, by start-corner id */
+  wallId: string;
+  /** distance along that wall from its start */
+  t: number;
+  /** the seam point — both rings must land on it bit-identically */
+  at: Point;
+}
+
+/** A hairline gap closed by pulling one corner onto the host's coordinates. */
+export interface WeldMove {
+  cornerId: string;
+  x: number;
+  y: number;
+}
+
+/** One contact stretch, as the ring surgery that turns it into a partition. */
+export interface WeldSeam {
+  /** rooms whose corner ring the surgery touches — renormalize each */
+  roomIds: string[];
+  splits: WeldSplit[];
+  moves: WeldMove[];
+}
+
+/**
+ * The next stretch where `roomId` lies flush against another room without the
+ * two rings sharing an edge yet, expressed as the corner insertions (and
+ * sub-millimetre nudges) that would make them. Pure: nothing here mutates.
+ *
+ * One seam per call — a split re-keys walls, so the caller applies this, then
+ * asks again against the re-derived walls.
+ */
+export function nextWeldSeam(rooms: Room[], roomId: string): WeldSeam | null {
+  const walls = allWalls(rooms);
+  // corners anchoring an existing partition may not be nudged: moving one
+  // silently un-shares the seam it already holds together
+  const locked = new Set<string>();
+  for (const w of walls) if (w.shared) locked.add(w.a.id).add(w.b.id);
+  for (const e of walls) {
+    if (e.roomId !== roomId || e.shared) continue;
+    for (const f of walls) {
+      if (f.roomId === roomId || f.shared) continue;
+      const seam = seamOps(e, f, locked);
+      if (seam) return seam;
+    }
+  }
+  return null;
+}
+
+/**
+ * Weld edge `e` (of the room being placed) onto the colinear host edge `f`.
+ * `f`'s line is the authority: every seam point is derived from it, so both
+ * rings end up with the same coordinates bit for bit — which is exactly what
+ * `linkShared` above tests for.
+ *
+ * Partial overlaps are the interesting case: whichever ring lacks a corner at
+ * an end of the overlap interval gets one cut in there, so a 1 m room welded
+ * against the middle of a 4 m wall leaves the host with three walls and the
+ * middle one shared.
+ */
+function seamOps(e: RoomWall, f: RoomWall, locked: Set<string>): WeldSeam | null {
+  // two rooms flush along an edge always traverse it in opposite directions
+  if (e.dir.x * f.dir.x + e.dir.y * f.dir.y > -0.9999) return null;
+  const pa = projectOnWall(f, e.a);
+  const pb = projectOnWall(f, e.b);
+  if (Math.abs(pa.side) > SHARE_EPS || Math.abs(pb.side) > SHARE_EPS) return null;
+  // `e` runs backwards along `f`, so e.a sits at the high end of the overlap
+  const lo = Math.max(0, pb.t);
+  const hi = Math.min(f.len, pa.t);
+  if (hi - lo < MIN_SEAM) return null;
+  // fold hairline stubs onto the host's own corners
+  const tLo = lo <= SHARE_EPS ? 0 : lo;
+  const tHi = hi >= f.len - SHARE_EPS ? f.len : hi;
+  const pLo = tLo === 0 ? { x: f.a.x, y: f.a.y } : wallPoint(f, tLo);
+  const pHi = tHi === f.len ? { x: f.b.x, y: f.b.y } : wallPoint(f, tHi);
+
+  const seam: WeldSeam = { roomIds: [e.roomId, f.roomId], splits: [], moves: [] };
+  const ok =
+    cutOrNudge(seam, e, pa.t - tHi, pHi, locked) &&
+    cutOrNudge(seam, e, pa.t - tLo, pLo, locked) &&
+    cutOrNudge(seam, f, tLo, pLo, locked) &&
+    cutOrNudge(seam, f, tHi, pHi, locked);
+  if (!ok) return null;
+  // nothing to do means the pair is already welded — say so, or the caller loops
+  return seam.splits.length || seam.moves.length ? seam : null;
+}
+
+/**
+ * Make `wall` hold a corner exactly at `at`, `t` along it: a sub-millimetre gap
+ * is a nudge of the nearer end corner, anything longer is a real cut. False
+ * when the cut would leave a stub too short to be a wall — the pair is then
+ * left unwelded rather than have its geometry fudged.
+ */
+function cutOrNudge(
+  seam: WeldSeam,
+  wall: RoomWall,
+  t: number,
+  at: Point,
+  locked: Set<string>
+): boolean {
+  const end = t <= SHARE_EPS ? wall.a : wall.len - t <= SHARE_EPS ? wall.b : null;
+  if (end) {
+    if (end.x === at.x && end.y === at.y) return true;
+    if (locked.has(end.id)) return false;
+    seam.moves.push({ cornerId: end.id, x: at.x, y: at.y });
+    return true;
+  }
+  if (t < MIN_SEAM || wall.len - t < MIN_SEAM) return false;
+  seam.splits.push({ roomId: wall.roomId, wallId: wall.id, t, at });
+  return true;
+}
+
 /* ---------------- openings ---------------- */
 
 /** Wall geometry by start-corner id for one ring. */
@@ -239,7 +610,11 @@ export function ringWalls(pts: Corner[]): Map<string, WallGeom> {
  * relies on corner ids surviving), this one assumes every id changed — it is
  * for wholesale outline swaps like the shape presets. Mutates the openings.
  */
-export function reprojectOpeningsNearest(before: Corner[], after: Corner[], openings: Opening[]): void {
+export function reprojectOpeningsNearest(
+  before: Corner[],
+  after: Corner[],
+  openings: Opening[]
+): void {
   const oldWalls = ringWalls(before);
   const newWalls = [...ringWalls(after).values()];
   if (!newWalls.length) return;
@@ -305,12 +680,4 @@ export function openingsOfWall(design: Design, wall: RoomWall): WallOpening[] {
     else if (twinId && o.wallId === twinId) out.push(mirrorOpening(o, wall.id, wall.len));
   }
   return out;
-}
-
-/** Stored openings sitting on one room's own walls. */
-export function openingsOfRoom(design: Design, roomId: string): Opening[] {
-  const room = roomById(design.rooms, roomId);
-  if (!room) return [];
-  const ids = new Set(room.corners.map((c) => c.id));
-  return design.openings.filter((o) => ids.has(o.wallId));
 }

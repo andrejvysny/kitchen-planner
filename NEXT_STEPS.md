@@ -15,6 +15,18 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
 - Desktop-first; both 2D views (plan + elevation) now pinch-zoom/two-finger-pan,
   and hit targets scale up on coarse (touch) pointers — but the layout and
   panels are not yet touch-optimized for small screens.
+- No keyboard-only plan editing (a11y): placement, drag, resize, and rotate
+  are pointer-only. Known debt, deferred.
+
+## Recently shipped (not yet folded into the tiers above)
+
+- Auto-shared walls: adjacent room polygons weld into one shared partition
+  wall instead of double walls (`rooms.ts` shared-edge detection).
+- Draw-room polygon tool: freehand room creation in the plan, not just presets.
+- Floor-plan photo underlay: trace an existing plan image (`src/model/underlay.ts`).
+- Spatial checks engine: collision/clearance/work-triangle warnings (`checks.ts`).
+- Recovery backup + save-fail surfacing: autosave failures are now visible
+  instead of silently dropped (`storageKeys.ts`, `store.ts` `markSaveResult`).
 
 ## Tier 1 — highest value next
 
@@ -30,9 +42,9 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
    (2.5D height-aware SAT + polygon overlap, plus ergonomic clearances and
    the work triangle), tints offending items red/amber in both views,
    `store.warnings()` lazy cache, never blocks movement.
-4. **Shopping list / BOM export** (S) — items are already parametric data; group
-   `design.items` by def + dimensions, export CSV/Markdown with counts and
-   sizes. Useful for pricing against IKEA/retailer catalogs.
+4. ~~Shopping list / BOM export~~ — DONE: `buildBom` (`src/model/export.ts`)
+   groups every item's `partPanels` output into a cut list + bought-products
+   shopping list; `exportFormats.ts` renders CSV and a printable HTML sheet.
 5. ~~Wall elevation view~~ — DONE: `src/plan2d/elevation.ts` + `src/model/elevation.ts`,
    follows the active room.
 
@@ -89,11 +101,12 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
 
 ## Engineering hygiene
 
-- Add unit tests for `geometry.ts`, `snapping.ts`, and `store.ts` mutations
-  (Vitest — pure functions, fast wins; the E2E suite already covers flows).
-- Split `three` into a manual Vite chunk to get the main bundle under the
-  600 kB warning, or lazy-load `view3d` so the 2D editor paints first.
-- CI: `tsc --noEmit`, `vite build`, and the Playwright suite on push
-  (`test/interact.mjs` already exits non-zero on failure).
+- ~~Unit tests~~ — DONE: Vitest suite (`test/unit/`, 24 files) covers
+  geometry/store/snapping, mesh-builder smoke, panels, checks, and migration.
+- ~~Vite chunk split~~ — DONE: `vite.config.ts` gives `three` its own
+  `manualChunks` entry, under the 600 kB warning.
+- ~~CI~~ — DONE: `.github/workflows/deploy.yml` runs unit tests, `vite build`
+  (which runs `tsc --noEmit`), and `test/interact.mjs` against the built
+  preview on every push to master.
 - Migrate `Item`/`Design` versioning: bump `version` and write a migration
   step in `normalizeDesign()` before the schema changes for tier-1 items.

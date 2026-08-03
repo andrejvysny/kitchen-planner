@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   angleClose,
+  convexHull,
   obbCorners,
   obbOverlap,
   pointInPolygon,
@@ -44,6 +45,47 @@ describe('polygon utilities', () => {
 
   it('polygonBounds', () => {
     expect(polygonBounds(L)).toEqual({ minX: -1, minY: -1, maxX: 1, maxY: 1 });
+  });
+});
+
+describe('convexHull', () => {
+  const square = [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 1, y: 1 },
+    { x: 0, y: 1 },
+  ];
+
+  it('wraps a square CCW and drops interior + edge points', () => {
+    const hull = convexHull([...square, { x: 0.5, y: 0.5 }, { x: 0.5, y: 0 }]);
+    expect(hull).toHaveLength(4);
+    expect(signedArea(hull)).toBeCloseTo(1); // CCW in the signedArea sense
+    for (const p of square) {
+      expect(hull.some((q) => q.x === p.x && q.y === p.y)).toBe(true);
+    }
+  });
+
+  it('is insensitive to input order', () => {
+    const a = convexHull(square);
+    const b = convexHull([square[2], square[0], square[3], square[1]]);
+    expect(b).toEqual(a);
+  });
+
+  it('collapses degenerate inputs to zero area', () => {
+    const line = convexHull([
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 2, y: 0 },
+    ]);
+    expect(line).toHaveLength(2);
+    expect(signedArea(line)).toBeCloseTo(0);
+
+    const dupes = convexHull([
+      { x: 3, y: 1 },
+      { x: 3, y: 1 },
+    ]);
+    expect(dupes).toEqual([{ x: 3, y: 1 }]);
+    expect(convexHull([])).toEqual([]);
   });
 });
 
@@ -206,7 +248,10 @@ describe('cabinet footprints', () => {
     expect(pointInPolygon({ x: 0.45, y: 0.45 }, left)).toBe(true);
 
     const right = footprintPolygon(
-      { ...base, footprint: { kind: 'chamfer', corner: 'right', cx: 0.4, cz: 0.4, face: 'angled' } },
+      {
+        ...base,
+        footprint: { kind: 'chamfer', corner: 'right', cx: 0.4, cz: 0.4, face: 'angled' },
+      },
       1,
       1
     )!;

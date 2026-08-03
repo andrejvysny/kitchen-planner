@@ -46,6 +46,8 @@ const SCALE_LADDER: readonly number[] = [50, 100, 200, 500];
 
 /** Nothing interactive on paper — and every room in full ink, not just the active one. */
 export const PRINT_OPTS: PlanRenderOpts = {
+  // the tracing photo is a reference, never part of the drawing
+  underlay: false,
   handles: false,
   guides: false,
   ghosts: false,
@@ -289,10 +291,15 @@ export function openPrintSheet(store: Store): boolean {
   const html = planSheetHtml(store, planImage(store, scale));
   const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
   const w = window.open(url, '_blank');
-  if (w) return true;
+  if (w) {
+    // the opened tab keeps reading the URL while it loads — outlive that, then free it
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return true;
+  }
   const a = document.createElement('a');
   a.href = url;
   a.download = 'interior-plan-sheet.html';
   a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
   return false;
 }

@@ -11,7 +11,15 @@ import {
 import { partPanels } from '../../src/model/panels';
 import { PRESETS } from '../../src/model/presets';
 import { deskBoards } from './fixtures';
-import type { BoardPartDef, CabinetPartDef, CustomPartDef, Design, Item, RoomStyle, Zone } from '../../src/model/types';
+import type {
+  BoardPartDef,
+  CabinetPartDef,
+  CustomPartDef,
+  Design,
+  Item,
+  RoomStyle,
+  Zone,
+} from '../../src/model/types';
 import { buildItemGroup, hasItemBuilder } from '../../src/view3d/itemMeshes';
 
 const ROOM: RoomStyle = {
@@ -119,7 +127,9 @@ describe('mesh builders', () => {
           dir: 'h',
           weights: [1, 1, 1, 1],
           children: [
-            { kind: 'leaf', fill: 'open', shelves: 4 },
+            // legacy shape (pre-`interior`): normalizeZones migrates a bare
+            // `shelves` count on an 'open' leaf — exercise that path here.
+            { kind: 'leaf', fill: 'open', shelves: 4 } as Zone,
             { kind: 'leaf', fill: 'glass' },
             { kind: 'leaf', fill: 'panel' },
             { kind: 'leaf', fill: 'doorPair' },
@@ -130,10 +140,25 @@ describe('mesh builders', () => {
     };
     const variants: CabinetPartDef[] = [
       { ...base, face: many },
-      { ...base, footprint: { kind: 'chamfer', corner: 'left', cx: 0.3, cz: 0.3, face: 'angled' }, w: 0.9, d: 0.9 },
+      {
+        ...base,
+        footprint: { kind: 'chamfer', corner: 'left', cx: 0.3, cz: 0.3, face: 'angled' },
+        w: 0.9,
+        d: 0.9,
+      },
       { ...base, footprint: { kind: 'chamfer', corner: 'right', cx: 0.2, cz: 0.2, face: 'front' } },
-      { ...base, footprint: { kind: 'cornerL', notch: 'left', nw: 0.4, nd: 0.3, face2: 'door' }, w: 1.0, d: 1.0 },
-      { ...base, footprint: { kind: 'cornerL', notch: 'right', nw: 0.4, nd: 0.3, face2: 'panel' }, w: 1.0, d: 1.0 },
+      {
+        ...base,
+        footprint: { kind: 'cornerL', notch: 'left', nw: 0.4, nd: 0.3, face2: 'door' },
+        w: 1.0,
+        d: 1.0,
+      },
+      {
+        ...base,
+        footprint: { kind: 'cornerL', notch: 'right', nw: 0.4, nd: 0.3, face2: 'panel' },
+        w: 1.0,
+        d: 1.0,
+      },
     ];
     for (const p of variants) {
       const def = toCatalogDef(p);
@@ -195,5 +220,4 @@ describe('mesh builders', () => {
     expect(bounds.max.y).toBeCloseTo(p.h, 3);
     expect(bounds.max.x).toBeCloseTo(1.2, 2);
   });
-
 });

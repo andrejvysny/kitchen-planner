@@ -2,7 +2,7 @@ import { snapsToWall, type CatalogDef } from './catalog';
 import { angleClose, clamp, fmtCm, projectOnWall, wallPoint } from './geometry';
 import type { RoomWall } from './rooms';
 import type { Store } from './store';
-import type { Item, Point } from './types';
+import type { Point } from './types';
 
 export interface Guide {
   a: Point;

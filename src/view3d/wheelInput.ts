@@ -32,8 +32,21 @@ export function isNavInput(v: unknown): v is NavInput {
   return typeof v === 'string' && (NAV_INPUTS as readonly string[]).includes(v);
 }
 
+/**
+ * Test-only escape hatch: forces isMac's answer regardless of navigator, so
+ * the E2E suite can exercise the mac-gated trackpad remap on any platform
+ * (see window.__kpForceMac in main.ts). Production code never calls the
+ * setter, so this stays null forever outside a test run.
+ */
+let macOverride: boolean | null = null;
+
+export function setMacOverride(forced: boolean | null): void {
+  macOverride = forced;
+}
+
 /** True for Apple laptops/desktops, where the trackpad gestures apply. */
 export function isMac(platform: string, userAgent: string): boolean {
+  if (macOverride !== null) return macOverride;
   return /mac/i.test(platform) || /Mac OS X/i.test(userAgent);
 }
 

@@ -33,6 +33,11 @@ subscribe and never talk to each other directly.
   - `structural: false` → View3D only updates transforms, light params,
     emissives. Use for drag moves, rotation, light sliders, day/night.
   - `transient: true` → mid-gesture; skips props-panel re-render.
+  - Structural notifies COALESCE: View3D queues one rebuild per animation
+    frame (`queueRebuild`) and skips it entirely while the pane is hidden
+    (`setActive(false)`, wired to the 2D/3D toggle). Anything that reads the
+    scene synchronously must call `view.flushRebuild()` first — `view.items`,
+    picking, `snapshotPNG` and `exportGLB` already do.
 - Undo = JSON snapshots. Mutations do NOT auto-commit: call `store.commit()`
   at gesture end (pointerup, input change). Forgetting commit = broken undo.
 - `store.partOf(defId)` resolves a part def: design-local custom part first
@@ -164,10 +169,29 @@ exterior wall slab lies entirely outside it, a shared partition straddles it.
 is the single sanctioned source for that offset; never hardcode `t / 2`.
 Everything derived from `Room[]` lives in rooms.ts (`allWalls` with
 geometric shared-edge detection, `wallsOf`, `roomOfItem`, `styleOfItem`,
-`openingsOfWall`); the Store only delegates. The active room is ephemeral
+`openingsOfWall`); the Store only delegates. Wall slabs are BUTT-ENDED —
+`slabQuad(wall)` spans exactly [0, len], nothing runs past a corner — and
+every welded junction is closed by a separate patch from `wallJoints(walls)`
+(convex hull of the incident end cross-sections plus their mitre apexes, with
+a 4×thickness mitre limit that bevels acute corners); both the plan fill and
+the 3D `WallJoint` prisms consume the same pure output, so tees, four-room
+crossings and oblique corners all close. Two OVERLAPPING rooms whose walls
+cross mid-span share no corner and so get no joint — they still
+interpenetrate. The active room is ephemeral
 view state like the selection (`store.activeRoomId`, `'activeRoom'` event) —
 never serialized, never in an undo step. Room-scoped mutations take a
 trailing `roomId?` defaulting to the active room.
+
+Rooms that end up flush with each other are WELDED into a partition, since
+`allWalls` only sees a seam when two rings hold the very same edge reversed.
+`nextWeldSeam(rooms, roomId)` (rooms.ts, pure) reports one contact stretch at
+a time as the cuts + sub-mm nudges that would make that true — a partial
+overlap cuts the longer wall in three — and `store.weldRoom` applies them
+(splitWallRaw, so openings re-key) until no seam is left. It runs at the END
+of a gesture only: `addRoom` (every path, `polygon` included) and Plan2D's
+corner-drag `endGesture`, NEVER on a pointermove. Getting a room flush in the
+first place is the snapping layer: `snapRoomRect` (placement ghost) and
+`snapPointToRooms` (dragged / drawn corners), both pure, both in rooms.ts.
 
 Every plan pixel is drawn by `renderPlan(ctx, store, view, opts, overlays?)`
 (src/plan2d/renderPlan.ts) — Plan2D owns the gestures and `draw()` is a thin
@@ -183,6 +207,22 @@ behind a layer switch, never in Plan2D. The plan-geometry helpers hit-testing
 also needs (`sortedItems`, `footprintOf`, `itemOutlineWorld`, `rotateHandlePos`,
 `bandCenter`/`bandExtend`) are exported from there too — one definition, both
 users.
+
+**Reference underlay** (tracing photo): `design.underlay` is a TRANSFORM ONLY
+(`{x, y, scale, rotation, opacity, visible, locked}`, x/y = world position of
+the image's top-left, scale = m per image pixel). The image BYTES live in their
+own key (`UNDERLAY_KEY`), never in the Design — undo is a JSON snapshot of the
+whole design and autosave writes it every commit, so a data URL there would
+blow up both. `store.setUnderlay(src, transform?)` writes the side key first
+(returns false when storage refuses), `store.underlayRef()` = transform + bytes
+or null, `updateUnderlay(patch)` moves/scales it. Consequence, by design: the
+transform is undoable, swapping/removing the photo is not. `exportJson` carries
+the photo as an extra top-level `underlaySrc` field and sanitizeDesign strips it
+(the load handler in ui.ts re-installs it after `replaceDesign`). renderPlan
+draws it first, under the grid, behind `opts.underlay` (off in `PRINT_OPTS`);
+the decoded `HTMLImageElement` is cached in renderPlan.ts keyed by src, and a
+miss clears the map so exactly one photo is ever held. All underlay maths
+(sanitize, calibration, hit test) is pure in src/model/underlay.ts.
 
 Coordinate conventions (easy to get wrong):
 
@@ -251,7 +291,8 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
 - `window.__kp = {store, plan, view}` is exposed for tests/debugging — keep it.
 - Storage keys all live in src/model/storageKeys.ts: writes target
   `interior-planner-{design,parts,nav}-v1`, reads fall back to the legacy
-  `kitchen-planner-*` keys (never deleted). `DESIGN_VERSION` is 6.
+  `kitchen-planner-*` keys (never deleted). `UNDERLAY_KEY` (the tracing photo)
+  is new-name only — it has no legacy twin. `DESIGN_VERSION` is 6.
   `sanitizeDesign()` (store.ts) is the single validation/repair gate for
   autosave and file import: it runs `migrateDesign()` first (versioned step
   map, `MIN_MIGRATABLE_VERSION` 5) and returns null when there is no path.

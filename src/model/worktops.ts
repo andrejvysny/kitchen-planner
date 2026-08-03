@@ -1,5 +1,5 @@
 import { applianceHosting, partOfDesign, type HostContext } from './attach';
-import { angleClose } from './geometry';
+import { angleClose, worldToLocal } from './geometry';
 import {
   DEFAULT_WORKTOP_OVERHANG,
   isWallMountedElevation,
@@ -100,17 +100,18 @@ function groupsOf(design: Design): Group[] {
   for (const item of design.items) {
     const part = runCabinet(design, item);
     if (!part) continue;
-    const c = Math.cos(item.rotation);
-    const s = Math.sin(item.rotation);
+    // project the item's world position onto its own rotated axes (origin at
+    // world zero) — `local.x` = position along the run, `local.y` = across it
+    const local = worldToLocal({ x: 0, y: 0 }, item.rotation, { x: item.x, y: item.y });
     const key = {
       roomId: roomOfItem(design, item)?.id ?? '',
       rotation: item.rotation,
       plane: item.elevation + item.h,
       depth: item.d,
-      across: -item.x * s + item.y * c,
+      across: local.y,
       ov: part.worktopOverhang ?? DEFAULT_WORKTOP_OVERHANG,
     };
-    const member: Member = { item, s: item.x * c + item.y * s, p: key.across };
+    const member: Member = { item, s: local.x, p: key.across };
     const hit = groups.find(
       (g) =>
         g.roomId === key.roomId &&
