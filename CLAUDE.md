@@ -92,10 +92,21 @@ hosts via `item.attach` ({kind:'counter', hostId, u, v} into a worktop, or
 {kind:'zone', hostId, path} into an `appliance` zone niche) — anchors are
 HOST-LOCAL; `item.x/y/rotation/elevation` stay the authoritative world cache
 recomputed by `syncAttachments` (src/model/attach.ts, all pure). Hosting
-cutouts/occupancy come from `applianceHosting(design)` — computed once per
-View3D rebuild and once per BOM export. Deleting a host cascades to its
-appliances; unresolvable attachments detach-to-world. snapItem skips
-attached items (they overlap their hosts).
+cutouts/occupancy come from `applianceHosting(design)`. Deleting a host
+cascades to its appliances; unresolvable attachments detach-to-world.
+snapItem skips attached items (they overlap their hosts).
+
+**Continuous worktops** merge in the panel IR, never in the mesh layer:
+`worktopRuns(design)` (src/model/worktops.ts, pure) chains adjacent
+worktop-bearing RECT cabinets — same room, rotation, worktop plane, depth and
+overhang, joint ≤ 5 mm — and hands each one a `HostContext.worktop`
+`WorktopPlan`. The run LEADER emits the whole slab as one prism in its own
+item-local frame (appliance cutouts of every member shifted along the run);
+FOLLOWERS emit no worktop board at all. A run of one gets no plan, so the
+standalone slab path stays byte-identical. `hostContexts(design)` =
+applianceHosting + worktopRuns is THE per-item context: computed once per
+View3D rebuild and once per BOM export — call it, not applianceHosting.
+Polygon footprints (chamfer/cornerL) and L-corner runs are out of scope.
 
 Zone trees live on the part def only — placed instances override just
 w/d/h/color/elevation ("Duplicate part" in the studio and "Customize part…"
@@ -127,7 +138,7 @@ older or unknown (callers fall back to a fresh/demo design).
 - **Manufacturing export** (src/model/export.ts + exportFormats.ts, wired via
   the topbar `Export ▾` menu in src/ui/ui.ts): `buildBom(design)` iterates
   `design.items`, resolves each to `partPanels(part, itemDims,
-  applianceHosting(design).get(item.id))` and dedupes into `CutRow`s (cut
+  hostContexts(design).get(item.id))` and dedupes into `CutRow`s (cut
   list) plus bought products/openings/hardware into `BuyRow`s (shopping
   list); `exportFormats.ts` renders CSV and a printable HTML sheet. Two
   invariants hold it together: (a) every cut row comes from `partPanels`,
@@ -157,6 +168,21 @@ geometric shared-edge detection, `wallsOf`, `roomOfItem`, `styleOfItem`,
 view state like the selection (`store.activeRoomId`, `'activeRoom'` event) —
 never serialized, never in an undo step. Room-scoped mutations take a
 trailing `roomId?` defaulting to the active room.
+
+Every plan pixel is drawn by `renderPlan(ctx, store, view, opts, overlays?)`
+(src/plan2d/renderPlan.ts) — Plan2D owns the gestures and `draw()` is a thin
+caller that hands its in-flight state in through `PlanOverlays` (guides, ghosts,
+armed def, measure, ⚠ advisory flag) with every `PlanRenderOpts` layer on. The
+print sheet (src/print/sheet.ts `planImage`) calls the SAME function on an
+offscreen canvas with `PRINT_OPTS` — no handles/guides/ghosts/measure/checks and
+`roomEmphasis: false` so every room prints in full ink, not just the active one.
+`view.zoom` is px per metre in the caller's transform units; the caller sets the
+base transform, which is how the sheet renders a 96 dpi layout at 150 dpi
+(`planLayout` → `dpr`). Anything new drawn in the plan belongs in renderPlan
+behind a layer switch, never in Plan2D. The plan-geometry helpers hit-testing
+also needs (`sortedItems`, `footprintOf`, `itemOutlineWorld`, `rotateHandlePos`,
+`bandCenter`/`bandExtend`) are exported from there too — one definition, both
+users.
 
 Coordinate conventions (easy to get wrong):
 

@@ -1,3 +1,36 @@
+# M4 — Polish pack (touch parity · continuous worktops · plan sheet)
+
+Plan: ~/.claude/plans/act-as-senior-software-elegant-unicorn.md, "MILESTONE 4"
+Each item ends green: `npx tsc --noEmit && npm run test:unit && npm run build && node test/interact.mjs`
+((b) openings-survive-reshape shipped early, in Step 0.5.)
+
+- [x] (d) touch parity — shared `PinchGesture` (`src/plan2d/pinch.ts`) drives
+  two-finger zoom/pan in BOTH 2D views (plan + elevation), `hitRadius()` widens
+  every handle on coarse pointers (corner/midpoint/rotate/measure), NEXT_STEPS
+  item 10 de-staled (321 unit, 98/98 E2E)
+- [x] (a) continuous worktops — `worktopRuns(design)` (`src/model/worktops.ts`,
+  pure): same room/rotation/plane/depth/overhang, joints ≤ 5 mm; the run LEADER
+  emits the whole slab as one prism with every member's cutouts shifted along
+  the run, FOLLOWERS emit no worktop, a run of one gets no plan so the
+  standalone path stays byte-identical. `hostContexts` = applianceHosting +
+  worktopRuns is the single per-item context (view3d + export both call it);
+  BOM "runs not merged" caveat dropped (332 unit, 98/98)
+- [x] (c) print / PDF plan sheet — `renderPlan(ctx, store, view, opts,
+  overlays?)` extracted from `Plan2D.draw()` into `src/plan2d/renderPlan.ts`
+  (behaviour-identical on screen; the gesture state Plan2D used to read off
+  `this` is threaded through the `PlanOverlays` bag, the layer switches through
+  `PlanRenderOpts`). `src/print/sheet.ts`: `planLayout`/`fitScale` (pure scale
+  maths, 1:50 @ 150 dpi = 118.11 px/m, stepping to 1:100/1:200 when A4
+  landscape would overflow), `planImage` renders offscreen with every
+  interactive layer off and all rooms in full ink, `openPrintSheet` composes
+  title block + plan `<img>` sized in mm + item schedule from `buildBom().buy`
+  (Hardware skipped, Openings kept) + cut totals, opened via blob URL with the
+  M1 download fallback. `Export ▾ → Plan sheet…` (346 unit, 99/99)
+
+All three complete. Uncommitted on master.
+
+---
+
 # M3 — Spatial checks engine
 
 Plan: ~/.claude/plans/act-as-senior-software-elegant-unicorn.md, "MILESTONE 3"

@@ -14,7 +14,7 @@
  * exclusive: `partOfDesign` resolving is what makes an item manufactured.
  */
 
-import { applianceHosting, defOfDesign, partOfDesign } from './attach';
+import { defOfDesign, partOfDesign } from './attach';
 import { catalogSection, PLINTH_COLOR } from './catalog';
 import { polygonBounds, signedArea } from './geometry';
 import { materialDef } from './materials';
@@ -22,6 +22,7 @@ import { partPanels, type Panel, type PanelRole } from './panels';
 import { roomOfItem, roomOfWall, styleOfItem } from './rooms';
 import type { CustomPartDef, Design, Item, Point, Room } from './types';
 import { counterFin, resolveColor, resolveFinish } from './variables';
+import { hostContexts } from './worktops';
 
 /* ---------------- constants ---------------- */
 
@@ -246,8 +247,9 @@ function collect<T extends { key: string; qty: number; itemIds: string[] }>(
  * dimensions in practice.
  */
 export function cutRows(design: Design): CutRow[] {
-  // ONE hosting pass per export: cutouts are design-wide truth, not per item
-  const hosting = applianceHosting(design);
+  // ONE hosting pass per export: cutouts and merged worktop runs are
+  // design-wide truth, not per item
+  const hosting = hostContexts(design);
   const out: CutRow[] = [];
   const byKey = new Map<string, CutRow>();
   for (const item of design.items) {

@@ -115,6 +115,7 @@ one place, never guessed back out of a mesh.
 | **Export ▾ → Cut list (CSV)** | `interior-cutlist.csv` — every board to manufacture, generated from the same panel IR the 3D renderer uses (dimensions, material, colour, hinge/slide notes) |
 | **Export ▾ → Shopping list (CSV)** | `interior-shopping-list.csv` — bought appliances/furniture/lighting, wall openings, and hardware (hinges, drawer slides) implied by the cabinets |
 | **Export ▾ → Printable sheet…** | A self-contained A4 HTML bill of materials (cut list + shopping list + hardware, grouped by room) opened in a new tab, ready to print or save as PDF |
+| **Export ▾ → Plan sheet…** | A self-contained A4 **landscape** sheet: the dimensioned floor plan drawn at true scale (1:50, stepping down for large apartments) plus the item schedule — print at 100% and the walls measure correctly off the paper |
 
 ### Blender workflow
 
@@ -167,7 +168,11 @@ src/
   plan2d/
     plan2d.ts         canvas floor-plan editor (pan/zoom, drag, ghosts, dims,
                       room switching, add-room tool)
+    renderPlan.ts     the floor-plan renderer itself, layer-gated — shared by
+                      the editor and the print sheet
     symbols.ts        architectural plan symbols (also used as catalog icons)
+  print/
+    sheet.ts          true-scale plan bitmap + A4 landscape plan sheet
   view3d/
     view3d.ts         Three.js scene, rooms, lighting, picking, GLB export
     itemMeshes.ts     procedural meshes for appliances/furniture/lights
@@ -207,7 +212,7 @@ headless; end-to-end tests run against the production build with Playwright:
 npm run test:unit           # geometry / store / snapping + builder smoke tests
 npm run build
 npx vite preview &          # serves dist on :4173
-node test/interact.mjs      # 98 interaction checks (place, snap, drag, undo,
+node test/interact.mjs      # 99 interaction checks (place, snap, drag, undo,
                             # wall edits, doors, multi-room, part studio,
                             # keyboard, 3D picking, exports, spatial checks)
 node test/screenshot.mjs    # renders UI screenshots for visual review

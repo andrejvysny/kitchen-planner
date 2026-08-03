@@ -2124,6 +2124,50 @@ results.push([
     !triangleWarning.status.includes('issue'),
 ]);
 
+// 35. Export ▾ → Plan sheet (milestone 4c): a self-contained print document
+// with the true-scale plan rendered offscreen as a PNG data URL and the item
+// schedule built from the same BOM rows the CSV exports use.
+await page.keyboard.press('Escape');
+await openExportMenu();
+const [planPopup] = await Promise.all([
+  page.waitForEvent('popup', { timeout: 20000 }),
+  page.click('[data-export="plan"]'),
+]);
+await planPopup.waitForLoadState('load');
+await planPopup.waitForFunction(
+  () => {
+    const img = document.querySelector('img.plan');
+    return !!img && img.complete && img.naturalWidth > 0;
+  },
+  null,
+  { timeout: 20000 }
+);
+const sheet = await planPopup.evaluate(() => {
+  const img = document.querySelector('img.plan');
+  return {
+    title: document.title,
+    src: img.getAttribute('src').slice(0, 14),
+    natW: img.naturalWidth,
+    natH: img.naturalHeight,
+    widthMm: img.style.width,
+    rows: document.querySelectorAll('table tbody tr').length,
+    meta: document.querySelector('.meta').textContent,
+    body: document.body.textContent,
+  };
+});
+await planPopup.close();
+results.push([
+  'plan sheet: true-scale plan image + item schedule',
+  sheet.title === 'Interior plan' &&
+    sheet.src === 'data:image/png' &&
+    sheet.natW > 500 &&
+    sheet.natH > 200 &&
+    /^\d+mm$/.test(sheet.widthMm) &&
+    sheet.meta.includes('Scale 1:50') &&
+    sheet.rows > 5 &&
+    sheet.body.includes('Item schedule'),
+]);
+
 let pass = 0;
 for (const [name, ok] of results) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`);

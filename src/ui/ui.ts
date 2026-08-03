@@ -22,6 +22,7 @@ import type { Warning } from '../model/checks';
 import { buildBom } from '../model/export';
 import { bomHtml, cutListCsv, shoppingListCsv } from '../model/exportFormats';
 import { navInput, setNavInput } from '../model/navPref';
+import { openPrintSheet } from '../print/sheet';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../model/sky';
 import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
 import type { Item, Selection, WallVisMode } from '../model/types';
@@ -1378,7 +1379,7 @@ export class UI {
     this.download(URL.createObjectURL(blob), name);
   }
 
-  /** BOM export: cut list / shopping list CSV downloads, printable sheet. */
+  /** Export menu: cut list / shopping list CSVs, the BOM sheet, the plan sheet. */
   private wireExportMenu(): void {
     const btn = $('#btn-export');
     const menu = $('#export-menu');
@@ -1394,7 +1395,7 @@ export class UI {
       if (!menu.contains(t) && !btn.contains(t)) closeMenu();
     });
 
-    const action = (kind: 'cut' | 'buy' | 'sheet') =>
+    const action = (kind: 'cut' | 'buy' | 'sheet' | 'plan') =>
       menu.querySelector(`[data-export="${kind}"]`) as HTMLButtonElement;
 
     action('cut').addEventListener('click', () => {
@@ -1419,6 +1420,14 @@ export class UI {
       $('#status-hint').textContent = w
         ? 'Printable sheet opened in a new tab'
         : 'Pop-ups are blocked — interior-bom.html downloaded instead';
+      closeMenu();
+    });
+
+    action('plan').addEventListener('click', () => {
+      const opened = openPrintSheet(this.store);
+      $('#status-hint').textContent = opened
+        ? 'Plan sheet opened in a new tab — print it at 100% on A4 landscape'
+        : 'Pop-ups are blocked — interior-plan-sheet.html downloaded instead';
       closeMenu();
     });
   }

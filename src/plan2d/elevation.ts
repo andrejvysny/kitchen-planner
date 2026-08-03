@@ -4,6 +4,7 @@ import type { RoomWall } from '../model/rooms';
 import type { Store } from '../model/store';
 import type { Point } from '../model/types';
 import { resolveColor } from '../model/variables';
+import { coarsePointer, hitRadius, PinchGesture } from './pinch';
 
 const INK = '#3a3934';
 const ACCENT = '#2f6f5e';
@@ -33,6 +34,8 @@ export class ElevationView {
   private cssH = 100;
   private raf = 0;
   private drag: { sx: number; sy: number; panX0: number; panY0: number; moved: boolean } | null = null;
+  private pinch = new PinchGesture(); // two-finger pinch-zoom / pan (touch)
+  private pinching = false; // separate from `drag` (which only ever holds a pan)
 
   constructor(canvas: HTMLCanvasElement, store: Store, onWallChange: () => void) {
     this.canvas = canvas;
@@ -62,6 +65,12 @@ export class ElevationView {
     canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     canvas.addEventListener('pointermove', (e) => this.onPointerMove(e));
     canvas.addEventListener('pointerup', (e) => this.onPointerUp(e));
+    canvas.addEventListener('pointercancel', (e) => {
+      this.pinch.up(e.pointerId);
+      this.pinching = false;
+      this.drag = null;
+      this.canvas.style.cursor = 'default';
+    });
     canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
   }
 
@@ -176,10 +185,17 @@ export class ElevationView {
   private hitItem(t: number, z: number): WallElevationItem | null {
     const data = this.data();
     if (!data) return null;
+    // touch has no exact-pixel precision; a mouse click keeps the bare rect
+    const pad = coarsePointer ? hitRadius(6) / this.zoom : 0;
     // nearest-to-viewer first (reverse of paint order)
     for (let i = data.items.length - 1; i >= 0; i--) {
       const it = data.items[i];
-      if (t >= it.center - it.halfW && t <= it.center + it.halfW && z >= it.z0 && z <= it.z1) {
+      if (
+        t >= it.center - it.halfW - pad &&
+        t <= it.center + it.halfW + pad &&
+        z >= it.z0 - pad &&
+        z <= it.z1 + pad
+      ) {
         return it;
       }
     }
@@ -187,6 +203,17 @@ export class ElevationView {
   }
 
   private onPointerDown(e: PointerEvent): void {
+    const s = { x: e.offsetX, y: e.offsetY };
+    if (e.pointerType === 'touch') {
+      if (this.pinch.down(e.pointerId, s)) {
+        // second finger: abandon any single-finger pan/select, start the pinch
+        this.drag = null;
+        this.pinching = true;
+        this.canvas.setPointerCapture(e.pointerId);
+        return;
+      }
+      if (this.pinch.overflowing) return; // ignore extra fingers
+    }
     if (e.button !== 0) return;
     this.canvas.setPointerCapture(e.pointerId);
     const wpt = this.toWorld(e.offsetX, e.offsetY);
@@ -200,6 +227,18 @@ export class ElevationView {
   }
 
   private onPointerMove(e: PointerEvent): void {
+    const s = { x: e.offsetX, y: e.offsetY };
+    if (this.pinch.has(e.pointerId)) this.pinch.track(e.pointerId, s);
+
+    if (this.pinching) {
+      const res = this.pinch.step({ zoom: this.zoom, panX: this.panX, panY: this.panY }, 20, 500);
+      if (!res) return;
+      this.zoom = res.zoom;
+      this.panX = res.panX;
+      this.panY = res.panY;
+      this.requestDraw();
+      return;
+    }
     if (this.drag) {
       this.panX = this.drag.panX0 + (e.offsetX - this.drag.sx);
       this.panY = this.drag.panY0 + (e.offsetY - this.drag.sy);
@@ -213,6 +252,13 @@ export class ElevationView {
   }
 
   private onPointerUp(e: PointerEvent): void {
+    this.pinch.up(e.pointerId);
+    if (this.pinching) {
+      // pinch ends when either finger lifts; the remaining finger starts nothing new
+      this.pinching = false;
+      this.canvas.style.cursor = 'default';
+      return;
+    }
     if (this.drag && !this.drag.moved) this.store.select({ kind: 'none' });
     this.drag = null;
     this.canvas.style.cursor = 'default';

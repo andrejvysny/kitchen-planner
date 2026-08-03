@@ -6,23 +6,26 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
 ## Known limitations (current state)
 
 - No corner/blind-corner cabinets; runs meeting in a corner simply overlap.
-- Countertops are per-unit slabs — visually continuous only when units align
-  exactly; no single merged worktop with cutouts.
+- Continuous worktops merge straight runs of rect-footprint units only; a run
+  turning a corner (L / U layouts) still meets as two slabs.
 - Non-orthogonal walls work, but wall joints render best at 90°.
 - No collision prevention — items can be pushed inside each other or through walls.
 - Flat colors only (by design: Blender is the photorealism path).
 - Real-time shadows are budgeted to 4 fixture lights (`SHADOW_LIGHT_BUDGET`).
-- Desktop-first; 2D plan has pinch zoom/pan, but the elevation view does not,
-  and hit targets are mouse-sized.
+- Desktop-first; both 2D views (plan + elevation) now pinch-zoom/two-finger-pan,
+  and hit targets scale up on coarse (touch) pointers — but the layout and
+  panels are not yet touch-optimized for small screens.
 
 ## Tier 1 — highest value next
 
 1. ~~Corner base & wall cabinets~~ — DONE: cabinets are zone-tree parts with
    chamfer/cornerL footprints and true polygon hit-tests; ship corner PRESETS
    in `presets.ts` if wanted (S).
-2. **Continuous worktops** (M) — group adjacent worktop-bearing cabinets on a
-   run into one merged slab. Cutouts already work per host (`HostContext`
-   prism holes); the merge is the remaining piece.
+2. ~~Continuous worktops~~ — DONE: `worktopRuns` (`src/model/worktops.ts`)
+   chains adjacent worktop-bearing rect cabinets and the run leader emits one
+   merged prism (with every member's appliance cutouts) through
+   `HostContext.worktop`; `hostContexts(design)` is the one composer the 3D
+   view and the BOM export both call. L-corner runs remain out of scope.
 3. ~~Collision & overlap warnings~~ — DONE: `src/model/checks.ts` `runChecks`
    (2.5D height-aware SAT + polygon overlap, plus ergonomic clearances and
    the work triangle), tints offending items red/amber in both views,
@@ -44,10 +47,13 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
    `nearestWall` pattern in `snapping.ts`).
 9. ~~Openings survive room reshaping~~ — DONE: `setShapePreset` anchors at the
    room's min-corner and re-homes openings via `reprojectOpeningsNearest`.
-10. **Touch support** (M) — pinch zoom / two-finger pan in `plan2d.ts`
-    (pointer-events code is already unified; add gesture math).
-11. **Print / PDF plan sheet** (M) — dimensioned floor plan + item schedule via
-    the browser print stylesheet, or client-side PDF (jsPDF).
+10. ~~Touch support~~ — DONE: pinch zoom / two-finger pan (`src/plan2d/pinch.ts`,
+    shared by plan2d and elevation), coarse-pointer hit radii via `hitRadius()`.
+11. ~~Print / PDF plan sheet~~ — DONE: `Export ▾ → Plan sheet…`
+    (`src/print/sheet.ts`) renders the plan offscreen at true scale through the
+    shared `renderPlan` (`src/plan2d/renderPlan.ts`) and composes an A4
+    landscape sheet — title block, 1:50 plan, item schedule from `buildBom` —
+    for the browser's own print dialog. No PDF library.
 
 ## Tier 3 — visual & rendering
 

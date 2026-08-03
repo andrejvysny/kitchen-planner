@@ -5,7 +5,8 @@ import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUnifo
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { CatalogDef } from '../model/catalog';
 import { polygonCentroid, wallPoint } from '../model/geometry';
-import { applianceHosting, findHost } from '../model/attach';
+import { findHost } from '../model/attach';
+import { hostContexts } from '../model/worktops';
 import type { HostContext } from '../model/panels';
 import { snapItem } from '../model/snapping';
 import { openingsOfWall, styleOfItem } from '../model/rooms';
@@ -324,8 +325,8 @@ export class View3D {
     this.ceilings = [];
 
     this.buildRooms();
-    // one hosting pass per rebuild: cutouts/niches appliances impose on hosts
-    const hosting = applianceHosting(this.store.design);
+    // one hosting pass per rebuild: appliance cutouts/niches + merged worktops
+    const hosting = hostContexts(this.store.design);
     for (const item of this.store.design.items) this.buildItem(item, hosting.get(item.id));
     this.relight();
     this.applySelectionTint();

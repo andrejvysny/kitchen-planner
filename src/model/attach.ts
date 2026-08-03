@@ -1,6 +1,12 @@
 import { catalogDef, hasCatalogDef, type CatalogDef } from './catalog';
 import { clamp } from './geometry';
-import { cabinetFaceSize, GAP, isWallMountedElevation, PLINTH_H } from './panels';
+import {
+  cabinetFaceSize,
+  GAP,
+  isWallMountedElevation,
+  PLINTH_H,
+  type HostContext as PanelHostContext,
+} from './panels';
 import { toCatalogDef } from './parts';
 import { presetPart } from './presets';
 import type { Attachment, CabinetPartDef, CustomPartDef, Design, Item, Point } from './types';
@@ -30,7 +36,13 @@ export interface WorktopCutout {
   itemId: string;
 }
 
-export interface HostContext {
+/**
+ * What partPanels needs to know about one instance, hosting side: the panel
+ * IR's own context narrowed to traceable cutouts and extended with niche
+ * occupancy. Extending it (rather than re-declaring a compatible shape) keeps
+ * the two from drifting — `worktop` (src/model/worktops.ts) arrives for free.
+ */
+export interface HostContext extends PanelHostContext {
   cutouts: WorktopCutout[];
   /** zone paths (joined with '-') already claimed by an appliance */
   occupiedZones: Set<string>;

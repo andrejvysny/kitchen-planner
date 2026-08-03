@@ -9,7 +9,15 @@ import {
   resolveInterior,
 } from './interior';
 import { footprintPolygon } from './parts';
-import type { BoardPartDef, CabinetPartDef, CustomPartDef, FreeformPartDef, Point, Zone } from './types';
+import type {
+  BoardPartDef,
+  CabinetPartDef,
+  CustomPartDef,
+  FreeformPartDef,
+  Point,
+  WorktopOverhang,
+  Zone,
+} from './types';
 import { walkSplits, walkZones, type ZoneRect } from './zones';
 
 /**
@@ -25,6 +33,12 @@ export const PLINTH_H = 0.1;
 export const FRONT_T = 0.018;
 export const GAP = 0.004;
 export const WORKTOP_T = 0.035;
+/** snug slab: what a rect cabinet gets when the part declares no overhang */
+export const DEFAULT_WORKTOP_OVERHANG: WorktopOverhang = Object.freeze({
+  front: 0.015,
+  back: 0.005,
+  sides: 0.01,
+});
 /** parts whose bottom sits above this (m) are wall-hung: no plinth */
 export const WALL_MOUNT_ELEVATION = 0.3;
 export const isWallMountedElevation = (elevation: number): boolean => elevation > WALL_MOUNT_ELEVATION;
@@ -433,6 +447,21 @@ function cutoutHoles(ctx: HostContext | undefined): Point[][] {
   ]);
 }
 
+/** The worktop as an extruded plan polygon — cutouts and merged runs need one. */
+function worktopPrism(outline: Point[], holes: Point[][], topT: number, h: number): Panel {
+  return {
+    id: 'worktop',
+    role: 'worktop',
+    shape: { kind: 'prism', outline, holes, h: topT },
+    x: 0,
+    y: h - topT,
+    z: 0,
+    rotY: 0,
+    slot: 'counter',
+    finish: 'wood',
+  };
+}
+
 export function cabinetPanels(part: CabinetPartDef, dims: PartDims, ctx?: HostContext): Panel[] {
   const { w, d, h } = dims;
   const out: Panel[] = [];
@@ -477,48 +506,48 @@ export function cabinetPanels(part: CabinetPartDef, dims: PartDims, ctx?: HostCo
     }
     if (topT) {
       // overhang extends the slab beyond the carcass, per edge (default snug)
-      const ov = part.worktopOverhang ?? { front: 0.015, back: 0.005, sides: 0.01 };
-      const holes = cutoutHoles(ctx);
-      if (holes.length) {
-        // a sink/hob cutout turns the slab into a prism with real holes —
-        // exactly what a CNC cut list needs
-        out.push({
-          id: 'worktop',
-          role: 'worktop',
-          shape: {
-            kind: 'prism',
-            outline: [
-              { x: -w / 2 - ov.sides, y: -d / 2 - ov.back },
-              { x: w / 2 + ov.sides, y: -d / 2 - ov.back },
-              { x: w / 2 + ov.sides, y: d / 2 + ov.front },
-              { x: -w / 2 - ov.sides, y: d / 2 + ov.front },
-            ],
-            holes,
-            h: topT,
-          },
-          x: 0,
-          y: h - topT,
-          z: 0,
-          rotY: 0,
-          slot: 'counter',
-          finish: 'wood',
-        });
+      const ov = part.worktopOverhang ?? DEFAULT_WORKTOP_OVERHANG;
+      const run = ctx?.worktop;
+      if (run?.role === 'follower') {
+        // merged into a continuous run — the run leader carries the whole board
+      } else if (run?.role === 'leader') {
+        // one slab for the entire run, already in THIS item's local frame
+        out.push(worktopPrism(run.outline, run.holes, topT, h));
       } else {
-        out.push(
-          boxPanel(
-            'worktop',
-            'worktop',
-            w + ov.sides * 2,
-            topT,
-            d + ov.front + ov.back,
-            0,
-            h - topT,
-            (ov.front - ov.back) / 2,
-            AT,
-            0,
-            { slot: 'counter', finish: 'wood' }
-          )
-        );
+        const holes = cutoutHoles(ctx);
+        if (holes.length) {
+          // a sink/hob cutout turns the slab into a prism with real holes —
+          // exactly what a CNC cut list needs
+          out.push(
+            worktopPrism(
+              [
+                { x: -w / 2 - ov.sides, y: -d / 2 - ov.back },
+                { x: w / 2 + ov.sides, y: -d / 2 - ov.back },
+                { x: w / 2 + ov.sides, y: d / 2 + ov.front },
+                { x: -w / 2 - ov.sides, y: d / 2 + ov.front },
+              ],
+              holes,
+              topT,
+              h
+            )
+          );
+        } else {
+          out.push(
+            boxPanel(
+              'worktop',
+              'worktop',
+              w + ov.sides * 2,
+              topT,
+              d + ov.front + ov.back,
+              0,
+              h - topT,
+              (ov.front - ov.back) / 2,
+              AT,
+              0,
+              { slot: 'counter', finish: 'wood' }
+            )
+          );
+        }
       }
     }
     return out;
@@ -606,22 +635,16 @@ export function cabinetPanels(part: CabinetPartDef, dims: PartDims, ctx?: HostCo
     }
   }
   if (topT) {
-    out.push({
-      id: 'worktop',
-      role: 'worktop',
-      shape: {
-        kind: 'prism',
-        outline: fpPoly.map((p) => ({ x: p.x * 1.01, y: p.y * 1.01 })),
-        holes: cutoutHoles(ctx),
-        h: topT,
-      },
-      x: 0,
-      y: h - topT,
-      z: 0,
-      rotY: 0,
-      slot: 'counter',
-      finish: 'wood',
-    });
+    // polygon footprints never join a run (worktops.ts skips them): their slab
+    // follows the outline, which no straight span can describe
+    out.push(
+      worktopPrism(
+        fpPoly.map((p) => ({ x: p.x * 1.01, y: p.y * 1.01 })),
+        cutoutHoles(ctx),
+        topT,
+        h
+      )
+    );
   }
   return out;
 }
@@ -689,9 +712,22 @@ export function freeformPanels(part: FreeformPartDef, dims: PartDims): Panel[] {
   });
 }
 
+/**
+ * How one item's worktop takes part in a continuous run (src/model/worktops.ts).
+ * The leader emits the WHOLE run as a single prism in its own item-local frame
+ * (`prism()` reads the plan geometry off the outline, so no placement changes);
+ * followers emit no worktop board at all. A run of one produces no plan, which
+ * leaves the standalone slab above untouched.
+ */
+export type WorktopPlan =
+  | { role: 'leader'; outline: Point[]; holes: Point[][] }
+  | { role: 'follower' };
+
 /** Per-instance host context: cutouts appliances take out of this item's worktop. */
 export interface HostContext {
   cutouts: { x: number; y: number; w: number; d: number }[];
+  /** merged-run plan for this item's worktop; absent = its own slab */
+  worktop?: WorktopPlan;
 }
 
 /** Every physical panel of a custom part, at the given instance dimensions. */

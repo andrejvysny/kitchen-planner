@@ -155,6 +155,46 @@ describe('partPanels (manufacturing IR)', () => {
     expect(island.z).toBeCloseTo(0.06); // front-heavy overhang shifts the slab forward
   });
 
+  it('a worktop plan makes the leader emit the run and the follower nothing', () => {
+    const part = newCabinetPart(); // rect, worktop: true
+    const outline = [
+      { x: -0.61, y: -0.31 },
+      { x: 0.61, y: -0.31 },
+      { x: 0.61, y: 0.31 },
+      { x: -0.61, y: 0.31 },
+    ];
+    const lead = cabinetPanels(part, dimsOf(part), {
+      cutouts: [],
+      worktop: { role: 'leader', outline, holes: [] },
+    }).filter((p) => p.role === 'worktop');
+    expect(lead).toHaveLength(1);
+    expect(lead[0].id).toBe('worktop');
+    expect(lead[0].slot).toBe('counter');
+    if (lead[0].shape.kind !== 'prism') throw new Error('expected prism');
+    expect(lead[0].shape.outline).toEqual(outline); // taken verbatim, not rebuilt
+    expect(lead[0].shape.h).toBeCloseTo(0.035);
+    expect(lead[0].y).toBeCloseTo(part.h - 0.035);
+
+    const follower = cabinetPanels(part, dimsOf(part), {
+      cutouts: [],
+      worktop: { role: 'follower' },
+    });
+    expect(follower.filter((p) => p.role === 'worktop')).toHaveLength(0);
+    // only the top is gone — the carcass is untouched
+    const plain = cabinetPanels(part, dimsOf(part));
+    expect(follower.map((p) => p.id)).toEqual(
+      plain.filter((p) => p.role !== 'worktop').map((p) => p.id)
+    );
+  });
+
+  it('no worktop plan leaves the standalone slab byte-identical', () => {
+    const part = newCabinetPart();
+    const before = cabinetPanels(part, dimsOf(part), { cutouts: [] });
+    const after = cabinetPanels(part, dimsOf(part), { cutouts: [], worktop: undefined });
+    expect(JSON.stringify(after)).toBe(JSON.stringify(before));
+    expect(JSON.stringify(cabinetPanels(part, dimsOf(part)))).toBe(JSON.stringify(before));
+  });
+
   it('finishedBack emits a real back board flush with the carcass', () => {
     const part = newCabinetPart();
     part.finishedBack = true;

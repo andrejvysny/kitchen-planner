@@ -168,9 +168,7 @@ button.noprint { font: inherit; padding: 6px 14px; margin-top: 10px; cursor: poi
 @media print { .noprint { display: none } body { padding: 0 } }
 `;
 
-const CAVEAT =
-  'Worktops are exported per unit — continuous runs are not merged. ' +
-  'Verify all dimensions before cutting.';
+const CAVEAT = 'Verify all dimensions before cutting.';
 
 /** Group rows by room, in the design's room order, unassigned rows last. */
 function byRoom<T extends { roomId: string; room: string }>(

@@ -257,6 +257,40 @@ describe('cutRows', () => {
     expect(top.thicknessMm).toBe(35);
   });
 
+  it('a continuous run is ONE worktop row spanning the whole counter', () => {
+    const design = emptyDesign();
+    // three flush 600 mm units against the same wall
+    for (const x of [0.4, 1.0, 1.6]) place(design, 'base-cabinet', { x, y: 0.4 });
+    const tops = cutRows(design).filter((r) => r.role === 'worktop');
+    expect(tops).toHaveLength(1);
+    expect(tops[0].qty).toBe(1);
+    expect(tops[0].shape).toBe('prism');
+    // 1800 + 2 × 10 mm side overhang, by 600 + 15 + 5 mm
+    expect(tops[0].lengthMm).toBe(1820);
+    expect(tops[0].widthMm).toBe(620);
+    expect(tops[0].thicknessMm).toBe(35);
+    expect(tops[0].areaM2).toBeCloseTo(1.82 * 0.62, 9);
+    expect(tops[0].outline).toHaveLength(4);
+    // one board, cut once, traceable to the unit that leads the run
+    expect(tops[0].itemIds).toHaveLength(1);
+    // the other boards are still cut once per unit
+    expect(cutRows(design).find((r) => r.panelId === 'carcass.left')!.qty).toBe(3);
+  });
+
+  it('a sink on a merged run keeps its cutout, once, in the shared slab', () => {
+    const design = emptyDesign();
+    const lead = place(design, 'base-cabinet', { x: 0.4, y: 0.4, w: 0.8 });
+    const host = place(design, 'base-cabinet', { x: 1.2, y: 0.4, w: 0.8 });
+    place(design, 'appl-sink', { attach: { kind: 'counter', hostId: host.id, u: 0, v: 0 } });
+    const tops = cutRows(design).filter((r) => r.role === 'worktop');
+    expect(tops).toHaveLength(1);
+    expect(tops[0].itemIds).toEqual([lead.id]);
+    expect(tops[0].holes).toHaveLength(1);
+    expect(tops[0].notes).toBe('Cutout 500×400 mm');
+    // 1600 + overhangs, minus the one cutout
+    expect(tops[0].areaM2).toBeCloseTo(1.62 * 0.62 - 0.5 * 0.4, 9);
+  });
+
   it('bought products never reach the cut list', () => {
     const design = emptyDesign();
     place(design, 'chair');
@@ -606,7 +640,9 @@ describe('bomHtml', () => {
     expect(html).toContain('Shopping list');
     expect(html).toContain('Hardware');
     expect(html).toContain(String(bom.totals.panels));
-    expect(html).toContain('continuous runs are not merged');
+    expect(html).toContain('Verify all dimensions before cutting.');
+    // continuous runs ARE merged now — the old caveat is gone for good
+    expect(html).not.toContain('continuous runs are not merged');
     expect(html).toContain(bom.generatedAt);
     // no external assets: everything inline
     expect(html).not.toMatch(/<(link|img|iframe)\b/);
