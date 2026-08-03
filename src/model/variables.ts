@@ -7,7 +7,7 @@
  * This is the single choke point every render path resolves colours through.
  */
 
-import type { Design, DesignVar } from './types';
+import type { Design, DesignVar, Item, RoomStyle } from './types';
 
 export const VAR_PREFIX = 'var:';
 
@@ -60,6 +60,21 @@ export function resolveFinish(
 export function resolveColor(design: Design, color: string): string {
   if (isVarRef(color)) return variableById(design, refId(color))?.color ?? VAR_FALLBACK;
   return color;
+}
+
+/**
+ * Worktop finish: the item's own counter material when set, else the room-wide
+ * worktop style. The room worktop colour may be a design-variable ref, so
+ * resolve it; a per-item material override keeps that resolved colour.
+ * Shared by the 3D renderer AND the cut-list export — the slot must resolve
+ * identically in both.
+ */
+export function counterFin(design: Design, room: RoomStyle, item?: Item): ResolvedFinish {
+  const base = resolveFinish(design, room.counterColor, room.counterMaterial, room.counterMaterialRot);
+  if (item?.counterMaterial) {
+    return { color: base.color, material: item.counterMaterial, rot: item.counterMaterialRot };
+  }
+  return base;
 }
 
 /** The concrete finish a ref currently resolves to — used to inline on delete/unbind. */

@@ -12,8 +12,8 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
 - No collision prevention — items can be pushed inside each other or through walls.
 - Flat colors only (by design: Blender is the photorealism path).
 - Real-time shadows are budgeted to 4 fixture lights (`SHADOW_LIGHT_BUDGET`).
-- Desktop-first; touch works for basic taps but there are no touch gestures.
-- Openings are lost when applying a room-shape preset.
+- Desktop-first; 2D plan has pinch zoom/pan, but the elevation view does not,
+  and hit targets are mouse-sized.
 
 ## Tier 1 — highest value next
 
@@ -29,9 +29,8 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
 4. **Shopping list / BOM export** (S) — items are already parametric data; group
    `design.items` by def + dimensions, export CSV/Markdown with counts and
    sizes. Useful for pricing against IKEA/retailer catalogs.
-5. **Wall elevation view** (M) — click a wall → flat front view showing the run
-   with heights (2D canvas, reuse plan renderer with a different projection).
-   This is the standard "cabinet elevation" drawing kitchen fitters want.
+5. ~~Wall elevation view~~ — DONE: `src/plan2d/elevation.ts` + `src/model/elevation.ts`,
+   follows the active room.
 
 ## Tier 2 — UX polish
 
@@ -42,8 +41,8 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
 8. **Sink ↔ water-supply guide** (S) — when a sink is selected, draw a guide
    line + distance to the nearest water marker in `plan2d.ts` (helper exists:
    `nearestWall` pattern in `snapping.ts`).
-9. **Openings survive room reshaping** (S) — on `setShapePreset`, re-attach
-   openings to the nearest new wall instead of clearing them (`store.ts`).
+9. ~~Openings survive room reshaping~~ — DONE: `setShapePreset` anchors at the
+   room's min-corner and re-homes openings via `reprojectOpeningsNearest`.
 10. **Touch support** (M) — pinch zoom / two-finger pan in `plan2d.ts`
     (pointer-events code is already unified; add gesture math).
 11. **Print / PDF plan sheet** (M) — dimensioned floor plan + item schedule via
@@ -67,9 +66,8 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
 
 16. ~~Part Studio: free-form template~~ — DONE (zone-tree editor, interiors,
     appliance niches, openable fronts).
-17. **Multi-room / whole-apartment planning** (L) — the model already supports
-    arbitrary polygons; needs multiple polygons, shared walls, and a room
-    switcher.
+17. ~~Multi-room / whole-apartment planning~~ — DONE: Design v6 `rooms[]`,
+    shared partitions, add-room tool, room switcher, v5→v6 migration.
 18. **Real product catalogs** (L) — map parametric items to retailer SKUs
     (e.g. IKEA METOD sizes are already the default dimensions) for a priced
     shopping list.

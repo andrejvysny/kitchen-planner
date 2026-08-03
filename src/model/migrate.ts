@@ -5,8 +5,8 @@
  * is what makes them cheap to keep forever.
  */
 
-import { clamp, insetPolygon, projectOnWall, wallGeom, wallPoint, type WallGeom } from './geometry';
-import { defaultRoomStyle } from './rooms';
+import { clamp, insetPolygon, projectOnWall, wallPoint, type WallGeom } from './geometry';
+import { defaultRoomStyle, ringWalls } from './rooms';
 import { uid, type Corner, type Item, type Opening, type RoomStyle } from './types';
 
 export const DESIGN_VERSION = 6;
@@ -88,16 +88,6 @@ export function migrate5to6(d: Raw): Raw {
   delete d.ceilingVisibility;
   d.version = 6;
   return d;
-}
-
-/** Wall geometry by start-corner id for one ring. */
-function ringWalls(pts: Corner[]): Map<string, WallGeom> {
-  const m = new Map<string, WallGeom>();
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i];
-    m.set(a.id, wallGeom({ id: a.id, a, b: pts[(i + 1) % pts.length] }));
-  }
-  return m;
 }
 
 /** Move every opening onto the moved ring, keeping its world position. */

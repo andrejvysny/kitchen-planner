@@ -916,6 +916,49 @@ const { readFileSync } = await import('fs');
 const buf = readFileSync(path);
 results.push(['glb export magic', buf.length > 2000 && buf.toString('ascii', 0, 4) === 'glTF']);
 
+// 20a/20b. Export ▾ menu: cut list CSV (KITCHENP milestone 1 BOM export).
+// One download covers both the header contract and a content check — a
+// base cabinet was placed for the stacking test (13) and is still alive.
+const openExportMenu = async () => {
+  await page.click('#btn-export');
+  await page.waitForTimeout(150);
+};
+await openExportMenu();
+const [cutDownload] = await Promise.all([
+  page.waitForEvent('download', { timeout: 20000 }),
+  page.click('[data-export="cut"]'),
+]);
+const cutText = readFileSync(await cutDownload.path()).toString('utf-8');
+const cutFirstLine = cutText.replace(/^﻿/, '').split('\r\n')[0];
+results.push([
+  'cut list csv: filename + header contract',
+  cutDownload.suggestedFilename() === 'interior-cutlist.csv' &&
+    cutFirstLine ===
+      'Room,Part,Panel,Role,Qty,Length (mm),Width (mm),Thickness (mm),Material,Colour,Finish,Shape,Area (m²),Notes,Outline (mm),Holes (mm)',
+]);
+results.push([
+  'cut list csv lists the placed cabinet',
+  cutText.includes('Base cabinet') && cutText.includes('carcass.left'),
+]);
+
+// 20c. shopping list CSV lists a bought product (a fridge, placed here since
+// only manufactured cabinets survive from earlier tests at this point).
+await page.evaluate(() => {
+  const st = window.__kp.store;
+  st.addItem(st.defOf('fridge'), 3.5, 2.5, 0);
+  st.commit();
+});
+await openExportMenu();
+const [buyDownload] = await Promise.all([
+  page.waitForEvent('download', { timeout: 20000 }),
+  page.click('[data-export="buy"]'),
+]);
+const buyText = readFileSync(await buyDownload.path()).toString('utf-8');
+results.push([
+  'shopping list csv lists a bought product',
+  buyDownload.suggestedFilename() === 'interior-shopping-list.csv' && buyText.includes('Fridge / freezer'),
+]);
+
 // 21. a pre-v5 autosave has no migration path: the app resets to a fresh
 // design instead of crashing or half-loading it. A partial v5 payload is
 // still repaired in place.

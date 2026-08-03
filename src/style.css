@@ -83,6 +83,35 @@ html, body {
 #topbar button:disabled { opacity: 0.35; cursor: default; }
 #topbar button:disabled:hover { background: transparent; }
 
+.topbar-menu-wrap { position: relative; }
+
+.topbar-menu {
+  display: none;
+  flex-direction: column;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 4px;
+  z-index: 10;
+}
+
+.topbar-menu.open { display: flex; }
+
+.topbar-menu button {
+  width: 100%;
+  padding: 7px 10px;
+  text-align: left;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 /* ---------- Workspace ---------- */
 
 #workspace {

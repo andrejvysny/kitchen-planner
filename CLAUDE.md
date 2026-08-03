@@ -93,7 +93,7 @@ hosts via `item.attach` ({kind:'counter', hostId, u, v} into a worktop, or
 HOST-LOCAL; `item.x/y/rotation/elevation` stay the authoritative world cache
 recomputed by `syncAttachments` (src/model/attach.ts, all pure). Hosting
 cutouts/occupancy come from `applianceHosting(design)` — computed once per
-View3D rebuild and by the future export. Deleting a host cascades to its
+View3D rebuild and once per BOM export. Deleting a host cascades to its
 appliances; unresolvable attachments detach-to-world. snapItem skips
 attached items (they overlap their hosts).
 
@@ -120,12 +120,19 @@ older or unknown (callers fall back to a fresh/demo design).
 - **New interior element**: extend `InteriorElement` (types.ts),
   `sanitizeInterior`/`resolveInterior` (interior.ts), the emission in
   panels.ts `facePanels`, and the drill-in editor in zoneCanvas.ts.
-- **Manufacturing export**: iterate `design.items` → `partPanels(part,
-  itemDims, applianceHosting(design).get(item.id))` → rows from
-  `Panel.shape` dims + `role` + resolved slot colour ('counter' resolves via
-  the room worktop like the renderer); prism outlines are CNC-ready
-  polygons (incl. sink/hob cutouts). Panel ids are stable per part;
-  `motion` carries hinge sides + slide travel; drawer boxes are real boards.
+- **Manufacturing export** (src/model/export.ts + exportFormats.ts, wired via
+  the topbar `Export ▾` menu in src/ui/ui.ts): `buildBom(design)` iterates
+  `design.items`, resolves each to `partPanels(part, itemDims,
+  applianceHosting(design).get(item.id))` and dedupes into `CutRow`s (cut
+  list) plus bought products/openings/hardware into `BuyRow`s (shopping
+  list); `exportFormats.ts` renders CSV and a printable HTML sheet. Two
+  invariants hold it together: (a) every cut row comes from `partPanels`,
+  NEVER from meshes — the panel list is the geometric truth the renderer
+  also uses; (b) slot colours resolve through src/model/variables.ts
+  (`resolveFinish`/`resolveColor`/`counterFin`), mirroring partMeshes.ts
+  `panelMaterial` exactly, NEVER through meshKit. Panel ids are stable per
+  part; `motion` carries hinge sides + slide travel; drawer boxes are real
+  boards.
 
 Room model: `design.rooms` is an array of `Room`s, each owning a corner
 polygon normalized counter-clockwise (`normalizeRoom`, applied to every room

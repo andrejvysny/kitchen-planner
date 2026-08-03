@@ -1,3 +1,18 @@
+# M1 — BOM export (cut-list + shopping-list)
+
+Plan: ~/.claude/plans/act-as-senior-software-elegant-unicorn.md, "MILESTONE 1"
+Each phase ends green: `npx tsc --noEmit && npm run test:unit` (+ `npm run build && node test/interact.mjs` from Phase 4)
+
+- [x] Phase 0: prep — `counterFin` → variables.ts, `PLINTH_COLOR` → catalog.ts (meshKit re-exports both), `catalogSection(defId)` in catalog.ts. Zero behavior change.
+- [x] Phase 1: src/model/export.ts cut rows — `CutRow`, name-keyed dedup, `cutRows(design)` (one `applianceHosting` pass, `partPanels` per item), slot resolution mirroring partMeshes.ts `panelMaterial`.
+- [x] Phase 2: shopping list + openings + hardware — `BuyRow`, `buyRows`/`openingRows`/`hardwareRows`, `buildBom(design, now?)` → `Bom`.
+- [x] Phase 3: src/model/exportFormats.ts — `cutListCsv`/`shoppingListCsv` (UTF-8 BOM + CRLF, `CUT_HEADER`/`BUY_HEADER` contracts), `bomHtml` printable A4 sheet.
+- [x] Phase 4: UI + E2E + docs — `Export ▾` topbar dropdown (index.html + style.css `.topbar-menu`), `wireExportMenu()`/`downloadText()` in ui.ts, 3 E2E scenarios (cut list header contract, cut list cabinet row, shopping list product), README/CLAUDE.md/TODO.md updated (242 unit, 89/89 E2E).
+
+All phases complete. Uncommitted on master.
+
+---
+
 # v6 Multi-Room Foundation (kitchen → interior planner) — TODO
 
 Plan: ~/.claude/plans/act-as-senior-software-elegant-unicorn.md

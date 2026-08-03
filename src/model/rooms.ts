@@ -11,7 +11,7 @@
  * says so). Everything is meters.
  */
 
-import { dist, pointInPolygon, signedArea, wallGeom, type WallGeom } from './geometry';
+import { clamp, dist, distToSegment, pointInPolygon, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
 import {
   uid,
   type Corner,
@@ -222,6 +222,44 @@ export function reidCorners(room: Room): Map<string, string> {
 }
 
 /* ---------------- openings ---------------- */
+
+/** Wall geometry by start-corner id for one ring. */
+export function ringWalls(pts: Corner[]): Map<string, WallGeom> {
+  const m = new Map<string, WallGeom>();
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    m.set(a.id, wallGeom({ id: a.id, a, b: pts[(i + 1) % pts.length] }));
+  }
+  return m;
+}
+
+/**
+ * Re-home openings from a replaced ring onto whichever NEW wall is nearest to
+ * each opening's old world position. Unlike migrate's reprojectOpenings (which
+ * relies on corner ids surviving), this one assumes every id changed — it is
+ * for wholesale outline swaps like the shape presets. Mutates the openings.
+ */
+export function reprojectOpeningsNearest(before: Corner[], after: Corner[], openings: Opening[]): void {
+  const oldWalls = ringWalls(before);
+  const newWalls = [...ringWalls(after).values()];
+  if (!newWalls.length) return;
+  for (const o of openings) {
+    const g0 = oldWalls.get(o.wallId);
+    if (!g0 || !Number.isFinite(o.offset)) continue;
+    const p = wallPoint(g0, o.offset);
+    let best = newWalls[0];
+    let bestD = Infinity;
+    for (const g of newWalls) {
+      const d = distToSegment(p, g.a, g.b);
+      if (d < bestD) {
+        bestD = d;
+        best = g;
+      }
+    }
+    o.wallId = best.id;
+    o.offset = clamp(projectOnWall(best, p).t, o.width / 2, best.len - o.width / 2);
+  }
+}
 
 /**
  * The same opening as seen from the other side of a shared wall. The twin edge

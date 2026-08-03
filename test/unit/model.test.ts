@@ -865,3 +865,42 @@ describe('snapItem', () => {
     expect(res.x).toBeGreaterThanOrEqual(0.29);
   });
 });
+
+describe('setShapePreset', () => {
+  it('anchors the preset at the room\'s own min-corner instead of teleporting to the origin', () => {
+    const store = new Store(rectDesign());
+    const r2 = store.addRoom({ at: { x: 6, y: 1 }, w: 5, d: 4 })!;
+    store.setShapePreset('rect', r2.id);
+    expect(rectangleSizeOf(r2)).toEqual({ w: 4, d: 3 });
+    expect(Math.min(...r2.corners.map((k) => k.x))).toBeCloseTo(6);
+    expect(Math.min(...r2.corners.map((k) => k.y))).toBeCloseTo(1);
+    // the first room never moved
+    expect(Math.min(...store.design.rooms[0].corners.map((k) => k.x))).toBeCloseTo(0);
+  });
+
+  it('keeps openings, re-homed onto the nearest new wall at the same world position', () => {
+    const store = new Store(rectDesign());
+    const wall = store.wallsOf(store.activeRoomId)[0];
+    const o = store.addOpening(catalogDef('window'), wall.id, 1.5);
+    const before = wallPoint(store.wallById(o.wallId)!, o.offset);
+    store.setShapePreset('rect'); // same outline, all-new corner ids
+    expect(store.design.openings).toHaveLength(1);
+    const after = wallPoint(store.wallById(o.wallId)!, o.offset);
+    expect(after.x).toBeCloseTo(before.x, 6);
+    expect(after.y).toBeCloseTo(before.y, 6);
+  });
+
+  it('slides openings to the closest wall when the outline genuinely changes shape', () => {
+    const store = new Store(rectDesign());
+    const wall = store.wallsOf(store.activeRoomId)[0];
+    const o = store.addOpening(catalogDef('window'), wall.id, 1.5);
+    const before = wallPoint(store.wallById(o.wallId)!, o.offset);
+    store.setShapePreset('lshape');
+    expect(store.design.openings).toHaveLength(1);
+    const g = store.wallById(o.wallId)!;
+    const after = wallPoint(g, o.offset);
+    // nearest L-shape wall passes through the old spot on the top edge
+    expect(after.x).toBeCloseTo(before.x, 1);
+    expect(after.y).toBeCloseTo(before.y, 1);
+  });
+});

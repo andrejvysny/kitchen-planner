@@ -37,6 +37,14 @@
           <button id="btn-load" title="Load design from JSON">Load</button>
           <button id="btn-png" title="Export 3D snapshot as PNG">Snapshot</button>
           <button id="btn-glb" title="Export the modelled interior as .glb for Blender">Blender</button>
+          <div class="topbar-menu-wrap">
+            <button id="btn-export" title="Cut list, shopping list and a printable sheet">Export ▾</button>
+            <div id="export-menu" class="topbar-menu">
+              <button data-export="cut">Cut list (CSV)</button>
+              <button data-export="buy">Shopping list (CSV)</button>
+              <button data-export="sheet">Printable sheet…</button>
+            </div>
+          </div>
           <input type="file" id="file-input" accept=".json,application/json" hidden />
         </div>
       </header>

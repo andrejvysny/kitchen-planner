@@ -18,6 +18,8 @@ import {
   WALL_MATERIALS,
   type MaterialDef,
 } from '../model/materials';
+import { buildBom } from '../model/export';
+import { bomHtml, cutListCsv, shoppingListCsv } from '../model/exportFormats';
 import { navInput, setNavInput } from '../model/navPref';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../model/sky';
 import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
@@ -1287,6 +1289,8 @@ export class UI {
       }
     });
 
+    this.wireExportMenu();
+
     // pane controls
     $('#btn-zoom-in').addEventListener('click', () => this.plan.zoomBy(1.25));
     $('#btn-zoom-out').addEventListener('click', () => this.plan.zoomBy(0.8));
@@ -1313,6 +1317,56 @@ export class UI {
     a.href = url;
     a.download = name;
     a.click();
+  }
+
+  private downloadText(text: string, name: string, type: string): void {
+    const blob = new Blob([text], { type });
+    this.download(URL.createObjectURL(blob), name);
+  }
+
+  /** BOM export: cut list / shopping list CSV downloads, printable sheet. */
+  private wireExportMenu(): void {
+    const btn = $('#btn-export');
+    const menu = $('#export-menu');
+    const closeMenu = () => menu.classList.remove('open');
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu.classList.toggle('open');
+    });
+    document.addEventListener('pointerdown', (e) => {
+      if (!menu.classList.contains('open')) return;
+      const t = e.target as Node;
+      if (!menu.contains(t) && !btn.contains(t)) closeMenu();
+    });
+
+    const action = (kind: 'cut' | 'buy' | 'sheet') =>
+      menu.querySelector(`[data-export="${kind}"]`) as HTMLButtonElement;
+
+    action('cut').addEventListener('click', () => {
+      const bom = buildBom(this.store.design);
+      this.downloadText(cutListCsv(bom), 'interior-cutlist.csv', 'text/csv;charset=utf-8');
+      $('#status-hint').textContent = 'interior-cutlist.csv exported';
+      closeMenu();
+    });
+
+    action('buy').addEventListener('click', () => {
+      const bom = buildBom(this.store.design);
+      this.downloadText(shoppingListCsv(bom), 'interior-shopping-list.csv', 'text/csv;charset=utf-8');
+      $('#status-hint').textContent = 'interior-shopping-list.csv exported';
+      closeMenu();
+    });
+
+    action('sheet').addEventListener('click', () => {
+      const bom = buildBom(this.store.design);
+      const url = URL.createObjectURL(new Blob([bomHtml(bom)], { type: 'text/html' }));
+      const w = window.open(url, '_blank');
+      if (!w) this.download(url, 'interior-bom.html');
+      $('#status-hint').textContent = w
+        ? 'Printable sheet opened in a new tab'
+        : 'Pop-ups are blocked — interior-bom.html downloaded instead';
+      closeMenu();
+    });
   }
 
   private updateUndoButtons(): void {

@@ -11,6 +11,7 @@ import {
   rectangleSizeOf,
   rehomeOpening,
   reidCorners,
+  reprojectOpeningsNearest,
   roomArea,
   roomById,
   roomContaining,
@@ -678,19 +679,25 @@ export class Store {
     this.notify({ structural: true });
   }
 
-  /** Replace one room's outline with a preset shape (items are kept). */
+  /** Replace one room's outline with a preset shape (items and openings are kept). */
   setShapePreset(preset: 'rect' | 'lshape', roomId = this.activeRoomId): void {
     const room = roomById(this.design.rooms, roomId);
     if (!room) return;
     const stale = new Set(room.corners.map((k) => k.id));
-    const c = (x: number, y: number): Corner => ({ id: uid('c'), x, y });
+    const before = room.corners;
+    // anchor the preset to the room's current min-corner — an absolute origin
+    // would teleport every room but the first onto the first
+    const b = polygonBounds(before);
+    const c = (x: number, y: number): Corner => ({ id: uid('c'), x: b.minX + x, y: b.minY + y });
     room.corners =
       preset === 'rect'
         ? [c(0, 0), c(4, 0), c(4, 3), c(0, 3)]
         : [c(0, 0), c(4.2, 0), c(4.2, 2.2), c(2.4, 2.2), c(2.4, 3.4), c(0, 3.4)];
     normalizeRoom(this.design, room);
-    // openings and overrides referenced walls that no longer exist
-    this.design.openings = this.design.openings.filter((o) => !stale.has(o.wallId));
+    // every wall id changed: slide the room's openings onto the nearest new wall
+    const affected = this.design.openings.filter((o) => stale.has(o.wallId));
+    reprojectOpeningsNearest(before, room.corners, affected);
+    for (const o of affected) this.clampOpening(o);
     room.wallVisibility = {};
     this.select({ kind: 'none' });
     this.notify({ structural: true });

@@ -1,9 +1,12 @@
 import * as THREE from 'three';
-import { APPLIANCE_BLACK } from '../model/catalog';
+import { APPLIANCE_BLACK, PLINTH_COLOR } from '../model/catalog';
 import { signedArea } from '../model/geometry';
 import type { Design, Item, Point, RoomStyle } from '../model/types';
-import { resolveFinish } from '../model/variables';
+import { counterFin, type ResolvedFinish } from '../model/variables';
 import { texturedMaterial } from './textures';
+
+export { PLINTH_COLOR } from '../model/catalog';
+export { counterFin } from '../model/variables';
 
 /**
  * Shared procedural-mesh vocabulary. Local space: x = width, y = up (0 at
@@ -18,7 +21,6 @@ export { FRONT_T, GAP, PLINTH_H } from '../model/panels';
 import { FRONT_T, GAP, PLINTH_H } from '../model/panels';
 
 export const COUNTER_T = 0.04;
-export const PLINTH_COLOR = '#26251f';
 export const GROOVE = '#1f1e1b';
 export const CARCASS_DARKEN = 0.92;
 
@@ -39,12 +41,7 @@ export function wood(color: string): THREE.MeshStandardMaterial {
 }
 
 /** A paintable surface: user colour + optional built-in PBR material id. */
-export interface Finish {
-  color: string;
-  material?: string;
-  /** rotate the material's texture 90° (grain vertical → horizontal) */
-  rot?: boolean;
-}
+export type Finish = ResolvedFinish;
 
 /**
  * Material for a colour-carrying surface. With a library material id it
@@ -169,19 +166,6 @@ export function plinth(g: THREE.Group, w: number, d: number): void {
 
 export function carcass(g: THREE.Group, w: number, h: number, d: number, color: string | Finish, y0: number): void {
   box(g, w, h, d - FRONT_T, surfMat(color, 'matte', CARCASS_DARKEN), 0, y0, -FRONT_T / 2);
-}
-
-/**
- * Worktop finish as a Finish: the item's own counter material when set, else
- * the room-wide worktop style. The room worktop colour may be a design-variable
- * ref, so resolve it; a per-item material override keeps that resolved colour.
- */
-export function counterFin(design: Design, room: RoomStyle, item?: Item): Finish {
-  const base = resolveFinish(design, room.counterColor, room.counterMaterial, room.counterMaterialRot);
-  if (item?.counterMaterial) {
-    return { color: base.color, material: item.counterMaterial, rot: item.counterMaterialRot };
-  }
-  return base;
 }
 
 export function counterSlab(

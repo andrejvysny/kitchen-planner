@@ -9,6 +9,8 @@ export const STEEL = '#b9bdc0';
 export const OAK = '#c9a87c';
 export const WALNUT = '#8b6748';
 export const APPLIANCE_BLACK = '#1d1f22';
+/** near-black recessed plinths (renderer + cut list agree through this) */
+export const PLINTH_COLOR = '#26251f';
 
 export const FLOOR_COLORS = ['#cfccc6', '#d9c4a0', '#b7b4ad', '#8f8b83', '#e3e0da'];
 export const WALL_COLORS = ['#f4f1ea', '#e9e4d8', '#dfe4de', '#d8dee3', '#efe2d2'];
@@ -355,6 +357,14 @@ export function catalogDef(id: string): CatalogDef {
 
 export function hasCatalogDef(id: string): boolean {
   return byId.has(id);
+}
+
+const sectionById = new Map<string, string>();
+for (const s of CATALOG) for (const d of s.items) sectionById.set(d.id, s.title);
+
+/** Catalog section title a built-in def renders under (shopping-list category). */
+export function catalogSection(defId: string): string | undefined {
+  return sectionById.get(defId);
 }
 
 export function defaultParams(def: CatalogDef): Record<string, number> | undefined {

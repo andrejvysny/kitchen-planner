@@ -99,6 +99,9 @@ one place, never guessed back out of a mesh.
 | **Save / Load** | The full design as JSON — rooms, items, openings, and your custom parts (self-contained, shareable) |
 | **Snapshot** | PNG of the current 3D view |
 | **Blender** | `interior.glb` — the fully modelled interior for photorealistic rendering |
+| **Export ▾ → Cut list (CSV)** | `interior-cutlist.csv` — every board to manufacture, generated from the same panel IR the 3D renderer uses (dimensions, material, colour, hinge/slide notes) |
+| **Export ▾ → Shopping list (CSV)** | `interior-shopping-list.csv` — bought appliances/furniture/lighting, wall openings, and hardware (hinges, drawer slides) implied by the cabinets |
+| **Export ▾ → Printable sheet…** | A self-contained A4 HTML bill of materials (cut list + shopping list + hardware, grouped by room) opened in a new tab, ready to print or save as PDF |
 
 ### Blender workflow
 
