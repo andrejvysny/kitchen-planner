@@ -1039,7 +1039,8 @@ export class Plan2D {
   private sortedItems(): Item[] {
     const layer = (it: Item): number => {
       const def = this.store.defOf(it.defId);
-      if (def.kind === 'backsplash') return 0;
+      // wall panels and rugs are surfaces: everything else paints over them
+      if (def.kind === 'backsplash' || def.kind === 'rug') return 0;
       // mounted appliances paint above their host cabinets and worktops
       if (it.attach) return 3;
       if (def.marker) return 3;
@@ -1176,6 +1177,7 @@ export class Plan2D {
         bodyAlpha: part?.type === 'board' ? 0.5 : undefined,
         footprint: this.footprintOf(it) ?? undefined,
         gangs: it.params?.gangs,
+        seats: it.params?.seats,
       });
       ctx.restore();
 

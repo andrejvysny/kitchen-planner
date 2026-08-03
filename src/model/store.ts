@@ -1,4 +1,4 @@
-import { catalogDef, defaultParams, hasCatalogDef, type CatalogDef } from './catalog';
+import { catalogDef, defaultParams, FLOOR_COLORS, hasCatalogDef, type CatalogDef } from './catalog';
 import { hasPreset, presetPart } from './presets';
 import { clamp, dist, polygonBounds, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
 import { hasMaterial } from './materials';
@@ -1438,8 +1438,10 @@ export function emptyDesign(): Design {
 }
 
 /**
- * Demo kitchen inspired by the reference images: sage-green matte fronts,
- * oak worktop and backsplash, appliance tower, LED strip, island with stools.
+ * Demo kitchen + bedroom inspired by the reference images: sage-green matte
+ * fronts, oak worktop and backsplash, appliance tower, LED strip, island
+ * with stools; an adjoining bedroom sharing the kitchen's east wall
+ * showcases a partition rendered once from both sides.
  */
 export function demoDesign(): Design {
   const t = 0.1; // wall thickness
@@ -1455,6 +1457,18 @@ export function demoDesign(): Design {
   const c3: Corner = { id: uid('c'), x: x1, y: y1 };
   const c4: Corner = { id: uid('c'), x: x0, y: y1 };
   const roomId = uid('room');
+
+  // Bedroom sits beyond the kitchen's east wall: its west-wall corners (d1,
+  // d4) are the SAME coordinates as the kitchen's east-wall corners (c2, c3)
+  // — allWalls() links coincident-and-reversed edges as one shared
+  // partition, built once and rendered from both sides.
+  const bedDepth = 3.0; // how far the bedroom extends beyond the shared wall
+  const bx1 = x1 + bedDepth;
+  const d1: Corner = { id: uid('c'), x: x1, y: y0 };
+  const d2: Corner = { id: uid('c'), x: bx1, y: y0 };
+  const d3: Corner = { id: uid('c'), x: bx1, y: y1 };
+  const d4: Corner = { id: uid('c'), x: x1, y: y1 };
+  const bedroomId = uid('room');
 
   const backY = (depth: number) => y0 + depth / 2; // back flush against the top wall
 
@@ -1536,6 +1550,17 @@ export function demoDesign(): Design {
   add('spot', 2.1, 1.15);
   add('spot', 3.2, 1.15);
 
+  // Bedroom: bed against the far (east) wall, a nightstand on each side, a
+  // wardrobe on the south wall, a rug reaching out from under the bed, and a
+  // pendant centered on the ceiling.
+  const bedY = 1.4;
+  add('bed-double', bx1 - 1.0, bedY, Math.PI / 2, { roomId: bedroomId });
+  add('nightstand', bx1 - 0.2, bedY - 0.945, Math.PI / 2, { roomId: bedroomId });
+  add('nightstand', bx1 - 0.2, bedY + 0.945, Math.PI / 2, { roomId: bedroomId });
+  add('wardrobe', x1 + 0.85, y1 - 0.3, Math.PI, { roomId: bedroomId });
+  add('rug', x1 + 1.5, bedY, 0, { roomId: bedroomId });
+  add('pendant', (x1 + bx1) / 2, (y0 + y1) / 2, 0, { roomId: bedroomId, elevation: 1.85 });
+
   const openings: Opening[] = [
     { id: uid('o'), wallId: c1.id, type: 'window', offset: 1.2, width: 1.3, height: 1.15, sill: 0.95 },
     { id: uid('o'), wallId: c3.id, type: 'door', offset: 0.8, width: 0.95, height: 2.05, sill: 0 },
@@ -1549,6 +1574,13 @@ export function demoDesign(): Design {
         name: 'Kitchen',
         corners: [c1, c2, c3, c4],
         style: { ...defaultRoomStyle(), wallThickness: t },
+        wallVisibility: {},
+      },
+      {
+        id: bedroomId,
+        name: 'Bedroom',
+        corners: [d1, d2, d3, d4],
+        style: { ...defaultRoomStyle(), wallThickness: t, floorColor: FLOOR_COLORS[1] },
         wallVisibility: {},
       },
     ],

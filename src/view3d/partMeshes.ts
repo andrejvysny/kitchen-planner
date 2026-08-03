@@ -69,6 +69,18 @@ function panelMesh(g: THREE.Group, p: Panel, front: Finish, accentColor: string,
     return;
   }
   if (p.shape.kind === 'cyl') {
+    if (p.shape.axis === 'x') {
+      // horizontal rod (hanging rail): a holder group carries the panel's yaw,
+      // the tube itself lies along the group's local x
+      const holder = new THREE.Group();
+      holder.position.set(p.x, p.y + p.shape.dia / 2, p.z);
+      holder.rotation.y = p.rotY;
+      tag(holder, p);
+      g.add(holder);
+      const m = cyl(holder, p.shape.dia / 2, p.shape.h, mat, 0, -p.shape.h / 2, 0);
+      m.rotation.z = Math.PI / 2;
+      return;
+    }
     tag(cyl(g, p.shape.dia / 2, p.shape.h, mat, p.x, p.y, p.z), p);
     return;
   }

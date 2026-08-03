@@ -31,6 +31,11 @@ export type ItemKind =
   | 'fridge'
   | 'hood'
   | 'backsplash'
+  | 'bed'
+  | 'sofa'
+  | 'tv'
+  | 'rug'
+  | 'officeChair'
   | 'table'
   | 'chair'
   | 'stool'
@@ -86,8 +91,10 @@ export interface CatalogDef {
   opening?: boolean;
   /** small utility markers (water, outlet) mounted on walls */
   marker?: boolean;
-  /** 'free' = never snaps to walls (from the part def, e.g. islands) */
-  placement?: 'free';
+  /** how the item places: 'wall' = backs up against walls, 'free' = never
+   * snaps (islands, rugs, coffee tables). Declared explicitly by every new
+   * def; legacy defs fall back to the kind list in `snapsToWall`. */
+  placement?: 'wall' | 'free';
   /** appliances: mounting behaviour + host requirements */
   appliance?: ApplianceSpec;
 }
@@ -154,7 +161,7 @@ export const CATALOG: CatalogSection[] = [
     ],
   },
   // cabinet presets (src/model/presets.ts) render at the head of this section
-  { title: 'Base units', items: [] },
+  { title: 'Kitchen · base units', items: [] },
   {
     title: 'Appliances',
     items: [
@@ -242,9 +249,9 @@ export const CATALOG: CatalogSection[] = [
       }),
     ],
   },
-  { title: 'Tall units', items: [] },
+  { title: 'Kitchen · tall units', items: [] },
   {
-    title: 'Wall units',
+    title: 'Kitchen · wall units',
     items: [
       def({
         id: 'backsplash',
@@ -259,45 +266,141 @@ export const CATALOG: CatalogSection[] = [
     ],
   },
   {
-    title: 'Lighting',
+    // beds back onto a wall with their headboard: d is the sleeping LENGTH,
+    // w the mattress width (the standard EU 90/140/160 sizes)
+    title: 'Bedroom',
     items: [
       def({
-        id: 'pendant',
-        kind: 'pendant',
-        label: 'Pendant lamp',
-        w: 0.35,
-        d: 0.35,
-        h: 0.3,
-        elevation: 1.85,
-        color: '#3f3e3b',
-        light: { kind: 'point', on: true, intensity: 0.7, warmth: 0.75 },
+        id: 'bed-single',
+        kind: 'bed',
+        label: 'Bed 90',
+        w: 0.9,
+        d: 2.0,
+        h: 0.95,
+        elevation: 0,
+        color: OAK,
+        params: [
+          { key: 'pillows', label: 'Pillows', min: 1, max: 2, def: 1 },
+          { key: 'drawers', label: 'Storage drawers', min: 0, max: 2, def: 0 },
+        ],
+        placement: 'wall',
       }),
       def({
-        id: 'spot',
-        kind: 'spot',
-        label: 'Ceiling spot',
-        w: 0.12,
-        d: 0.12,
-        h: 0.04,
-        elevation: 2.5,
-        color: '#e8e6e1',
-        light: { kind: 'spot', on: true, intensity: 0.7, warmth: 0.55 },
+        id: 'bed-double',
+        kind: 'bed',
+        label: 'Bed 140',
+        w: 1.4,
+        d: 2.0,
+        h: 0.95,
+        elevation: 0,
+        color: OAK,
+        params: [
+          { key: 'pillows', label: 'Pillows', min: 1, max: 2, def: 2 },
+          { key: 'drawers', label: 'Storage drawers', min: 0, max: 2, def: 0 },
+        ],
+        placement: 'wall',
       }),
       def({
-        id: 'strip',
-        kind: 'strip',
-        label: 'LED strip',
-        w: 0.6,
-        d: 0.05,
-        h: 0.03,
-        elevation: 1.42,
-        color: '#f4f2ea',
-        light: { kind: 'bar', on: true, intensity: 0.55, warmth: 0.7 },
+        id: 'bed-queen',
+        kind: 'bed',
+        label: 'Bed 160',
+        w: 1.52,
+        d: 2.03,
+        h: 1.0,
+        elevation: 0,
+        color: OAK,
+        params: [
+          { key: 'pillows', label: 'Pillows', min: 1, max: 2, def: 2 },
+          { key: 'drawers', label: 'Storage drawers', min: 0, max: 2, def: 0 },
+        ],
+        placement: 'wall',
       }),
     ],
   },
   {
-    title: 'Furniture',
+    title: 'Living room',
+    items: [
+      def({
+        id: 'sofa',
+        kind: 'sofa',
+        label: 'Sofa',
+        // 3 seats × 690 mm plus the arms — `seats` drives the width from there
+        w: 2.07,
+        d: 0.92,
+        h: 0.82,
+        elevation: 0,
+        color: FRONT_COLORS[2],
+        params: [{ key: 'seats', label: 'Seats', min: 2, max: 4, def: 3, widthPer: 0.69 }],
+        placement: 'wall',
+      }),
+      def({
+        id: 'armchair',
+        kind: 'sofa',
+        label: 'Armchair',
+        // same builder, no seats param: the width alone derives a single seat
+        w: 0.95,
+        d: 0.9,
+        h: 0.82,
+        elevation: 0,
+        color: FRONT_COLORS[4],
+        placement: 'free',
+      }),
+      def({
+        id: 'coffee-table',
+        kind: 'table',
+        label: 'Coffee table',
+        w: 1.1,
+        d: 0.6,
+        h: 0.42,
+        elevation: 0,
+        color: OAK,
+        placement: 'free',
+      }),
+      def({
+        id: 'tv',
+        kind: 'tv',
+        label: 'TV',
+        // a flat panel on a wall bracket: 55" screen, centre at eye height
+        w: 1.24,
+        d: 0.07,
+        h: 0.72,
+        elevation: 1.0,
+        color: '#17181a',
+        placement: 'wall',
+      }),
+      def({
+        id: 'rug',
+        kind: 'rug',
+        label: 'Rug',
+        // lies flat on the floor, never against a wall
+        w: 2.0,
+        d: 1.4,
+        h: 0.012,
+        elevation: 0,
+        color: OAK,
+        placement: 'free',
+      }),
+    ],
+  },
+  {
+    title: 'Office',
+    items: [
+      def({
+        id: 'office-chair',
+        kind: 'officeChair',
+        label: 'Office chair',
+        // free-standing swivel chair: never snaps to a wall
+        w: 0.62,
+        d: 0.62,
+        h: 1.05,
+        elevation: 0,
+        color: FRONT_COLORS[4],
+        placement: 'free',
+      }),
+    ],
+  },
+  {
+    title: 'Dining & seating',
     items: [
       def({
         id: 'table',
@@ -344,6 +447,45 @@ export const CATALOG: CatalogSection[] = [
       }),
     ],
   },
+  // lighting closes the catalog: fixtures are the last pass over a room
+  {
+    title: 'Lighting',
+    items: [
+      def({
+        id: 'pendant',
+        kind: 'pendant',
+        label: 'Pendant lamp',
+        w: 0.35,
+        d: 0.35,
+        h: 0.3,
+        elevation: 1.85,
+        color: '#3f3e3b',
+        light: { kind: 'point', on: true, intensity: 0.7, warmth: 0.75 },
+      }),
+      def({
+        id: 'spot',
+        kind: 'spot',
+        label: 'Ceiling spot',
+        w: 0.12,
+        d: 0.12,
+        h: 0.04,
+        elevation: 2.5,
+        color: '#e8e6e1',
+        light: { kind: 'spot', on: true, intensity: 0.7, warmth: 0.55 },
+      }),
+      def({
+        id: 'strip',
+        kind: 'strip',
+        label: 'LED strip',
+        w: 0.6,
+        d: 0.05,
+        h: 0.03,
+        elevation: 1.42,
+        color: '#f4f2ea',
+        light: { kind: 'bar', on: true, intensity: 0.55, warmth: 0.7 },
+      }),
+    ],
+  },
 ];
 
 const byId = new Map<string, CatalogDef>();
@@ -376,12 +518,24 @@ export function defaultParams(def: CatalogDef): Record<string, number> | undefin
 
 /** True if the item should back up against walls when dragged near them. */
 export function snapsToWall(def: CatalogDef): boolean {
-  if (def.placement === 'free') return false;
+  // data-driven first: a def (or part) that declares its placement decides
+  if (def.placement) return def.placement === 'wall';
+  // legacy defs that predate the field: everything snaps except loose furniture
   return !['table', 'chair', 'stool', 'pendant', 'spot', 'woodPlane'].includes(def.kind);
 }
 
-/** Markers and backsplash hug the wall face exactly. */
+/**
+ * Seats on a sofa: the `seats` param when the def carries one, else derived
+ * from the width — an armchair has no param and must still read as 1 seat.
+ * Shared by the 3D builder and the plan symbol so they never disagree.
+ */
+export function sofaSeats(w: number, seats?: number): number {
+  const raw = seats ?? Math.max(1, Math.round((w - 0.26) / 0.62));
+  return Math.max(1, Math.min(5, Math.round(raw)));
+}
+
+/** Markers, backsplash and the TV hug the wall face exactly (and need one). */
 export function isWallMounted(def: CatalogDef): boolean {
-  return def.marker || def.kind === 'backsplash';
+  return def.marker || def.kind === 'backsplash' || def.kind === 'tv';
 }
 

@@ -1,4 +1,4 @@
-import type { ItemKind } from '../model/catalog';
+import { sofaSeats, type ItemKind } from '../model/catalog';
 import type { Point } from '../model/types';
 
 /**
@@ -23,6 +23,8 @@ export interface SymbolStyle {
   doorSwing?: 'in' | 'out';
   /** outlets only: number of sockets in the box */
   gangs?: number;
+  /** sofas only: the `seats` param, when the def carries one */
+  seats?: number;
 }
 
 const INK = '#3a3934';
@@ -57,7 +59,7 @@ function roundRect(
 /** true when the kind is drawn dashed (mounted above the counter plane);
  * preset/custom cabinets use the elevation heuristic in the plan instead */
 export function isOverhead(kind: ItemKind): boolean {
-  return ['hood', 'pendant', 'spot', 'strip'].includes(kind);
+  return ['hood', 'pendant', 'spot', 'strip', 'tv'].includes(kind);
 }
 
 export function drawPlanSymbol(
@@ -96,7 +98,7 @@ export function drawPlanSymbol(
     ctx.setLineDash([]);
     return;
   }
-  if (!['pendant', 'spot', 'water', 'outlet', 'stool', 'door', 'window'].includes(kind)) {
+  if (!['pendant', 'spot', 'water', 'outlet', 'stool', 'door', 'window', 'rug'].includes(kind)) {
     ctx.globalAlpha = bodyAlpha;
     ctx.fillRect(-hw, -hd, w, d);
     ctx.globalAlpha = 1;
@@ -150,6 +152,57 @@ export function drawPlanSymbol(
     }
     case 'backsplash':
       break;
+    case 'bed': {
+      // head is the BACK edge (-y, the wall side): pillows there, then the
+      // turned-down duvet line across the mattress
+      const pw = Math.min(0.62, (w - 0.14) / 2);
+      const ph = Math.min(0.2, d * 0.12);
+      for (const sx of [-1, 1] as const) {
+        roundRect(ctx, sx < 0 ? -hw + 0.05 : hw - 0.05 - pw, -hd + 0.05, pw, ph, 0.035);
+        ctx.stroke();
+      }
+      line(ctx, -hw, -hd + d / 3, hw, -hd + d / 3);
+      break;
+    }
+    case 'sofa': {
+      // back stripe on the wall edge (-y), arms down both sides, one division
+      // line per seat join — an armchair derives its single seat from the width
+      const armW = Math.min(0.14, w * 0.1);
+      const backT = Math.min(0.12, d * 0.14);
+      ctx.fillStyle = ink;
+      ctx.globalAlpha = 0.5;
+      ctx.fillRect(-hw, -hd, w, backT);
+      ctx.globalAlpha = 0.3;
+      ctx.fillRect(-hw, -hd, armW, d);
+      ctx.fillRect(hw - armW, -hd, armW, d);
+      ctx.globalAlpha = 1;
+      const seats = sofaSeats(w, style.seats);
+      const inner = w - armW * 2;
+      for (let i = 1; i < seats; i++) {
+        const x = -inner / 2 + (inner * i) / seats;
+        line(ctx, x, -hd + backT, x, hd);
+      }
+      break;
+    }
+    case 'tv': {
+      // dashed body reads as wall-mounted; the arrow marks the viewing side
+      line(ctx, 0, hd, 0, hd + 0.13);
+      line(ctx, -0.05, hd + 0.08, 0, hd + 0.13);
+      line(ctx, 0.05, hd + 0.08, 0, hd + 0.13);
+      break;
+    }
+    case 'rug': {
+      // floor covering, not furniture: ghosted body with a dashed inset border
+      ctx.setLineDash([hair * 6, hair * 4]);
+      ctx.globalAlpha = 0.3;
+      ctx.fillRect(-hw, -hd, w, d);
+      ctx.globalAlpha = 1;
+      ctx.strokeRect(-hw, -hd, w, d);
+      const m = Math.min(0.1, Math.min(w, d) * 0.07);
+      if (w > m * 2 && d > m * 2) ctx.strokeRect(-hw + m, -hd + m, w - m * 2, d - m * 2);
+      ctx.setLineDash([]);
+      break;
+    }
     case 'table': {
       break;
     }
@@ -166,6 +219,15 @@ export function drawPlanSymbol(
       circle(ctx, 0, 0, hw, true);
       ctx.globalAlpha = 1;
       circle(ctx, 0, 0, hw);
+      break;
+    }
+    case 'officeChair': {
+      // backrest stripe at the rear edge, swivel pivot dot at centre
+      ctx.fillStyle = ink;
+      ctx.globalAlpha = 0.5;
+      ctx.fillRect(-hw, -hd, w, Math.min(0.08, d * 0.18));
+      ctx.globalAlpha = 1;
+      circle(ctx, 0, 0, Math.min(0.03, hw * 0.25), true);
       break;
     }
     case 'pendant': {
@@ -254,7 +316,9 @@ export function drawPlanSymbol(
   // front tick (helps users see which way an item faces)
   if (
     !overhead &&
-    !['door', 'window', 'water', 'outlet', 'stool', 'table', 'chair', 'backsplash', 'woodPlane'].includes(kind)
+    !['door', 'window', 'water', 'outlet', 'stool', 'table', 'chair', 'backsplash', 'woodPlane', 'rug'].includes(
+      kind
+    )
   ) {
     ctx.strokeStyle = ink;
     ctx.lineWidth = hair * 1.5;

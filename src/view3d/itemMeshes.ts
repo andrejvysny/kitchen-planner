@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { CatalogDef } from '../model/catalog';
+import { sofaSeats, type CatalogDef } from '../model/catalog';
 import type { HostContext } from '../model/panels';
 import type { CustomPartDef, Design, Item, RoomStyle } from '../model/types';
 import { styleOfItem } from '../model/rooms';
@@ -11,9 +11,14 @@ import {
   cyl,
   type Finish,
   GAP,
+  GROOVE,
   matte,
   plinth,
+  PLINTH_COLOR,
   PLINTH_H,
+  prism,
+  roundedRectPoly,
+  softSlab,
   steelMat,
   surfMat,
   wood,
@@ -141,6 +146,214 @@ const hood: Builder = (g, { item }) => {
 
 const backsplash: Builder = (g, { item, finish }) => {
   box(g, item.w, item.h, 0.018, surfMat(finish, 'wood'), 0, 0, 0);
+};
+
+/* ---------------- bedroom ---------------- */
+
+/** bedding tones — fabric reads as flat matte next to the painted frame */
+const MATTRESS_COLOR = '#f2f1ec';
+const DUVET_COLOR = '#e6dfd0';
+const PILLOW_COLOR = '#f7f6f2';
+/** top of the frame deck (where the mattress lands) and mattress thickness */
+const BED_FRAME_H = 0.28;
+const BED_MAT_T = 0.24;
+/** recessed dark toe under the frame, and the headboard board thickness */
+const BED_BASE_H = 0.09;
+const HEADBOARD_T = 0.05;
+
+const bed: Builder = (g, { item, finish }) => {
+  const { w, d, h } = item;
+  const drawers = Math.max(0, Math.min(2, Math.round(item.params?.drawers ?? 0)));
+  const frame = surfMat(finish, 'wood');
+  // dark recessed base, like a plinth: the frame reads as floating
+  box(g, w - 0.12, BED_BASE_H, d - 0.12, matte(PLINTH_COLOR), 0, 0, 0);
+  // rail deck; storage fronts are applied over it, so it steps in for them
+  const deckH = Math.max(0.06, BED_FRAME_H - BED_BASE_H);
+  box(g, drawers ? w - 0.036 : w, deckH, d, frame, 0, BED_BASE_H, 0);
+  // headboard at the BACK (-d/2) — the side that meets the wall
+  box(g, w, Math.max(0.1, h - BED_FRAME_H), HEADBOARD_T, frame, 0, BED_FRAME_H, -d / 2 + HEADBOARD_T / 2);
+
+  const matW = Math.max(0.2, w - 0.04);
+  const matD = Math.max(0.3, d - HEADBOARD_T - 0.04);
+  const matCz = HEADBOARD_T / 2; // mattress clears the headboard, centred on the rest
+  softSlab(g, matW, matD, BED_MAT_T, matte(MATTRESS_COLOR), BED_FRAME_H, 0, matCz, 0.04);
+  // duvet folded back over the foot; pillows sit in the freed head end
+  const duvD = matD * 0.62;
+  softSlab(g, matW + 0.03, duvD, 0.07, matte(DUVET_COLOR), BED_FRAME_H + BED_MAT_T - 0.02, 0, matCz + matD / 2 - duvD / 2, 0.05);
+  const pillows = Math.max(1, Math.min(2, Math.round(item.params?.pillows ?? 1)));
+  const pillowD = Math.min(0.36, matD * 0.22);
+  const pillowW = pillows === 1 ? Math.min(0.62, matW - 0.08) : (matW - 0.1) / 2;
+  const pillowZ = matCz - matD / 2 + pillowD / 2 + 0.03;
+  for (let i = 0; i < pillows; i++) {
+    const px = pillows === 1 ? 0 : (i === 0 ? -1 : 1) * (pillowW / 2 + 0.02);
+    softSlab(g, pillowW, pillowD, 0.1, matte(PILLOW_COLOR), BED_FRAME_H + BED_MAT_T - 0.02, px, pillowZ, 0.05);
+  }
+
+  if (drawers > 0) {
+    // handleless storage fronts on both long sides, groove-pulled like the units
+    const fh = Math.max(0.08, deckH - 0.04);
+    const fy = BED_BASE_H + 0.02;
+    const run = d - HEADBOARD_T - 0.12;
+    const pitch = run / drawers;
+    const fd = pitch - 0.03;
+    for (const sx of [-1, 1] as const) {
+      for (let i = 0; i < drawers; i++) {
+        const cz = -d / 2 + HEADBOARD_T + 0.06 + i * pitch + fd / 2;
+        box(g, 0.018, fh - 0.014, fd, frame, sx * (w / 2 - 0.013), fy, cz);
+        box(g, 0.012, 0.014, fd, matte(GROOVE), sx * (w / 2 - 0.016), fy + fh - 0.014, cz);
+      }
+    }
+  }
+};
+
+/* ---------------- living room ---------------- */
+
+/** upholstery reads a shade lighter than the frame it sits in */
+const CUSHION_TINT = 1.08;
+const FRAME_TINT = 0.9;
+/** foot height, seat-deck height above it, and the seat cushion thickness */
+const SOFA_FOOT_H = 0.07;
+const SOFA_BASE_H = 0.23;
+const SOFA_SEAT_T = 0.14;
+
+/**
+ * An upright rounded cushion: a soft slab stood on its edge so the rounded
+ * face looks into the room. `z` is its FRONT face; a negative `tilt` leans
+ * the top back. (`prism` extrudes along plan +y, so rotating a further half
+ * turn maps the polygon's y onto world height and the extrusion onto depth.)
+ */
+function uprightCushion(
+  g: THREE.Group,
+  w: number,
+  hgt: number,
+  t: number,
+  mat: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+  tilt = 0
+): void {
+  const m = prism(g, roundedRectPoly(w, hgt, Math.min(0.06, hgt / 3)), t, mat, 0);
+  m.rotation.x = Math.PI + tilt;
+  m.position.set(x, y + hgt / 2, z);
+}
+
+const sofa: Builder = (g, { item, finish }) => {
+  const { w, d, h } = item;
+  const seats = sofaSeats(w, item.params?.seats);
+  const frameMat = surfMat(finish, 'matte', FRAME_TINT);
+  const cushionMat = surfMat(finish, 'matte', CUSHION_TINT);
+  const armW = Math.min(0.14, w * 0.1);
+  const backT = Math.min(0.12, d * 0.14);
+
+  // short dark feet — the upholstered shell reads as floating on them
+  const footMat = matte('#2a2926');
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+    cyl(g, 0.022, SOFA_FOOT_H, footMat, sx * (w / 2 - 0.09), 0, sz * (d / 2 - 0.11));
+  }
+
+  const deckY = SOFA_FOOT_H + SOFA_BASE_H;
+  box(g, w, SOFA_BASE_H, d, frameMat, 0, SOFA_FOOT_H, 0);
+  // the back leans away from the room; nudged forward so its top corner stays
+  // inside the footprint (and out of the wall behind it)
+  const backH = Math.max(0.2, h - deckY);
+  const back = box(g, w, backH, backT, frameMat, 0, deckY, -d / 2 + 0.03 + backT / 2);
+  back.rotation.x = -0.05;
+  const armH = Math.max(deckY + 0.06, h * 0.74);
+  for (const sx of [-1, 1] as const) {
+    box(g, armW, armH - SOFA_FOOT_H, d - 0.02, frameMat, sx * (w - armW) / 2, SOFA_FOOT_H, 0.01);
+  }
+
+  // seat cushions across the clear width, back cushions leaning on the frame
+  const innerW = Math.max(0.2, w - armW * 2);
+  const zBack = -d / 2 + 0.03 + backT;
+  const seatD = Math.max(0.25, d / 2 - 0.03 - zBack);
+  const seatCz = zBack + seatD / 2;
+  const bcT = Math.min(0.12, seatD * 0.18);
+  const bcH = Math.max(0.18, h - deckY - SOFA_SEAT_T - 0.06);
+  for (let i = 0; i < seats; i++) {
+    const cx = -innerW / 2 + (innerW * (i + 0.5)) / seats;
+    softSlab(g, innerW / seats - 0.012, seatD, SOFA_SEAT_T, cushionMat, deckY, cx, seatCz, 0.045);
+    uprightCushion(
+      g,
+      innerW / seats - 0.018,
+      bcH,
+      bcT,
+      cushionMat,
+      cx,
+      deckY + SOFA_SEAT_T - 0.02,
+      zBack + bcT,
+      -0.08
+    );
+  }
+};
+
+/** how far the panel stands off the wall, on its bracket */
+const TV_PANEL_T = 0.045;
+
+const tv: Builder = (g, { item, finish }) => {
+  const { w, d, h } = item;
+  // bracket first: it spans wall face → panel back, so the panel floats
+  const armD = Math.max(0.01, d - TV_PANEL_T);
+  const bh = Math.min(0.28, h * 0.4);
+  box(g, Math.min(0.34, w * 0.28), bh, armD, matte('#2b2d30'), 0, (h - bh) / 2, -d / 2 + armD / 2);
+  box(g, w, h, TV_PANEL_T, surfMat(finish), 0, 0, d / 2 - TV_PANEL_T / 2);
+  // glossy screen just proud of the bezel
+  box(g, w - 0.024, h - 0.03, 0.006, applianceGlass(), 0, 0.014, d / 2 - 0.002);
+};
+
+const rug: Builder = (g, { item, finish }) => {
+  const { w, d, h } = item;
+  const r = Math.min(0.06, Math.min(w, d) * 0.06);
+  // 2 mm off the floor and never casting: a rug that shadows itself reads as
+  // a floating slab once the sun grazes
+  const base = prism(g, roundedRectPoly(w, d, r), h, surfMat(finish, 'matte'), 0.002);
+  base.castShadow = false;
+  const inset = Math.min(0.1, Math.min(w, d) * 0.07);
+  const bandT = Math.max(0.012, inset * 0.35);
+  const innerW = w - (inset + bandT) * 2;
+  const innerD = d - (inset + bandT) * 2;
+  if (innerW > 0.05 && innerD > 0.05) {
+    const band = prism(
+      g,
+      roundedRectPoly(w - inset * 2, d - inset * 2, r),
+      0.0015,
+      surfMat(finish, 'matte', 0.82),
+      0.002 + h,
+      [roundedRectPoly(innerW, innerD, r)]
+    );
+    band.castShadow = false;
+  }
+};
+
+/* ---------------- office ---------------- */
+
+/** seat height above floor, and the star-base arm thickness */
+const CHAIR_SEAT_H = 0.47;
+const CHAIR_BASE_H = 0.045;
+
+const officeChair: Builder = (g, { item, finish }) => {
+  const { w, d, h } = item;
+  const steel = steelMat();
+  const dark = matte('#26251f');
+  const armLen = Math.min(w, d) / 2 - 0.02;
+  // 5-star base: flat spokes fanning out evenly, one castor at each tip
+  for (let i = 0; i < 5; i++) {
+    const a = (i * Math.PI * 2) / 5;
+    const arm = box(g, armLen, CHAIR_BASE_H, 0.05, dark, 0, 0, 0);
+    arm.position.set((Math.cos(a) * armLen) / 2, CHAIR_BASE_H / 2, (Math.sin(a) * armLen) / 2);
+    arm.rotation.y = -a;
+    cyl(g, 0.02, 0.03, dark, Math.cos(a) * armLen, 0, Math.sin(a) * armLen);
+  }
+  // steel gas column from the base to the seat pan
+  const colH = CHAIR_SEAT_H - CHAIR_BASE_H - 0.03;
+  cyl(g, 0.024, colH, steel, 0, CHAIR_BASE_H, 0);
+  // padded seat
+  box(g, w * 0.82, 0.08, d * 0.78, surfMat(finish), 0, CHAIR_SEAT_H, 0);
+  // reclined backrest
+  const backH = Math.max(0.28, h - CHAIR_SEAT_H - 0.08);
+  const back = box(g, w * 0.68, backH, 0.06, surfMat(finish), 0, CHAIR_SEAT_H + 0.08, -d / 2 + 0.05);
+  back.rotation.x = 0.1;
 };
 
 /* ---------------- furniture ---------------- */
@@ -291,10 +504,15 @@ const BUILDERS: Record<string, Builder> = {
   fridge,
   hood,
   backsplash,
+  bed,
+  sofa,
+  tv,
+  rug,
   table,
   chair,
   stool,
   woodPlane,
+  officeChair,
   pendant,
   spot,
   strip,
@@ -302,6 +520,11 @@ const BUILDERS: Record<string, Builder> = {
   outlet,
   custom,
 };
+
+/** True when this kind has a real builder (not the silent box fallback). */
+export function hasItemBuilder(kind: string): boolean {
+  return Object.prototype.hasOwnProperty.call(BUILDERS, kind);
+}
 
 export function buildItemGroup(
   item: Item,

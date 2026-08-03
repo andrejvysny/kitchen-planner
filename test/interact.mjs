@@ -101,7 +101,7 @@ const outline = await page.evaluate(() =>
     rows: [...g.querySelectorAll('.ol-row')].map((r) => r.textContent.trim()),
   }))
 );
-const baseGroup = outline.find((g) => g.title === 'Base units');
+const baseGroup = outline.find((g) => g.title === 'Kitchen · base units');
 results.push([
   'outline lists item under type group',
   !!baseGroup && baseGroup.rows.includes('Base cabinet'),
@@ -595,9 +595,18 @@ results.push(['day/night toggle', night1 === true && night2 === false]);
 
 // 17. clicking an item in the 3D pane selects it
 await page.keyboard.press('Escape');
+// aim the camera straight at the cabinet from just in front of it — the
+// two-room demo means the corner preset can put other furniture in the ray
+await page.evaluate((ids) => {
+  const it = window.__kp.store.itemById(ids.baseId);
+  const { camera, controls } = window.__kp.view;
+  camera.position.set(it.x, 1.2, it.y + 1.8);
+  controls.target.set(it.x, 0.45, it.y);
+  controls.update();
+}, stackIds);
+await page.waitForTimeout(250); // let a frame render so projections are current
 const pick3d = await page.evaluate((ids) => {
-  const st = window.__kp.store;
-  const it = st.itemById(ids.baseId);
+  const it = window.__kp.store.itemById(ids.baseId);
   const p = window.__kp.view.worldToScreen(it.x, 0.4, it.y);
   return { id: it.id, ...p };
 }, stackIds);
@@ -654,13 +663,8 @@ results.push([
   navSel.kind === 'item' && navSel.id === pick3d.id,
 ]);
 
-// restore the pre-navigation camera for the steps below
-await page.evaluate((c) => {
-  const { camera, controls } = window.__kp.view;
-  camera.position.set(...c.pos);
-  controls.target.set(...c.tgt);
-  controls.update();
-}, navA);
+// back to the corner preset so later 3D steps see the standard framing
+await page.evaluate(() => window.__kp.view.setPreset('corner'));
 await page.waitForTimeout(200);
 
 // 17d. wheel = zoom, swipe = pan (KITCHENP-13). These dispatch synthetic wheel
@@ -784,7 +788,7 @@ await page.evaluate(() => {
   const sec = [...document.querySelectorAll('.prop-section')].find(
     (s) => s.querySelector('.prop-section-title')?.textContent === 'Worktop'
   );
-  sec.querySelector('.toggle-row input').click();
+  sec?.querySelector('.toggle-row input')?.click();
 });
 await page.waitForTimeout(250);
 const rotState = await page.evaluate((id) => {
@@ -1886,6 +1890,113 @@ results.push([
   Math.abs(n11measured.d - n11fixture.dist) < 0.03 && n11measured.items === n11fixture.itemsBefore,
 ]);
 await page.keyboard.press('Escape');
+
+// N12 — bedroom set: a bed backs onto a wall like any wall-placed unit, and
+// the wardrobe preset carries its hanging rail all the way into the 3D scene.
+await page.click('#btn-new');
+await page.waitForTimeout(500);
+await page.evaluate(() => window.__kp.plan.zoomFit());
+await page.waitForTimeout(150);
+await page.click('.cat-item[data-def-id="bed-double"]');
+const bb12 = await paneOffset();
+// 2 m deep bed in the 4x3 room: its snapped centre IS (2.0, 2.0)
+const bedScr = await worldToScreen(2.0, 2.0);
+await page.mouse.click(bb12.x + bedScr.x, bb12.y + bedScr.y);
+await page.waitForTimeout(300);
+const bed12 = await page.evaluate(() => {
+  const items = window.__kp.store.design.items;
+  const it = items[items.length - 1];
+  return { defId: it.defId, y: it.y, d: it.d, rot: it.rotation };
+});
+results.push([
+  'bed places against a wall',
+  bed12.defId === 'bed-double' &&
+    Math.abs(bed12.y - (3 - bed12.d / 2)) < 0.02 &&
+    Math.abs(Math.abs(bed12.rot) - Math.PI) < 0.01,
+]);
+
+const wardrobe12 = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const it = st.addItem(st.defOf('wardrobe'), 0.6, 0.4);
+  st.commit();
+  return it.defId;
+});
+await page.waitForTimeout(400);
+const rails12 = await page.evaluate(() => {
+  let n = 0;
+  window.__kp.view['scene'].traverse((o) => {
+    if (o.userData.role === 'rail') n++;
+  });
+  return n;
+});
+results.push(['wardrobe preset carries its hanging rail', wardrobe12 === 'wardrobe' && rails12 === 1]);
+
+// N13 — living-room set: a rug ignores wall snapping entirely, a TV refuses to
+// place away from a wall, and the sofa's seats stepper drives its width.
+await page.click('#btn-new');
+await page.waitForTimeout(500);
+await page.evaluate(() => window.__kp.plan.zoomFit());
+await page.waitForTimeout(150);
+const bb13 = await paneOffset();
+
+// (a) free placement: the rug stays on the 1 cm grid where it was clicked,
+// while a wall-placed item of the same depth would be pulled to y = 2.30
+await page.click('.cat-item[data-def-id="rug"]');
+const rugScr = await worldToScreen(2.0, 2.2);
+await page.mouse.click(bb13.x + rugScr.x, bb13.y + rugScr.y);
+await page.waitForTimeout(250);
+const rug13 = await page.evaluate(() => {
+  const items = window.__kp.store.design.items;
+  const it = items[items.length - 1];
+  return { defId: it.defId, y: it.y, d: it.d };
+});
+results.push([
+  'rug never snaps to a wall',
+  rug13.defId === 'rug' &&
+    Math.abs(rug13.y - 2.2) < 0.02 &&
+    Math.abs(rug13.y - (3 - rug13.d / 2)) > 0.05,
+]);
+
+// (b) the TV is wall-mounted: a mid-room click places nothing at all
+const before13 = await count();
+await page.click('.cat-item[data-def-id="tv"]');
+const midScr = await worldToScreen(2.0, 1.0);
+await page.mouse.click(bb13.x + midScr.x, bb13.y + midScr.y);
+await page.waitForTimeout(200);
+const midCount13 = await count();
+const wallScr = await worldToScreen(2.0, 0.12);
+await page.mouse.click(bb13.x + wallScr.x, bb13.y + wallScr.y);
+await page.waitForTimeout(250);
+const tv13 = await page.evaluate(() => {
+  const items = window.__kp.store.design.items;
+  const it = items[items.length - 1];
+  return { n: items.length, defId: it.defId, y: it.y, d: it.d, rot: it.rotation, elev: it.elevation };
+});
+results.push([
+  'tv requires a wall',
+  midCount13 === before13 &&
+    tv13.n === before13 + 1 &&
+    tv13.defId === 'tv' &&
+    Math.abs(tv13.elev - 1.0) < 1e-6 &&
+    Math.abs(tv13.y - tv13.d / 2) < 0.02 &&
+    Math.abs(tv13.rot) < 0.01,
+]);
+
+// (c) the seats stepper is width-driving (widthPer), through the props panel
+await page.click('.cat-item[data-def-id="sofa"]');
+const sofaScr = await worldToScreen(0.5, 1.0);
+await page.mouse.click(bb13.x + sofaScr.x, bb13.y + sofaScr.y);
+await page.waitForTimeout(300);
+await page.locator('.prop-row', { hasText: 'Seats' }).locator('.stepper button').nth(1).click();
+await page.waitForTimeout(300);
+const sofa13 = await page.evaluate(() => {
+  const it = window.__kp.store.design.items.find((i) => i.defId === 'sofa');
+  return it ? { seats: it.params?.seats, w: it.w } : null;
+});
+results.push([
+  'sofa seats stepper drives width',
+  !!sofa13 && sofa13.seats === 4 && Math.abs(sofa13.w - 4 * 0.69) < 0.001,
+]);
 
 let pass = 0;
 for (const [name, ok] of results) {

@@ -199,7 +199,7 @@ export class ZoneCanvas {
     if (this.elemSel === -1) this.elemSel = null;
   }
 
-  private addElement(kind: 'shelf' | 'drawerBox'): void {
+  private addElement(kind: InteriorElement['kind']): void {
     const cav = this.interiorCavity();
     if (!cav) return;
     const custom = this.ensureCustom();
@@ -215,7 +215,13 @@ export class ZoneCanvas {
       gapStart = t;
     }
     const y = best.start + best.size / 2;
-    custom.elements.push(kind === 'shelf' ? { kind, y } : { kind, y: Math.max(0.01, y - 0.075), h: 0.15 });
+    custom.elements.push(
+      kind === 'drawerBox'
+        ? { kind: 'drawerBox', y: Math.max(0.01, y - 0.075), h: 0.15 }
+        : kind === 'rail'
+          ? { kind: 'rail', y }
+          : { kind: 'shelf', y }
+    );
     this.canonicalizeInterior();
     this.elemSel = custom.elements.length - 1;
     this.changed();
@@ -412,10 +418,21 @@ export class ZoneCanvas {
     sep.className = 'zone-toolbar-sep';
     tb.appendChild(sep);
     const els = this.interiorElements();
-    btn('＋ Shelf', 'Add a shelf in the largest free gap', () => this.addElement('shelf'), els.length >= MAX_INTERIOR_ELEMENTS);
-    btn('＋ Drawer', 'Add an internal drawer box', () => this.addElement('drawerBox'), els.length >= MAX_INTERIOR_ELEMENTS);
+    const full = els.length >= MAX_INTERIOR_ELEMENTS;
+    btn('＋ Shelf', 'Add a shelf in the largest free gap', () => this.addElement('shelf'), full);
+    btn('＋ Drawer', 'Add an internal drawer box', () => this.addElement('drawerBox'), full);
+    btn('＋ Rail', 'Add a wardrobe hanging rail', () => this.addElement('rail'), full);
     btn('Delete', 'Remove the selected element (Delete)', () => this.deleteElement(), this.elemSel === null);
-    btn('Reset to even', 'Back to even auto-spacing with the same counts', () => this.resetToEven());
+    // auto spacing only knows shelves and drawers — resetting would drop rails
+    const hasRail = els.some((e) => e.kind === 'rail');
+    btn(
+      'Reset to even',
+      hasRail
+        ? 'Auto spacing has no rails — delete the hanging rail first'
+        : 'Back to even auto-spacing with the same counts',
+      () => this.resetToEven(),
+      hasRail
+    );
 
     const sel = this.elemSel !== null ? els[this.elemSel] : null;
     if (sel) {
@@ -507,10 +524,11 @@ export class ZoneCanvas {
     const els = this.interiorElements();
     for (let i = els.length - 1; i >= 0; i--) {
       const e = els[i];
+      // shelves and rails are lines; only a drawer box has a body to hit
       const within =
-        e.kind === 'shelf'
-          ? Math.abs(p.y - e.y) < tol
-          : p.y > e.y - tol && p.y < e.y + e.h + tol;
+        e.kind === 'drawerBox'
+          ? p.y > e.y - tol && p.y < e.y + e.h + tol
+          : Math.abs(p.y - e.y) < tol;
       if (within) return i;
     }
     return null;
@@ -561,8 +579,10 @@ export class ZoneCanvas {
         const el = custom.elements[this.elemDrag];
         if (!el) return;
         const snapped = Math.round(p.y * 100) / 100; // 1 cm snap
-        if (el.kind === 'shelf') el.y = clamp(snapped, 0, cav.h);
-        else el.y = clamp(snapped - el.h / 2, 0, cav.h - el.h);
+        // drawer boxes drag by their centre (they have height); every other
+        // element is a line at y — branch on the box, never on the lines
+        if (el.kind === 'drawerBox') el.y = clamp(snapped - el.h / 2, 0, cav.h - el.h);
+        else el.y = clamp(snapped, 0, cav.h);
         this.onChange();
         this.draw();
         return;
@@ -775,7 +795,22 @@ export class ZoneCanvas {
       const active = i === this.elemSel;
       ctx.strokeStyle = active ? ACCENT : SOFT;
       ctx.fillStyle = active ? '#dcebe6' : this.part.accentColor;
-      if (e.kind === 'shelf') {
+      if (e.kind === 'rail') {
+        // a thin bar across the cavity with its end holders
+        const y = sy(e.y);
+        ctx.lineWidth = active ? 3 : 2;
+        ctx.beginPath();
+        ctx.moveTo(sx(0.01), y);
+        ctx.lineTo(sx(cav.w - 0.01), y);
+        ctx.stroke();
+        ctx.fillStyle = active ? ACCENT : SOFT;
+        for (const ex of [0.01, cav.w - 0.01]) {
+          ctx.beginPath();
+          ctx.arc(sx(ex), y, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillText(`rail · ${Math.round(e.y * 100)} cm`, sx(cav.w / 2), y - 10);
+      } else if (e.kind === 'shelf') {
         const t = Math.max(2, 0.018 * scale);
         ctx.globalAlpha = 0.9;
         ctx.fillRect(sx(0.01), sy(e.y) - t / 2, (cav.w - 0.02) * scale, t);

@@ -181,6 +181,57 @@ export function counterSlab(
 }
 
 /**
+ * Plan-space rounded rectangle (w × d, corner radius r) centred on (cx, cz),
+ * as a polygon for `prism()`. The soft-cushion primitive of the flat-matte
+ * language: mattresses, seat cushions, rugs.
+ */
+export function roundedRectPoly(w: number, d: number, r: number, cx = 0, cz = 0): Point[] {
+  const rr = Math.max(0, Math.min(r, w / 2, d / 2));
+  if (rr < 1e-4) {
+    return [
+      { x: cx - w / 2, y: cz - d / 2 },
+      { x: cx + w / 2, y: cz - d / 2 },
+      { x: cx + w / 2, y: cz + d / 2 },
+      { x: cx - w / 2, y: cz + d / 2 },
+    ];
+  }
+  const hw = w / 2 - rr;
+  const hd = d / 2 - rr;
+  const SEG = 8;
+  const out: Point[] = [];
+  // arc centres walked in order, each sweeping a quarter turn
+  const arcs: [number, number, number][] = [
+    [hw, hd, 0],
+    [-hw, hd, Math.PI / 2],
+    [-hw, -hd, Math.PI],
+    [hw, -hd, -Math.PI / 2],
+  ];
+  for (const [ox, oy, a0] of arcs) {
+    for (let i = 0; i <= SEG; i++) {
+      const a = a0 + (Math.PI / 2) * (i / SEG);
+      out.push({ x: cx + ox + Math.cos(a) * rr, y: cz + oy + Math.sin(a) * rr });
+    }
+  }
+  return out;
+}
+
+/** A rounded-corner slab spanning y..y+h — `prism` takes its plan position
+ * from the polygon, so cx/cz live there, not on the mesh. */
+export function softSlab(
+  g: THREE.Group,
+  w: number,
+  d: number,
+  h: number,
+  mat: THREE.Material,
+  y: number,
+  cx = 0,
+  cz = 0,
+  r = 0.035
+): THREE.Mesh {
+  return prism(g, roundedRectPoly(w, d, r, cx, cz), h, mat, y);
+}
+
+/**
  * Vertical prism extruded from a plan-local polygon (+y = front). The mesh
  * spans y0..y0+h and plan (x, y) lands on world (x, z) — front toward +z.
  * `holes` are cut through the slab (winding is normalized here).

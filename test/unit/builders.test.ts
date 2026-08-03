@@ -1,4 +1,4 @@
-import { Box3 } from 'three';
+import { Box3, type Object3D } from 'three';
 import { describe, expect, it } from 'vitest';
 import { CATALOG, defaultParams, type CatalogDef } from '../../src/model/catalog';
 import {
@@ -12,7 +12,7 @@ import { partPanels } from '../../src/model/panels';
 import { PRESETS } from '../../src/model/presets';
 import { deskBoards } from './fixtures';
 import type { BoardPartDef, CabinetPartDef, CustomPartDef, Design, Item, RoomStyle, Zone } from '../../src/model/types';
-import { buildItemGroup } from '../../src/view3d/itemMeshes';
+import { buildItemGroup, hasItemBuilder } from '../../src/view3d/itemMeshes';
 
 const ROOM: RoomStyle = {
   wallColor: '#f4f1ea',
@@ -51,6 +51,15 @@ function itemFor(def: CatalogDef, params?: Record<string, number>): Item {
 // every mesh builder runs headless — a throwing builder fails here instead of in the browser
 describe('mesh builders', () => {
   const defs = CATALOG.flatMap((s) => s.items).filter((d) => !d.opening);
+
+  // BUILDERS is string-keyed with a silent box fallback: a def whose kind has
+  // no builder renders as a featureless box instead of failing loudly.
+  it('every catalog kind has a real builder (no silent box fallback)', () => {
+    const missing = defs
+      .filter((d) => d.kind !== 'custom' && !hasItemBuilder(d.kind))
+      .map((d) => `${d.id} (${d.kind})`);
+    expect(missing).toEqual([]);
+  });
 
   for (const def of defs) {
     it(`builds ${def.id} (defaults, min and max params)`, () => {
@@ -131,6 +140,33 @@ describe('mesh builders', () => {
       const group = buildItemGroup(itemFor(def), def, DESIGN, p);
       expect(group.children.length).toBeGreaterThan(2);
     }
+  });
+
+  it('builds a wardrobe hanging rail as a horizontal rod across the cavity', () => {
+    const part: CabinetPartDef = {
+      ...newCabinetPart(),
+      w: 1.0,
+      d: 0.6,
+      h: 2.1,
+      worktop: false,
+      face: {
+        kind: 'leaf',
+        fill: 'doorPair',
+        interior: { mode: 'custom', elements: [{ kind: 'rail', y: 1.6 }] },
+      },
+    };
+    const def = toCatalogDef(part);
+    const group = buildItemGroup(itemFor(def), def, DESIGN, part);
+    const rails: Object3D[] = [];
+    group.traverse((o) => {
+      if (o.userData.role === 'rail') rails.push(o);
+    });
+    expect(rails).toHaveLength(1);
+    const b = new Box3().setFromObject(rails[0]);
+    // spans the cavity width, is 25 mm thick, and its axis sits at the cavity y
+    expect(b.max.x - b.min.x).toBeCloseTo(1.0 - 0.018 * 2, 3);
+    expect(b.max.y - b.min.y).toBeCloseTo(0.025, 3);
+    expect((b.max.y + b.min.y) / 2).toBeCloseTo(0.1 + 0.018 + 1.6, 3);
   });
 
   it('builds a concave board with cutouts and sane bounds', () => {

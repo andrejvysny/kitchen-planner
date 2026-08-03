@@ -289,6 +289,26 @@ describe('cutRows', () => {
     expect(legs[0].thicknessMm).toBe(44);
   });
 
+  it('a hanging rail reaches the cut list as a rod with its diameter', () => {
+    const design = emptyDesign();
+    const part: CabinetPartDef = {
+      ...doorPart('Wardrobe', 2.1),
+      w: 1.0,
+      face: {
+        kind: 'leaf',
+        fill: 'doorPair',
+        interior: { mode: 'custom', elements: [{ kind: 'rail', y: 1.6 }] },
+      },
+    };
+    design.customParts.push(part);
+    place(design, part.id);
+    const rails = cutRows(design).filter((r) => r.role === 'rail');
+    expect(rails).toHaveLength(1);
+    expect(rails[0].shape).toBe('cyl');
+    expect(rails[0].notes).toBe('Ø25 mm');
+    expect(rails[0].lengthMm).toBe(964); // cavity width: 1000 − 2 × 18 mm
+  });
+
   it('dimension invariants hold for every preset: L ≥ W ≥ T ≥ 1 mm', () => {
     const design = emptyDesign();
     for (const entry of PRESETS) place(design, entry.part.id);
@@ -312,7 +332,7 @@ describe('buyRows', () => {
     const ids = [0, 1, 2, 3].map((i) => place(design, 'chair', { x: i }).id);
     const rows = buyRows(design);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ category: 'Furniture', label: 'Chair', qty: 4 });
+    expect(rows[0]).toMatchObject({ category: 'Dining & seating', label: 'Chair', qty: 4 });
     expect(rows[0].itemIds).toEqual(ids);
     expect(rows[0].wMm).toBe(450);
   });

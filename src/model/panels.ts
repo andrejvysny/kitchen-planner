@@ -5,6 +5,7 @@ import {
   DRAWER_BOTTOM_T,
   DRAWER_SIDE_T,
   drawerBoxDims,
+  RAIL_DIA,
   resolveInterior,
 } from './interior';
 import { footprintPolygon } from './parts';
@@ -30,7 +31,9 @@ export const isWallMountedElevation = (elevation: number): boolean => elevation 
 
 export type PanelShape =
   | { kind: 'box'; w: number; h: number; d: number }
-  | { kind: 'cyl'; dia: number; h: number }
+  /** rod of length h along `axis` (default 'y' = upright: legs, posts;
+   * 'x' = horizontal across the part's width: hanging rails) */
+  | { kind: 'cyl'; dia: number; h: number; axis?: 'y' | 'x' }
   /** vertical extrusion of a plan-local polygon (+y = front), thickness h */
   | { kind: 'prism'; outline: Point[]; holes?: Point[][]; h: number };
 
@@ -45,6 +48,7 @@ export type PanelRole =
   | 'glass'
   | 'niche'
   | 'shelf'
+  | 'rail'
   | 'drawerBox'
   | 'board';
 
@@ -139,6 +143,34 @@ function boxPanel(
   };
 }
 
+/** Same placement routing as boxPanel, for rods (rails, legs). `y` is the
+ * panel bottom — for an 'x' rod that is the underside of the tube. */
+function cylPanel(
+  id: string,
+  role: PanelRole,
+  dia: number,
+  len: number,
+  axis: 'y' | 'x',
+  lx: number,
+  y: number,
+  lz: number,
+  place: Place,
+  rotY: number,
+  rest: Partial<Panel> = {}
+): Panel {
+  return {
+    id,
+    role,
+    shape: { kind: 'cyl', dia, h: len, axis },
+    ...place(lx, lz),
+    y,
+    rotY,
+    slot: 'front',
+    finish: 'matte',
+    ...rest,
+  };
+}
+
 /** Split a width into n fronts with small gaps; calls fn(centerX, frontW). */
 function splitFronts(w: number, n: number, fn: (x: number, fw: number) => void): void {
   const fw = (w - GAP * (n + 1)) / n;
@@ -191,10 +223,12 @@ export function interiorBox(
   fill: string,
   shell: boolean
 ): Cavity {
+  const c = zoneCavity(r, faceW, faceH, shell);
   if (fill === 'open') {
-    return { x0: r.x + 0.015, w: r.w - 0.03, y0: r.y + 0.015, h: r.h - 0.03 };
+    // one lining board (15 mm) in from the cavity on every side
+    return { x0: c.x0 + 0.015, w: c.w - 0.03, y0: c.y0 + 0.015, h: c.h - 0.03 };
   }
-  return zoneCavity(r, faceW, faceH, shell);
+  return c;
 }
 
 /** Panels for a zone tree laid onto one face: x across it, y up, fronts ending at zFront. */
@@ -306,13 +340,17 @@ function facePanels(
         boxPanel(`${zid}.niche-top`, 'niche', r.w, 0.015, cd, xc, yb + r.h - 0.015, zc, place, rotY, hous)
       );
     } else {
-      // open niche: a real accent-wood lining, visible from the front
+      // open niche: a real accent-wood lining, visible from the front. It goes
+      // INSIDE the boards that bound the zone — laid on the raw zone rect its
+      // outer faces would be coplanar with the carcass shell and z-fight it.
+      const nx = cav.x0 + cav.w / 2 - faceW / 2;
+      const ny = y0 + cav.y0;
       out.push(
-        boxPanel(`${zid}.niche-back`, 'niche', r.w, r.h, 0.012, xc, yb, zFront - o.nicheD + 0.02, place, rotY, acc),
-        boxPanel(`${zid}.niche-left`, 'niche', 0.015, r.h, cd, xc - r.w / 2 + 0.0075, yb, zc, place, rotY, acc),
-        boxPanel(`${zid}.niche-right`, 'niche', 0.015, r.h, cd, xc + r.w / 2 - 0.0075, yb, zc, place, rotY, acc),
-        boxPanel(`${zid}.niche-bottom`, 'niche', r.w, 0.015, cd, xc, yb, zc, place, rotY, acc),
-        boxPanel(`${zid}.niche-top`, 'niche', r.w, 0.015, cd, xc, yb + r.h - 0.015, zc, place, rotY, acc)
+        boxPanel(`${zid}.niche-back`, 'niche', cav.w, cav.h, 0.012, nx, ny, zFront - o.nicheD + 0.02, place, rotY, acc),
+        boxPanel(`${zid}.niche-left`, 'niche', 0.015, cav.h, cd, nx - cav.w / 2 + 0.0075, ny, zc, place, rotY, acc),
+        boxPanel(`${zid}.niche-right`, 'niche', 0.015, cav.h, cd, nx + cav.w / 2 - 0.0075, ny, zc, place, rotY, acc),
+        boxPanel(`${zid}.niche-bottom`, 'niche', cav.w, 0.015, cd, nx, ny, zc, place, rotY, acc),
+        boxPanel(`${zid}.niche-top`, 'niche', cav.w, 0.015, cd, nx, ny + cav.h - 0.015, zc, place, rotY, acc)
       );
     }
     // interior elements (shelves / internal drawers) behind closed fronts,
@@ -324,8 +362,27 @@ function facePanels(
       const elements = resolveInterior(leaf.interior ?? defaultInterior(leaf.fill), box.h);
       let si = 0;
       let bi = 0;
+      let ri = 0;
       for (const e of elements) {
-        if (e.kind === 'shelf') {
+        if (e.kind === 'rail') {
+          // hanging rail: a rod across the cavity. `e.y` is the bar AXIS, the
+          // panel y is its bottom — same bottom-invariant every panel keeps
+          out.push(
+            cylPanel(
+              `${zid}.rail${ri++}`,
+              'rail',
+              RAIL_DIA,
+              box.w,
+              'x',
+              exc,
+              y0 + box.y0 + e.y - RAIL_DIA / 2,
+              zCav,
+              place,
+              rotY,
+              { slot: 'accent', finish: 'matte', tint: 0.8 }
+            )
+          );
+        } else if (e.kind === 'shelf') {
           out.push(
             boxPanel(
               `${zid}.shelf${si++}`,

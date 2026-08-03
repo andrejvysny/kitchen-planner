@@ -8,8 +8,13 @@ assets: every mesh is generated procedurally from parameters.
 The built-in furniture follows a modern, matte handleless design language
 (sage / navy / graphite / cream slab fronts with routed grooves, dark
 recessed plinths, oak worktops and backsplash panels, warm LED strip
-lighting) — the same catalog works whether you're laying out a kitchen, a
-bedroom or an office.
+lighting) — the same catalog covers a kitchen (base/tall/wall cabinets +
+appliances), a bedroom (beds, wardrobes, nightstands, dresser), a living room
+(sofas, TV, rug, bookcase, TV bench) and an office (desks, an office chair),
+plus dining seating and lighting. Cabinets and other case furniture are
+zone-tree parts you can customize per instance (Part Studio); loose furniture
+(beds, sofas, chairs, rugs, lamps…) renders through bespoke procedural
+builders — both flow through the same catalog and plan/3D pipeline.
 
 ## Quick start
 
@@ -21,8 +26,8 @@ npm run dev        # → http://localhost:5173
 Production build: `npm run build` → static output in `dist/`
 (serve with `npx vite preview` or any static file server).
 
-A demo kitchen loads on first run. Your work autosaves to the browser
-(`localStorage`) on every action.
+A demo kitchen + bedroom (sharing a partition wall) loads on first run. Your
+work autosaves to the browser (`localStorage`) on every action.
 
 ## The design workflow
 

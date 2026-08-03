@@ -174,7 +174,9 @@ export type Attachment =
 export type InteriorElement =
   | { kind: 'shelf'; y: number }
   /** internal drawer box (behind a door / in an open zone), box height h */
-  | { kind: 'drawerBox'; y: number; h: number };
+  | { kind: 'drawerBox'; y: number; h: number }
+  /** wardrobe hanging rail spanning the cavity; y = the bar's axis height */
+  | { kind: 'rail'; y: number };
 
 /**
  * Zone interior, two-level: 'auto' holds parametric counts that resolve to

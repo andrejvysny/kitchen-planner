@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { cabinetPanels, partPanels, type Panel, type PartDims } from '../../src/model/panels';
+import { CARCASS_T, RAIL_DIA } from '../../src/model/interior';
+import { cabinetPanels, partPanels, PLINTH_H, type Panel, type PartDims } from '../../src/model/panels';
 import { newBoardPart, newCabinetPart, newFreeformPart, samplePart } from '../../src/model/parts';
 import type { CabinetPartDef } from '../../src/model/types';
 import { deskBoards } from './fixtures';
@@ -194,6 +195,45 @@ describe('partPanels (manufacturing IR)', () => {
     // the box boards ride the same unit as their front
     const boxes = panels.filter((p) => p.role === 'drawerBox' && p.motion?.unit === dFront.id);
     expect(boxes.length).toBe(4);
+  });
+
+  it('a wardrobe rail emits one horizontal rod across the cavity', () => {
+    const part: CabinetPartDef = {
+      ...newCabinetPart(),
+      w: 1.0,
+      d: 0.6,
+      h: 2.1,
+      plinth: true,
+      worktop: false,
+      face: {
+        kind: 'leaf',
+        fill: 'doorPair',
+        interior: {
+          mode: 'custom',
+          elements: [
+            { kind: 'rail', y: 1.6 },
+            { kind: 'shelf', y: 1.68 },
+          ],
+        },
+      },
+    };
+    const panels = cabinetPanels(part, dimsOf(part));
+    const rails = panels.filter((p) => p.role === 'rail');
+    expect(rails).toHaveLength(1);
+    expect(panels.filter((p) => p.role === 'shelf')).toHaveLength(1);
+    const rail = rails[0];
+    if (rail.shape.kind !== 'cyl') throw new Error('expected cyl');
+    expect(rail.shape.axis).toBe('x');
+    expect(rail.shape.dia).toBeCloseTo(RAIL_DIA);
+    // body math: plinth eats PLINTH_H, the cavity insets one carcass board
+    // per side, and the rod spans the full cavity width
+    const y0 = PLINTH_H;
+    const cavX0 = CARCASS_T; // cavity bottom above the carcass bottom board
+    expect(rail.shape.h).toBeCloseTo(part.w - CARCASS_T * 2);
+    // y is the panel BOTTOM: the bar axis lands exactly on the element's y
+    expect(rail.y + RAIL_DIA / 2 - (y0 + cavX0)).toBeCloseTo(1.6);
+    expect(rail.x).toBeCloseTo(0);
+    expect(rail.slot).toBe('accent');
   });
 
   it('a flat cut list is derivable: every panel has finite dimensions', () => {

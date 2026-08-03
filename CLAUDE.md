@@ -117,9 +117,13 @@ older or unknown (callers fall back to a fresh/demo design).
 - **New part type**: extend the `CustomPartDef` union + `sanitizePart` +
   factory (parts.ts), add a `partPanels` branch (panels.ts), a picker card
   (typePicker.ts) and a rail panel module.
-- **New interior element**: extend `InteriorElement` (types.ts),
+- **New interior element**: extend `InteriorElement` (types.ts) — e.g. the
+  wardrobe hanging `rail`, a cylinder spanning the cavity on its x axis —
   `sanitizeInterior`/`resolveInterior` (interior.ts), the emission in
-  panels.ts `facePanels`, and the drill-in editor in zoneCanvas.ts.
+  panels.ts `facePanels`, and the drill-in editor in zoneCanvas.ts. Rails are
+  `custom`-mode only: `resolveInterior`'s `auto` branch never emits one, so a
+  rail always comes from a hand-authored `elements` list (a preset or the
+  zone canvas' ＋Rail button).
 - **Manufacturing export** (src/model/export.ts + exportFormats.ts, wired via
   the topbar `Export ▾` menu in src/ui/ui.ts): `buildBom(design)` iterates
   `design.items`, resolves each to `partPanels(part, itemDims,
@@ -173,9 +177,10 @@ IR), outline grouping and sanitize gating all flow from the parts pipeline.
 `finishedBack` cover island-style looks. builders.test iterates PRESETS.
 
 Adding a NON-cabinet catalog item (appliance/furniture/light) still means:
-`ItemKind` + `CatalogDef` (catalog.ts — appliances also set
-`appliance: {mount, cutout?/niche?}`), a builder in itemMeshes.ts
-`BUILDERS`, a symbol case in symbols.ts, and a check of
+`ItemKind` (loose furniture already covers `bed`/`sofa`/`tv`/`rug`/
+`officeChair` — a new kind is rarely needed) + `CatalogDef` (catalog.ts —
+appliances also set `appliance: {mount, cutout?/niche?}`), a builder in
+itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
 `snapsToWall`/`isWallMounted`/`isOverhead`.
 
 ## Gotchas

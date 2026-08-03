@@ -17,6 +17,8 @@ export const DRAWER_SIDE_T = 0.015;
 export const DRAWER_BOTTOM_T = 0.012;
 /** per-side clearance for drawer slides */
 export const SLIDE_CLEAR = 0.013;
+/** wardrobe hanging rail diameter (standard 25 mm tube) */
+export const RAIL_DIA = 0.025;
 /** minimum useful gap between/around interior elements */
 export const MIN_ELEM_SPACE = 0.06;
 export const MAX_INTERIOR_ELEMENTS = 8;
@@ -64,18 +66,19 @@ export function resolveInterior(interior: Interior | undefined, cavityH: number)
   const lo = MIN_ELEM_SPACE;
   const hi = cavityH - MIN_ELEM_SPACE;
   if (hi < lo) return []; // cavity too small for any element
-  const sorted = interior.elements
-    .slice(0, MAX_INTERIOR_ELEMENTS)
-    .map((e): InteriorElement =>
-      e.kind === 'shelf'
-        ? { kind: 'shelf', y: clamp(e.y, lo, hi) }
-        : { kind: 'drawerBox', y: clamp(e.y, 0.005, hi), h: clamp(e.h, 0.06, 0.4) }
-    )
-    .sort((a, b) => a.y - b.y);
+  // explicit per-kind branches: a catch-all `else` would silently coerce any
+  // new element kind (rails) into a drawer box
+  const fit = (e: InteriorElement): InteriorElement => {
+    if (e.kind === 'shelf') return { kind: 'shelf', y: clamp(e.y, lo, hi) };
+    if (e.kind === 'rail') return { kind: 'rail', y: clamp(e.y, lo, hi) };
+    return { kind: 'drawerBox', y: clamp(e.y, 0.005, hi), h: clamp(e.h, 0.06, 0.4) };
+  };
+  const sorted = interior.elements.slice(0, MAX_INTERIOR_ELEMENTS).map(fit).sort((a, b) => a.y - b.y);
   const out: InteriorElement[] = [];
   let top = -Infinity; // top of the last kept element
   for (const e of sorted) {
     const bottom = e.y;
+    // shelves and rails are lines (top = y); only a drawer box has height
     const t = e.kind === 'drawerBox' ? e.y + e.h : e.y;
     if (bottom - top < MIN_ELEM_SPACE / 2) continue; // overlaps the previous — drop
     if (t > cavityH - 0.005) continue; // sticks out the top
@@ -125,6 +128,7 @@ export function sanitizeInterior(raw: unknown): Interior | undefined {
       const y = Number(r.y);
       if (!Number.isFinite(y)) continue;
       if (r.kind === 'shelf') elements.push({ kind: 'shelf', y });
+      else if (r.kind === 'rail') elements.push({ kind: 'rail', y });
       else if (r.kind === 'drawerBox') {
         const h = Number(r.h);
         if (Number.isFinite(h)) elements.push({ kind: 'drawerBox', y, h: clamp(h, 0.06, 0.4) });

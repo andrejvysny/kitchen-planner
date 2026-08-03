@@ -46,6 +46,33 @@ describe('resolveInterior', () => {
     expect(els[2].y).toBeCloseTo(0.5);
   });
 
+  it('custom: keeps hanging rails as rails (no drawerBox coercion)', () => {
+    const interior: Interior = {
+      mode: 'custom',
+      elements: [
+        { kind: 'rail', y: 1.6 },
+        { kind: 'shelf', y: 1.68 },
+      ],
+    };
+    const els = resolveInterior(interior, 2.0);
+    expect(els.map((e) => e.kind)).toEqual(['rail', 'shelf']);
+    expect(els[0]).toEqual({ kind: 'rail', y: 1.6 });
+  });
+
+  it('custom: a rail too close to a shelf falls to the same overlap rule', () => {
+    const tight = resolveInterior(
+      { mode: 'custom', elements: [{ kind: 'rail', y: 1.6 }, { kind: 'shelf', y: 1.62 }] },
+      2.0
+    );
+    // 2 cm apart — the lowest wins, exactly like shelf/shelf
+    expect(tight).toEqual([{ kind: 'rail', y: 1.6 }]);
+    const loose = resolveInterior(
+      { mode: 'custom', elements: [{ kind: 'rail', y: 1.6 }, { kind: 'shelf', y: 1.68 }] },
+      2.0
+    );
+    expect(loose).toHaveLength(2);
+  });
+
   it('degenerate cavities resolve to nothing (inverted clamp range)', () => {
     expect(resolveInterior({ mode: 'auto', shelves: 3, innerDrawers: 0 }, 0.08)).toEqual([]);
     expect(
@@ -102,6 +129,17 @@ describe('defaultInterior / sanitizeInterior', () => {
         { kind: 'drawerBox', y: 0.1, h: 0.4 },
       ],
     });
+    // rails must survive a save/load round-trip — a missing branch here would
+    // silently drop every wardrobe rail on reload or on "Customize part…"
+    expect(
+      sanitizeInterior({
+        mode: 'custom',
+        elements: [
+          { kind: 'rail', y: 1.6 },
+          { kind: 'rail', y: 'x' },
+        ],
+      })
+    ).toEqual({ mode: 'custom', elements: [{ kind: 'rail', y: 1.6 }] });
     expect(sanitizeInterior('x')).toBeUndefined();
     expect(sanitizeInterior({ mode: 'weird' })).toBeUndefined();
   });

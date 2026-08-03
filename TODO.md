@@ -1,3 +1,20 @@
+# M2 — Furniture breadth (bedroom / living / office)
+
+Plan: ~/.claude/plans/act-as-senior-software-elegant-unicorn.md, "MILESTONE 2"
+Each phase ends green: `npx tsc --noEmit && npm run test:unit && npm run build && node test/interact.mjs`
+(E2E runs via `KP_CHROMIUM_PATH` → system Chrome since the Playwright chromium broke on a Node upgrade.)
+
+- [x] P0: plumbing — `CatalogDef.placement` drives `snapsToWall`, sections renamed (`Kitchen · *`, `Dining & seating`), `roundedRectPoly`/`softSlab` in meshKit, `hasItemBuilder` guard test (243 unit, 89/89 E2E)
+- [x] P1: hanging rail — `InteriorElement {kind:'rail'}`, RAIL_DIA, cyl `axis:'x'` panels role 'rail', zoneCanvas ＋Rail + drag fix, data-loss tests first (248 unit, 89/89)
+- [x] P2: bedroom — `bed` kind (frame/headboard/mattress/duvet/pillows/drawers params) + 3 defs + symbol; wardrobe/wardrobe-wide/nightstand/dresser presets (251 unit, 91/91)
+- [x] P3: living — `sofa`/`tv`/`rug` kinds + builders + symbols (shared `sofaSeats`), armchair/coffee-table reuse, tv-bench/bookcase presets, rug layer 0; fixed pre-existing open-niche liner coplanarity (moiré + cut-list double-boarding) (256 unit, 94/94)
+- [x] P4: office — `officeChair` kind + builder + symbol, desk/desk-drawers freeform presets (257 unit)
+- [x] P5: 2-room demo (Kitchen + Bedroom shared partition, bed/wardrobe/nightstands/rug/pendant), docs sweep; 3D-click E2E made framing-robust (camera aimed at target + render-settle before worldToScreen) (257 unit, 94/94 E2E)
+
+All phases complete.
+
+---
+
 # M1 — BOM export (cut-list + shopping-list)
 
 Plan: ~/.claude/plans/act-as-senior-software-elegant-unicorn.md, "MILESTONE 1"
@@ -33,8 +50,8 @@ Deferred:
 - partition magnetism on corner drag (near-coincident twin corner pulled into exact alignment)
 - partial edge-overlap detection (a 6 m wall abutting a 3 m wall renders doubled instead of auto-splitting)
 - duplicateRoom copying items (currently geometry + openings only)
-- room-type presets/catalogs (bedroom/bath/office furniture sets)
-- per-room demo designs (demo stays a single kitchen room)
+- ~~room-type presets/catalogs (bedroom/bath/office furniture sets)~~ — shipped in M2 (bedroom/living/office; bathroom still deferred)
+- ~~per-room demo designs (demo stays a single kitchen room)~~ — demo is now 2-room (Kitchen + Bedroom), see M2
 
 ---
 
