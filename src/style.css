@@ -303,6 +303,37 @@ html, body {
   color: #fff;
 }
 
+/* check rows: severity dot, title, and the numbers underneath */
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  white-space: normal;
+  padding: 5px 8px;
+}
+
+.check-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 50%;
+}
+
+.check-dot.sev-error { background: #c0392b; }
+.check-dot.sev-warn { background: #d98324; }
+.check-dot.sev-info { background: #2563eb; }
+
+.check-text { min-width: 0; }
+.check-title { font-weight: 600; }
+
+.check-detail {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-soft);
+  line-height: 1.35;
+}
+
 /* room rows: name left, area right — used in the outline and the props panel */
 .room-row {
   display: flex;
@@ -404,6 +435,8 @@ html, body {
 #measure-controls button:hover { background: #eceae6; }
 #cam-controls button.active,
 #measure-controls button.active { background: var(--ink); color: #fff; }
+/* the warnings toggle wears its own colour, so it reads apart from the tools */
+#btn-checks.active { background: #d98324; color: #fff; }
 
 /* ---------- 2D pane sub-mode (plan / elevation) ---------- */
 

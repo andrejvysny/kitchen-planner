@@ -179,7 +179,9 @@ IR), outline grouping and sanitize gating all flow from the parts pipeline.
 Adding a NON-cabinet catalog item (appliance/furniture/light) still means:
 `ItemKind` (loose furniture already covers `bed`/`sofa`/`tv`/`rug`/
 `officeChair` — a new kind is rarely needed) + `CatalogDef` (catalog.ts —
-appliances also set `appliance: {mount, cutout?/niche?}`), a builder in
+appliances also set `appliance: {mount, cutout?/niche?}`; decorative items that
+may legally share space — lights, sockets, rugs, wall panels — set
+`noCollide: true` so the spatial checks skip them), a builder in
 itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
 `snapsToWall`/`isWallMounted`/`isOverhead`.
 
@@ -209,6 +211,17 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   temporarily clears the selection tint so it doesn't bake into materials,
   and snaps all open-front poses closed for the clone (snapshotPNG stays
   as-posed — an opened drawer is staged content).
+- Spatial checks (`src/model/checks.ts` `runChecks`/`Warning`) are pure and
+  NEVER imported by a mutator — the planner warns, it never blocks an edit.
+  `store.warnings()` lazy-caches the result, invalidated by every `notify()`.
+  Severity is a strict contract every consumer switches on, never `kind`:
+  error = collision (overlap/throughWall — red 3D tint), warn = clearance
+  (blocksDoor/frontClearance/walkway/workAisle/bedAccess — amber tint), info =
+  hint (doorLanding/workTriangle — never tints, never counts toward the
+  status bar's issue total). Each `CLEARANCE` constant carries its
+  NKBA/Neufert source in a comment. `catalog.ts`'s `isDecorative`/
+  `noCollide` opts an item out of every collision check (lights, sockets,
+  rugs, wall panels).
 - `window.__kp = {store, plan, view}` is exposed for tests/debugging — keep it.
 - Storage keys all live in src/model/storageKeys.ts: writes target
   `interior-planner-{design,parts,nav}-v1`, reads fall back to the legacy

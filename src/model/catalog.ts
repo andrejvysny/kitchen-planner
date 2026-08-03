@@ -97,6 +97,13 @@ export interface CatalogDef {
   placement?: 'wall' | 'free';
   /** appliances: mounting behaviour + host requirements */
   appliance?: ApplianceSpec;
+  /**
+   * Decorative / non-physical: lights, sockets, rugs, wall panels. Such items
+   * legitimately share space with furniture, so the spatial checks
+   * (src/model/checks.ts) skip them entirely. Declarative on purpose — the
+   * checks engine never keeps its own kind list.
+   */
+  noCollide?: true;
 }
 
 export interface CatalogSection {
@@ -142,6 +149,7 @@ export const CATALOG: CatalogSection[] = [
         elevation: 0.45,
         color: '#4f81a8',
         marker: true,
+        noCollide: true,
       }),
       def({
         id: 'outlet',
@@ -157,6 +165,7 @@ export const CATALOG: CatalogSection[] = [
         color: '#f2f1ec',
         params: [{ key: 'gangs', label: 'Sockets', min: 1, max: 4, def: 1, widthPer: 0.086 }],
         marker: true,
+        noCollide: true,
       }),
     ],
   },
@@ -262,6 +271,7 @@ export const CATALOG: CatalogSection[] = [
         h: 0.55,
         elevation: 0.9,
         color: OAK,
+        noCollide: true,
       }),
     ],
   },
@@ -379,6 +389,7 @@ export const CATALOG: CatalogSection[] = [
         elevation: 0,
         color: OAK,
         placement: 'free',
+        noCollide: true,
       }),
     ],
   },
@@ -461,6 +472,7 @@ export const CATALOG: CatalogSection[] = [
         elevation: 1.85,
         color: '#3f3e3b',
         light: { kind: 'point', on: true, intensity: 0.7, warmth: 0.75 },
+        noCollide: true,
       }),
       def({
         id: 'spot',
@@ -472,6 +484,7 @@ export const CATALOG: CatalogSection[] = [
         elevation: 2.5,
         color: '#e8e6e1',
         light: { kind: 'spot', on: true, intensity: 0.7, warmth: 0.55 },
+        noCollide: true,
       }),
       def({
         id: 'strip',
@@ -483,6 +496,7 @@ export const CATALOG: CatalogSection[] = [
         elevation: 1.42,
         color: '#f4f2ea',
         light: { kind: 'bar', on: true, intensity: 0.55, warmth: 0.7 },
+        noCollide: true,
       }),
     ],
   },
@@ -537,5 +551,15 @@ export function sofaSeats(w: number, seats?: number): number {
 /** Markers, backsplash and the TV hug the wall face exactly (and need one). */
 export function isWallMounted(def: CatalogDef): boolean {
   return def.marker || def.kind === 'backsplash' || def.kind === 'tv';
+}
+
+/**
+ * Items that legitimately share space with furniture — light fixtures,
+ * sockets, rugs, wall panels — and so take no part in collision checks. The
+ * flag lives on the def (`noCollide`), never in a list inside the checks
+ * engine; custom parts are physical by construction and never decorative.
+ */
+export function isDecorative(def: CatalogDef): boolean {
+  return def.noCollide === true;
 }
 

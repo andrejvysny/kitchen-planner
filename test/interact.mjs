@@ -1998,6 +1998,132 @@ results.push([
   !!sofa13 && sofa13.seats === 4 && Math.abs(sofa13.w - 4 * 0.69) < 0.001,
 ]);
 
+// ---------------------------------------------------------------------------
+// M3 — spatial checks engine (src/model/checks.ts): overlap / through-wall /
+// work-triangle E2E. Reload onto a clean demoDesign() baseline first — by
+// this point in the suite autosave holds a heavily mutated tree, and #btn-new
+// gives an emptyDesign(), not the demo (the only design carrying the shipped
+// sink/hob 70 cm work-triangle hint).
+// ---------------------------------------------------------------------------
+await page.evaluate(() => localStorage.clear());
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+
+// 31. moving one demo cabinet onto another raises an 'overlap' error naming
+// both, surfaces in the status bar, and undo clears it back to the baseline
+// (the one deliberate work-triangle info hint the demo ships with).
+const overlapIds = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const [a, b] = st.design.items.filter((i) => i.defId === 'wall-cabinet');
+  st.updateItem(b.id, { x: a.x, y: a.y });
+  st.commit();
+  return { aId: a.id, bId: b.id };
+});
+await page.waitForTimeout(150);
+const overlapAfter = await page.evaluate((ids) => {
+  const st = window.__kp.store;
+  const w = st.warnings().find((x) => x.kind === 'overlap');
+  return {
+    ok:
+      !!w &&
+      w.severity === 'error' &&
+      new Set(w.itemIds).size === 2 &&
+      w.itemIds.includes(ids.aId) &&
+      w.itemIds.includes(ids.bId),
+    status: document.getElementById('status-info').textContent,
+  };
+}, overlapIds);
+await page.keyboard.press('Control+z');
+await page.waitForTimeout(200);
+const overlapUndone = await page.evaluate(() => ({
+  kinds: window.__kp.store.warnings().map((w) => w.kind),
+  status: document.getElementById('status-info').textContent,
+}));
+results.push([
+  'overlap warning appears and clears',
+  overlapAfter.ok &&
+    overlapAfter.status.includes('issue') &&
+    overlapUndone.kinds.length === 1 &&
+    overlapUndone.kinds[0] === 'workTriangle' &&
+    !overlapUndone.status.includes('issue'),
+]);
+
+// 32. shoving the demo fridge into the shared partition raises a 'throughWall'
+// error and paints the fridge with the error emissive tint in 3D (selection
+// cleared first so the selection-green tint cannot win instead); undo clears it.
+await page.evaluate(() => window.__kp.store.select({ kind: 'none' }));
+const fridgeId = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const fridge = st.design.items.find((i) => i.defId === 'fridge');
+  st.updateItem(fridge.id, { x: fridge.x + 0.5 });
+  st.commit();
+  return fridge.id;
+});
+await page.waitForTimeout(200);
+const throughWallAfter = await page.evaluate((id) => {
+  const st = window.__kp.store;
+  const w = st.warnings().find((x) => x.kind === 'throughWall' && x.itemIds[0] === id);
+  let tinted = false;
+  window.__kp.view.items.get(id).group.traverse((o) => {
+    const m = o.material;
+    if (m?.emissive && `#${m.emissive.getHexString()}` === '#c0392b') tinted = true;
+  });
+  return { ok: !!w && w.severity === 'error', tinted };
+}, fridgeId);
+await page.keyboard.press('Control+z');
+await page.waitForTimeout(200);
+const throughWallUndone = await page.evaluate(() => window.__kp.store.warnings().map((w) => w.kind));
+results.push([
+  'through-wall flags on drag out',
+  throughWallAfter.ok &&
+    throughWallAfter.tinted &&
+    throughWallUndone.length === 1 &&
+    throughWallUndone[0] === 'workTriangle',
+]);
+
+// 33. #btn-checks toggles plan.checksOn (and its active class) so warn/info
+// findings join the 2D overlay; errors are drawn regardless (canvas pixels are
+// brittle to assert — state + class only, per plan2d.ts drawChecks).
+await page.click('#btn-checks');
+await page.waitForTimeout(120);
+const checksOnState = await page.evaluate(() => ({
+  on: window.__kp.plan.checksOn,
+  active: document.getElementById('btn-checks').classList.contains('active'),
+}));
+await page.click('#btn-checks');
+await page.waitForTimeout(120);
+const checksOffState = await page.evaluate(() => ({
+  on: window.__kp.plan.checksOn,
+  active: document.getElementById('btn-checks').classList.contains('active'),
+}));
+results.push([
+  'checks toggle reveals info findings in 2D',
+  checksOnState.on === true &&
+    checksOnState.active === true &&
+    checksOffState.on === false &&
+    checksOffState.active === false,
+]);
+
+// 34. the demo's baseline hint: sink and hob sit 70 cm apart, under the 120 cm
+// shortest work-triangle leg — info severity, spelled out in cm, and (unlike
+// errors/warns) never counted in the status bar's issue total.
+const triangleWarning = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const w = st.warnings().find((x) => x.kind === 'workTriangle');
+  return {
+    severity: w?.severity,
+    detail: w?.detail ?? '',
+    status: document.getElementById('status-info').textContent,
+  };
+});
+results.push([
+  'work triangle hint lists three legs',
+  triangleWarning.severity === 'info' &&
+    /Sink→hob|sink/i.test(triangleWarning.detail) &&
+    triangleWarning.detail.includes('cm') &&
+    !triangleWarning.status.includes('issue'),
+]);
+
 let pass = 0;
 for (const [name, ok] of results) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`);

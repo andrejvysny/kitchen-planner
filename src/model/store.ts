@@ -1,4 +1,5 @@
 import { catalogDef, defaultParams, FLOOR_COLORS, hasCatalogDef, type CatalogDef } from './catalog';
+import { runChecks, type Warning } from './checks';
 import { hasPreset, presetPart } from './presets';
 import { clamp, dist, polygonBounds, projectOnWall, signedArea, wallGeom, wallPoint, type WallGeom } from './geometry';
 import { hasMaterial } from './materials';
@@ -87,6 +88,10 @@ export class Store {
   private redoStack: string[] = [];
   private lastCommitted: string;
 
+  /** spatial checks are ephemeral like openFronts: derived, never serialized */
+  private checksCache: Warning[] = [];
+  private checksDirty = true;
+
   constructor(design: Design) {
     this.design = design;
     this.lastCommitted = JSON.stringify(design);
@@ -104,7 +109,23 @@ export class Store {
   }
 
   notify(info: ChangeInfo): void {
+    // every mutation announces itself here, so this is the one place the
+    // checks cache has to be invalidated (restore/replaceDesign included)
+    this.checksDirty = true;
     this.emit('change', info);
+  }
+
+  /**
+   * Spatial checks for the current design, recomputed lazily after any notify.
+   * Advisory only — nothing in the store consults them, and they never enter
+   * the design, an undo step or autosave.
+   */
+  warnings(): Warning[] {
+    if (this.checksDirty) {
+      this.checksCache = runChecks(this.design);
+      this.checksDirty = false;
+    }
+    return this.checksCache;
   }
 
   /* ---------------- selection ---------------- */
@@ -1521,8 +1542,9 @@ export function demoDesign(): Design {
   const ovenAppl = add('appl-oven', 3.78, backY(0.6));
   ovenAppl.attach = { kind: 'zone', hostId: towerItem.id, path: [1] };
 
-  // Fridge on the right wall (faces left, rotation +90°).
-  add('fridge', x1 - 0.35, 1.2, Math.PI / 2);
+  // Fridge on the right wall (faces left, rotation +90°) — far enough south
+  // that the appliance tower's door clears it (the checks engine flags 1.2).
+  add('fridge', x1 - 0.35, 1.7, Math.PI / 2);
 
   // Oak backsplash panel + wall units above the run.
   add('backsplash', 1.75, y0 + 0.01, 0, { w: 3.4 });

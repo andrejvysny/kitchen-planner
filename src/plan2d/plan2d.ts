@@ -1,4 +1,5 @@
 import { isWallMounted, snapsToWall, type CatalogDef } from '../model/catalog';
+import type { Severity, Warning } from '../model/checks';
 import {
   clamp,
   fmtCm,
@@ -27,6 +28,18 @@ const MEASURE = '#2563eb';
 /** Walls (and labels) of rooms that are not the active one. */
 const MUTED = '#9a978f';
 const LABEL_MUTED = '#a09d95';
+
+/** Spatial-check overlay, one colour per severity. */
+const SEVERITY_COLOR: Record<Severity, string> = {
+  error: '#c0392b',
+  warn: '#d98324',
+  info: '#2563eb',
+};
+/**
+ * Plan labels are centred single lines, so a long detail runs off the pane.
+ * Clip it here — the props panel carries the sentence in full.
+ */
+const CHECK_LABEL_MAX = 52;
 
 /** Seed size of a room dropped by the add-room tool (m). */
 const NEW_ROOM_W = 4;
@@ -112,6 +125,13 @@ export class Plan2D {
   measureOn = false;
   onMeasureChange: (() => void) | null = null;
   private measure: Measure = { a: null, b: null, hover: null, snapped: false, measuring: false };
+
+  /**
+   * Whether the advisory (warn / info) findings are drawn. Errors ignore this
+   * and always show: a cabinet inside another one is never worth hiding.
+   */
+  checksOn = false;
+  onChecksChange: (() => void) | null = null;
 
   roomToolOn = false;
   onRoomToolChange: (() => void) | null = null;
@@ -266,6 +286,18 @@ export class Plan2D {
     this.canvas.style.cursor = on ? 'crosshair' : 'default';
     this.updateHint();
     this.onMeasureChange?.();
+    this.requestDraw();
+  }
+
+  /* ---------------- checks overlay ---------------- */
+
+  /**
+   * Not a tool — a display toggle, so it takes no gestures and stays on
+   * alongside arming, measuring or the room tool.
+   */
+  setChecks(on: boolean): void {
+    this.checksOn = on;
+    this.onChecksChange?.();
     this.requestDraw();
   }
 
@@ -1412,7 +1444,8 @@ export class Plan2D {
       ctx.strokeRect(c.x - r, c.y - r, r * 2, r * 2);
     }
 
-    // ---- measure overlay (on top of everything) ----
+    // ---- spatial checks + measure overlays (on top of everything) ----
+    this.drawChecks(ctx, hair, labels);
     if (this.measureOn) this.drawMeasure(ctx, hair, labels);
 
     ctx.restore();
@@ -1433,6 +1466,102 @@ export class Plan2D {
       ctx.fillText(l.text, 0, 0);
       ctx.restore();
     }
+  }
+
+  /**
+   * The spatial-check overlay: every flagged item outlined in its severity
+   * colour, plus the region the check measured (a wall segment, a door sector,
+   * a clearance rectangle). Errors are unconditional; warn/info wait for the ⚠
+   * toggle, and only then does each finding get its detail spelled out.
+   */
+  private drawChecks(
+    ctx: CanvasRenderingContext2D,
+    hair: number,
+    labels: Label[]
+  ): void {
+    const warnings = this.store.warnings();
+    if (!warnings.length) return;
+    const byId = new Map(this.store.design.items.map((it) => [it.id, it]));
+    // two findings about the same wall share a midpoint; stack their lines
+    const stacked = new Map<string, number>();
+
+    for (const w of warnings) {
+      if (w.severity !== 'error' && !this.checksOn) continue;
+      const color = SEVERITY_COLOR[w.severity];
+      ctx.strokeStyle = color;
+      ctx.lineWidth = hair * 2;
+
+      for (const id of w.itemIds) {
+        const it = byId.get(id);
+        if (!it) continue;
+        const o = this.itemOutlineWorld(it);
+        ctx.beginPath();
+        ctx.moveTo(o[0].x, o[0].y);
+        for (let i = 1; i < o.length; i++) ctx.lineTo(o[i].x, o[i].y);
+        ctx.closePath();
+        ctx.stroke();
+      }
+
+      const anchor = this.drawWarningGeom(ctx, hair, w, color);
+      if (!this.checksOn) continue;
+      const at = anchor ?? this.warningItemCenter(w, byId);
+      if (!at) continue;
+      const key = `${at.x.toFixed(2)},${at.y.toFixed(2)}`;
+      const n = stacked.get(key) ?? 0;
+      stacked.set(key, n + 1);
+      const text =
+        w.detail.length > CHECK_LABEL_MAX
+          ? `${w.detail.slice(0, CHECK_LABEL_MAX - 1).trimEnd()}…`
+          : w.detail;
+      labels.push({ x: at.x, y: at.y, dy: n * 14, text, color, size: 11, bold: true });
+    }
+  }
+
+  /** Draws a warning's region (dashed); returns the point to hang its label off. */
+  private drawWarningGeom(
+    ctx: CanvasRenderingContext2D,
+    hair: number,
+    w: Warning,
+    color: string
+  ): Point | null {
+    const g = w.geom;
+    if (!g) return null;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = hair * 1.8;
+    ctx.setLineDash([hair * 6, hair * 4]);
+    if (g.kind === 'segment') {
+      ctx.beginPath();
+      ctx.moveTo(g.a.x, g.a.y);
+      ctx.lineTo(g.b.x, g.b.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      return { x: (g.a.x + g.b.x) / 2, y: (g.a.y + g.b.y) / 2 };
+    }
+    const pts = g.points;
+    if (pts.length < 2) {
+      ctx.setLineDash([]);
+      return null;
+    }
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.08;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    return polygonCentroid(pts);
+  }
+
+  /** Fallback label anchor for a geom-less warning: the first item it names. */
+  private warningItemCenter(w: Warning, byId: Map<string, Item>): Point | null {
+    for (const id of w.itemIds) {
+      const it = byId.get(id);
+      if (it) return { x: it.x, y: it.y };
+    }
+    return null;
   }
 
   /** Draws the two-point measurement: dashed line, endpoint dots, snap ring, label. */

@@ -1,3 +1,35 @@
+# M3 — Spatial checks engine
+
+Plan: ~/.claude/plans/act-as-senior-software-elegant-unicorn.md, "MILESTONE 3"
+Each phase ends green: `npx tsc --noEmit && npm run test:unit && npm run build && node test/interact.mjs`
+
+- [x] P1-P3: core — `src/model/checks.ts` `runChecks`/`Warning` (2.5D
+  height-aware collision: overlap/throughWall/blocksDoor/doorLanding via SAT
+  + true-polygon overlap, TOUCH_EPS-shrunk shapes so flush neighbours never
+  flag), `store.warnings()` lazy dirty-flag cache invalidated by `notify()`
+  (287→304 unit)
+- [x] P4-P6: surfacing — 2D overlay behind `#btn-checks` (errors always
+  drawn, warn/info opt-in), 3D emissive-tint refactor (`setTint`/
+  `appliedTints`: selection green > error red > warn amber, info never
+  tints), props panel Checks sections (per-item + design-wide, click-through)
+- [x] P7-P8: ergonomics — face-model clearance primitive (`Face`/`faceGap`/
+  `freeDepth`) drives frontClearance (read off `Panel.motion` — hinge leaf
+  width / slide travel, so it covers every cabinet with no hard-coded kind),
+  walkway 0.90 m / work aisle 1.07 m (NKBA G4/G5), bed side access 0.60 m
+  (Neufert); work triangle per room (sink/hob/fridge front centers,
+  best-of-triples, info severity) — demo fridge moved south (`x1 - 0.35,
+  1.7`) so its front clearance clears the appliance tower's door
+- [x] P9: E2E + docs — 4 new `test/interact.mjs` scenarios (overlap
+  appears/clears on undo, through-wall drag + error emissive tint, `#btn-
+  checks` toggle state, baseline work-triangle hint), CLAUDE.md/README.md/
+  NEXT_STEPS.md sweep (304 unit, 98/98 E2E)
+
+All phases complete. The demo ships with exactly ONE info finding — sink↔hob
+70 cm, under the 120 cm minimum work-triangle leg — kept deliberately as a
+discoverable hint, not a bug. Uncommitted on master.
+
+---
+
 # M2 — Furniture breadth (bedroom / living / office)
 
 Plan: ~/.claude/plans/act-as-senior-software-elegant-unicorn.md, "MILESTONE 2"

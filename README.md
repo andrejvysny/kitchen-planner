@@ -64,6 +64,14 @@ and they all move with their host cabinet. Double-click any door or drawer in
 3D (or hit *Open fronts*) to preview it open — shelves, internal drawers and
 drawer boxes are really in there.
 
+Live spatial checks run in the background as you work: overlapping items and
+things poking through a wall are flagged red; tight door swings, walkways,
+work aisles, bed access and cabinet-front clearance are amber (NKBA/Neufert
+minimums); a kitchen's sink/hob/fridge work triangle gets an informational
+nudge. Nothing is ever blocked — every finding is a hint, not a wall. Errors
+always show; toggle **⚠** to also see warnings and hints, in both the plan and
+the properties panel.
+
 **4 · Light it.**
 Pendants, ceiling spots and LED strips are real light sources with shadows.
 Select a fixture to adjust brightness and warmth. Toggle **☀ Day / ☾ Night**
@@ -199,8 +207,8 @@ headless; end-to-end tests run against the production build with Playwright:
 npm run test:unit           # geometry / store / snapping + builder smoke tests
 npm run build
 npx vite preview &          # serves dist on :4173
-node test/interact.mjs      # 86 interaction checks (place, snap, drag, undo,
+node test/interact.mjs      # 98 interaction checks (place, snap, drag, undo,
                             # wall edits, doors, multi-room, part studio,
-                            # keyboard, 3D picking, exports)
+                            # keyboard, 3D picking, exports, spatial checks)
 node test/screenshot.mjs    # renders UI screenshots for visual review
 ```

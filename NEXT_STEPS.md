@@ -23,9 +23,10 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
 2. **Continuous worktops** (M) — group adjacent worktop-bearing cabinets on a
    run into one merged slab. Cutouts already work per host (`HostContext`
    prism holes); the merge is the remaining piece.
-3. **Collision & overlap warnings** (S–M) — oriented-bounding-box overlap test in
-   `snapping.ts`; tint offending items red in both views rather than blocking
-   movement (planners that hard-block feel frustrating).
+3. ~~Collision & overlap warnings~~ — DONE: `src/model/checks.ts` `runChecks`
+   (2.5D height-aware SAT + polygon overlap, plus ergonomic clearances and
+   the work triangle), tints offending items red/amber in both views,
+   `store.warnings()` lazy cache, never blocks movement.
 4. **Shopping list / BOM export** (S) — items are already parametric data; group
    `design.items` by def + dimensions, export CSV/Markdown with counts and
    sizes. Useful for pricing against IKEA/retailer catalogs.
@@ -75,7 +76,8 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
     key-value backend (Supabase, a tiny worker + R2) plus a `?design=` loader
     gives shareable links.
 20. **AI layout assistant** (L) — given the room polygon + openings + water
-    marker, propose runs respecting the work-triangle rule; the data model
+    marker, propose runs respecting the work-triangle rule (now codified as
+    `CLEARANCE.TRIANGLE_*` + `triangleChecks` in `checks.ts`); the data model
     (walls with inward normals, snapping) makes generated layouts easy to
     validate.
 

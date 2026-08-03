@@ -83,6 +83,109 @@ export function rot(p: Point, angle: number): Point {
   return { x: p.x * c - p.y * s, y: p.x * s + p.y * c };
 }
 
+/** Smallest absolute angular difference, folded into [0, π]. */
+export function angleClose(a: number, b: number, tol = 0.06): boolean {
+  let d = Math.abs(a - b) % (Math.PI * 2);
+  if (d > Math.PI) d = Math.PI * 2 - d;
+  return d < tol;
+}
+
+/**
+ * An oriented rectangle in plan space: centre, extents along its OWN axes
+ * (`w` along local +x, `d` along local +y) and the rotation of those axes.
+ * Matches an Item's x/y/w/d/rotation exactly.
+ */
+export interface Obb {
+  cx: number;
+  cy: number;
+  w: number;
+  d: number;
+  rot: number;
+}
+
+/** The four corners of an oriented rectangle, in the same order as a CCW outline. */
+export function obbCorners(o: Obb): Point[] {
+  const hw = o.w / 2;
+  const hd = o.d / 2;
+  return [
+    { x: -hw, y: -hd },
+    { x: hw, y: -hd },
+    { x: hw, y: hd },
+    { x: -hw, y: hd },
+  ].map((p) => {
+    const r = rot(p, o.rot);
+    return { x: o.cx + r.x, y: o.cy + r.y };
+  });
+}
+
+/** Half-extent of an oriented box projected on the unit axis `n`. */
+function obbRadius(o: Obb, n: Point): number {
+  const ax = rot({ x: 1, y: 0 }, o.rot);
+  const ay = rot({ x: 0, y: 1 }, o.rot);
+  return (
+    Math.abs(ax.x * n.x + ax.y * n.y) * (o.w / 2) + Math.abs(ay.x * n.x + ay.y * n.y) * (o.d / 2)
+  );
+}
+
+/**
+ * Separating-axis test for two oriented rectangles: the four box axes are the
+ * only candidates. Returns the minimum penetration depth (m) over those axes,
+ * or null when they are disjoint — exact touching counts as DISJOINT, so
+ * edge-to-edge snapped neighbours never register. Callers wanting a tolerance
+ * on top of that shrink their boxes before calling (see checks.ts TOUCH_EPS).
+ */
+export function obbOverlap(a: Obb, b: Obb): { depth: number } | null {
+  const axes = [
+    rot({ x: 1, y: 0 }, a.rot),
+    rot({ x: 0, y: 1 }, a.rot),
+    rot({ x: 1, y: 0 }, b.rot),
+    rot({ x: 0, y: 1 }, b.rot),
+  ];
+  const dx = b.cx - a.cx;
+  const dy = b.cy - a.cy;
+  let depth = Infinity;
+  for (const n of axes) {
+    const sep = Math.abs(dx * n.x + dy * n.y);
+    const o = obbRadius(a, n) + obbRadius(b, n) - sep;
+    if (o <= 0) return null; // separating axis found
+    if (o < depth) depth = o;
+  }
+  return { depth };
+}
+
+/**
+ * Do two simple polygons share any area? Crossing edges settle the general
+ * case; one vertex inside the other polygon catches full containment. Points
+ * ON an edge count as inside (pointInPolygon), so polygons that merely touch
+ * report true — shrink them first when flush neighbours must pass.
+ */
+export function polygonsOverlap(a: Point[], b: Point[]): boolean {
+  if (a.length < 3 || b.length < 3) return false;
+  for (let i = 0; i < a.length; i++) {
+    const a0 = a[i];
+    const a1 = a[(i + 1) % a.length];
+    for (let j = 0; j < b.length; j++) {
+      if (segmentsIntersect(a0, a1, b[j], b[(j + 1) % b.length])) return true;
+    }
+  }
+  return pointInPolygon(a[0], b) || pointInPolygon(b[0], a);
+}
+
+/**
+ * Circular sector as a polygon: the centre followed by `segs + 1` points along
+ * the arc from a0 to a1 (radians, plan space; the sweep follows the sign of
+ * a1 − a0). Door swings are the reason it exists.
+ */
+export function sectorPolygon(c: Point, r: number, a0: number, a1: number, segs = 8): Point[] {
+  const n = Math.max(1, Math.round(segs));
+  const pts: Point[] = [{ x: c.x, y: c.y }];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + ((a1 - a0) * i) / n;
+    pts.push({ x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r });
+  }
+  return pts;
+}
+
 export function pointInRect(
   p: Point,
   cx: number,

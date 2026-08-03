@@ -61,6 +61,15 @@ const LIGHT_COOL = new THREE.Color('#dfeaff');
 const LIGHT_WARM = new THREE.Color('#ffb46b');
 const scratchColor = new THREE.Color();
 
+/**
+ * Emissive tints, most important first: the selection always wins (the user is
+ * looking at what they clicked), then an item named by an error, then a warn.
+ * Info-severity findings never tint — they are hints, not defects.
+ */
+const TINT_SELECTED = '#1e5a49';
+const TINT_ERROR = '#c0392b';
+const TINT_WARN = '#d98324';
+
 // Trackpad-navigation tuning + scratch (see onWheel / wheelInput.ts).
 const WHEEL_ZOOM_STEP = 1 / 0.95; // radius factor per mouse-wheel notch
 const PINCH_ZOOM_RATE = 0.01; // radius = radius * exp(deltaY * rate) for pinch
@@ -100,7 +109,8 @@ export class View3D {
   private sunDir = new THREE.Vector3();
 
   private downPos = new THREE.Vector2();
-  private lastTintedId: string | null = null;
+  /** item id → tint colour currently written into its materials */
+  private appliedTints = new Map<string, string>();
   private scratchToCam = new THREE.Vector3();
   private readonly isMac = isMac(navigator.platform, navigator.userAgent);
 
@@ -308,6 +318,8 @@ export class View3D {
     this.disposeGroup(this.itemsGroup);
     this.itemsGroup.clear();
     this.items.clear();
+    // fresh materials come back untinted, so nothing is applied any more
+    this.appliedTints.clear();
     this.walls = [];
     this.ceilings = [];
 
@@ -591,6 +603,8 @@ export class View3D {
   private softUpdate(): void {
     for (const item of this.store.design.items) this.placeItem(item);
     this.relight();
+    // dragging an item in or out of a clash changes nothing structural
+    this.applyTints();
   }
 
   private relight(): void {
@@ -686,24 +700,44 @@ export class View3D {
     this.disposeGroup(envScene); // frees the throwaway env geometry/materials
   }
 
-  private setTint(id: string, on: boolean): void {
+  /** Writes (or clears, with `null`) an item's emissive tint. Bulbs keep their glow. */
+  private setTint(id: string, color: string | null): void {
     const entry = this.items.get(id);
     if (!entry) return;
     entry.group.traverse((o) => {
       const mesh = o as THREE.Mesh;
       const m = mesh.material as THREE.MeshStandardMaterial | undefined;
       if (!m || !('emissive' in m) || mesh.userData.bulb) return;
-      m.emissive.set(on ? '#1e5a49' : '#000000');
-      m.emissiveIntensity = on ? 0.45 : 1;
+      m.emissive.set(color ?? '#000000');
+      m.emissiveIntensity = color ? 0.45 : 1;
     });
   }
 
-  private applySelectionTint(): void {
+  /**
+   * The one place tints are decided: selection first, then the worst spatial
+   * warning naming the item. Only the difference against what is already on the
+   * materials is written, so this is cheap enough to run on every soft update.
+   */
+  private applyTints(): void {
+    const want = new Map<string, string>();
+    for (const w of this.store.warnings()) {
+      if (w.severity === 'info') continue;
+      const color = w.severity === 'error' ? TINT_ERROR : TINT_WARN;
+      // an error outranks a warn on the same item, whatever order they arrive in
+      for (const id of w.itemIds) if (color === TINT_ERROR || !want.has(id)) want.set(id, color);
+    }
     const sel = this.store.selection;
-    const selectedId = sel.kind === 'item' ? sel.id : null;
-    if (this.lastTintedId && this.lastTintedId !== selectedId) this.setTint(this.lastTintedId, false);
-    if (selectedId) this.setTint(selectedId, true);
-    this.lastTintedId = selectedId;
+    if (sel.kind === 'item') want.set(sel.id, TINT_SELECTED);
+
+    for (const id of this.appliedTints.keys()) if (!want.has(id)) this.setTint(id, null);
+    for (const [id, color] of want) {
+      if (this.appliedTints.get(id) !== color) this.setTint(id, color);
+    }
+    this.appliedTints = want;
+  }
+
+  private applySelectionTint(): void {
+    this.applyTints();
     this.updateGizmo();
   }
 
@@ -924,9 +958,10 @@ export class View3D {
   async exportGLB(): Promise<Blob> {
     const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
 
-    // clear the selection tint so it does not bake into exported materials
-    const tinted = this.lastTintedId;
-    if (tinted) this.setTint(tinted, false);
+    // clear every tint (selection + warnings) so none bakes into exported materials
+    const tinted = new Map(this.appliedTints);
+    for (const id of tinted.keys()) this.setTint(id, null);
+    this.appliedTints.clear();
 
     const root = new THREE.Group();
     root.name = 'Design';
@@ -947,7 +982,8 @@ export class View3D {
     const exporter = new GLTFExporter();
     const buffer = (await exporter.parseAsync(root, { binary: true })) as ArrayBuffer;
 
-    if (tinted) this.setTint(tinted, true);
+    for (const [id, color] of tinted) this.setTint(id, color);
+    this.appliedTints = tinted;
     return new Blob([buffer], { type: 'model/gltf-binary' });
   }
 }

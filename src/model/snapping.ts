@@ -1,5 +1,5 @@
 import { snapsToWall, type CatalogDef } from './catalog';
-import { clamp, fmtCm, projectOnWall, wallPoint } from './geometry';
+import { angleClose, clamp, fmtCm, projectOnWall, wallPoint } from './geometry';
 import type { RoomWall } from './rooms';
 import type { Store } from './store';
 import type { Item, Point } from './types';
@@ -27,12 +27,6 @@ const ALIGN_SNAP_DIST = 0.06;
 /** rotation that makes an item's back face a wall whose inward normal is n */
 export function rotationFromInward(n: Point): number {
   return Math.atan2(-n.x, n.y);
-}
-
-function angleClose(a: number, b: number, tol = 0.06): boolean {
-  let d = Math.abs(a - b) % (Math.PI * 2);
-  if (d > Math.PI) d = Math.PI * 2 - d;
-  return d < tol;
 }
 
 /**

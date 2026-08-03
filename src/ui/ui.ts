@@ -18,6 +18,7 @@ import {
   WALL_MATERIALS,
   type MaterialDef,
 } from '../model/materials';
+import type { Warning } from '../model/checks';
 import { buildBom } from '../model/export';
 import { bomHtml, cutListCsv, shoppingListCsv } from '../model/exportFormats';
 import { navInput, setNavInput } from '../model/navPref';
@@ -424,6 +425,47 @@ export class UI {
     return s;
   }
 
+  /**
+   * The advisory findings, as a list of rows. Nothing is rendered when there is
+   * nothing to say, so a clean design's panel is untouched. Clicking a row jumps
+   * to the other item involved (or the first one, from the room panel), which is
+   * the fastest way to see what a clash is with.
+   */
+  private checksSection(
+    root: HTMLElement,
+    list: Warning[],
+    opts: { exceptId?: string; cap?: number } = {}
+  ): void {
+    if (!list.length) return;
+    const sec = this.section(root, 'Checks');
+    const shown = opts.cap ? list.slice(0, opts.cap) : list;
+    for (const w of shown) {
+      const row = this.el(
+        `<div class="ol-row check-row"><span class="check-dot sev-${w.severity}"></span>
+          <span class="check-text"><span class="check-title"></span><span class="check-detail"></span></span></div>`
+      );
+      (row.querySelector('.check-title') as HTMLElement).textContent = w.title;
+      (row.querySelector('.check-detail') as HTMLElement).textContent = w.detail;
+      const target = w.itemIds.find((id) => id !== opts.exceptId) ?? w.itemIds[0];
+      if (target && this.store.itemById(target)) {
+        row.role = 'button';
+        row.tabIndex = 0;
+        const pick = () => this.store.select({ kind: 'item', id: target });
+        row.addEventListener('click', pick);
+        row.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            pick();
+          }
+        });
+      }
+      sec.appendChild(row);
+    }
+    if (shown.length < list.length) {
+      sec.appendChild(this.el(`<div class="ol-empty">+${list.length - shown.length} more</div>`));
+    }
+  }
+
   private numberRow(
     parent: HTMLElement,
     label: string,
@@ -746,6 +788,8 @@ export class UI {
     addRow.querySelector('button')!.addEventListener('click', () => this.plan.setRoomTool(true));
     list.appendChild(addRow);
 
+    this.checksSection(root, this.store.warnings(), { cap: 12 });
+
     const rect = this.store.rectangleSize();
     const size = this.section(root, 'Size');
     if (rect) {
@@ -883,6 +927,12 @@ export class UI {
     const isOwnPart = !!this.store.customPartById(item.defId);
     root.appendChild(this.el(`<h2 class="props-title">${def.label}</h2>`));
     root.appendChild(this.el(`<p class="props-sub">${isOwnPart ? 'Custom part' : 'Catalog item'}</p>`));
+
+    this.checksSection(
+      root,
+      this.store.warnings().filter((w) => w.itemIds.includes(item.id)),
+      { exceptId: item.id }
+    );
 
     // mounted appliances: pose is derived from the host — say so, offer Detach
     if (item.attach) {
@@ -1301,6 +1351,10 @@ export class UI {
     this.plan.onMeasureChange = () =>
       measureBtn.classList.toggle('active', this.plan.measureOn);
 
+    const checksBtn = $('#btn-checks');
+    checksBtn.addEventListener('click', () => this.plan.setChecks(!this.plan.checksOn));
+    this.plan.onChecksChange = () => checksBtn.classList.toggle('active', this.plan.checksOn);
+
     const roomBtn = $('#btn-room');
     roomBtn.addEventListener('click', () => this.plan.setRoomTool(!this.plan.roomToolOn));
     this.plan.onRoomToolChange = () => roomBtn.classList.toggle('active', this.plan.roomToolOn);
@@ -1376,9 +1430,12 @@ export class UI {
 
   private updateInfo(): void {
     const rooms = this.store.design.rooms.length;
+    // info-severity findings are hints, not issues — they stay out of the count
+    const issues = this.store.warnings().filter((w) => w.severity !== 'info').length;
     $('#status-info').textContent =
       `${this.store.design.items.length} items · ${this.store.totalFloorArea().toFixed(1)} m²` +
-      (rooms > 1 ? ` · ${rooms} rooms` : '');
+      (rooms > 1 ? ` · ${rooms} rooms` : '') +
+      (issues > 0 ? ` · ${issues} issue${issues === 1 ? '' : 's'}` : '');
   }
 
   private wireKeyboard(): void {

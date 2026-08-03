@@ -1,4 +1,4 @@
-import { clamp, projectOnWall } from './geometry';
+import { angleClose, clamp, projectOnWall } from './geometry';
 import { openingsOfWall, roomById, wallByIdIn } from './rooms';
 import { rotationFromInward } from './snapping';
 import type { Design } from './types';
@@ -60,13 +60,6 @@ export interface WallElevation {
 const BACK_GAP = 0.15;
 /** how far (rad) an item may face off the wall's inward normal and still count */
 const FACE_TOL = 0.3;
-
-/** smallest absolute angular difference, folded into [0, π] */
-function angleClose(a: number, b: number, tol: number): boolean {
-  let d = Math.abs(a - b) % (Math.PI * 2);
-  if (d > Math.PI) d = Math.PI * 2 - d;
-  return d < tol;
-}
 
 /**
  * An item belongs to a wall's elevation when its back sits against that wall
