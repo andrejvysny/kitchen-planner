@@ -29,11 +29,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck (src + test/unit)
+        run: npm run typecheck
+
       - name: Unit tests
         run: npm run test:unit
 
       - name: Build
-        run: npm run build   # tsc (noEmit typecheck) + vite build -> dist/
+        run: npm run build # tsc (noEmit typecheck) + vite build -> dist/
 
       - name: Install Playwright chromium
         run: npx playwright install --with-deps chromium
