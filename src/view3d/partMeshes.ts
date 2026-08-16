@@ -3,7 +3,17 @@ import { partPanels, type HostContext, type Panel, type PanelMotion } from '../m
 import type { CustomPartDef, Design, Item } from '../model/types';
 import { styleOfItem } from '../model/rooms';
 import { resolveColor, resolveFinish } from '../model/variables';
-import { box, counterFin, cyl, type Finish, GROOVE, matte, PLINTH_COLOR, prism, surfMat } from './meshKit';
+import {
+  box,
+  counterFin,
+  cyl,
+  type Finish,
+  GROOVE,
+  matte,
+  PLINTH_COLOR,
+  prism,
+  surfMat,
+} from './meshKit';
 
 /**
  * Custom parts render from their panel list (src/model/panels.ts) — this file
@@ -17,8 +27,17 @@ import { box, counterFin, cyl, type Finish, GROOVE, matte, PLINTH_COLOR, prism, 
 export const OPEN_ANGLE = Math.PI * 0.55;
 /** flaps (top/bottom hinges) open a little less so they read as flaps */
 export const FLAP_ANGLE = Math.PI * 0.42;
-/** per-frame lerp factor for the open/close animation */
-const POSE_LERP = 0.18;
+/**
+ * Exponential-smoothing rate (1/s) for the open/close animation. Time-based,
+ * NOT per-frame: the duration must not track the display refresh rate or the
+ * renderer's speed. k = -60 * ln(1 - 0.18) = 11.91, so a 60 fps machine sees
+ * exactly the old per-frame 0.18 lerp.
+ */
+const POSE_RATE = 12;
+/** a long stall (rebuild, hidden pane, tab switch) must not teleport the pose */
+const POSE_DT_MAX = 0.25;
+/** below this the remaining travel is imperceptible; snap and stop */
+const POSE_EPS = 0.005;
 
 interface UnitData {
   motionUnit: string;
@@ -33,7 +52,12 @@ interface UnitData {
   targetT: number;
 }
 
-function panelMaterial(p: Panel, front: Finish, accentColor: string, counter: Finish): THREE.Material {
+function panelMaterial(
+  p: Panel,
+  front: Finish,
+  accentColor: string,
+  counter: Finish
+): THREE.Material {
   if (p.slot === 'glass') {
     return new THREE.MeshStandardMaterial({
       color: '#bcd2d8',
@@ -62,7 +86,13 @@ function tag(o: THREE.Object3D, p: Panel): void {
   if (p.boardId) o.userData.boardId = p.boardId;
 }
 
-function panelMesh(g: THREE.Group, p: Panel, front: Finish, accentColor: string, counter: Finish): void {
+function panelMesh(
+  g: THREE.Group,
+  p: Panel,
+  front: Finish,
+  accentColor: string,
+  counter: Finish
+): void {
   const mat = panelMaterial(p, front, accentColor, counter);
   if (p.shape.kind === 'prism') {
     tag(prism(g, p.shape.outline, p.shape.h, mat, p.y, p.shape.holes), p);
@@ -139,7 +169,13 @@ export function buildCustomPart(
  * reference point for slides) in its CLOSED pose; setFrontPoses/
  * stepFrontPoses rotate/translate it, so opening never rebuilds geometry.
  */
-function motionUnit(g: THREE.Group, panels: Panel[], front: Finish, accentColor: string, counter: Finish): void {
+function motionUnit(
+  g: THREE.Group,
+  panels: Panel[],
+  front: Finish,
+  accentColor: string,
+  counter: Finish
+): void {
   const ref = panels.find((p) => p.role === 'front') ?? panels[0];
   const m = ref.motion!;
   if (ref.shape.kind !== 'box') return; // motion panels are always boards
@@ -148,8 +184,18 @@ function motionUnit(g: THREE.Group, panels: Panel[], front: Finish, accentColor:
   const s = Math.sin(ry);
   // pivot: the hinge edge of the reference front (its ±w/2 along face-local x),
   // or the front's centre line for slides / horizontal hinges
-  const lxPivot = m.kind === 'hinge' && m.side === 'left' ? -ref.shape.w / 2 : m.kind === 'hinge' && m.side === 'right' ? ref.shape.w / 2 : 0;
-  const yPivot = m.kind === 'hinge' && m.side === 'top' ? ref.y + ref.shape.h : m.kind === 'hinge' && m.side === 'bottom' ? ref.y : 0;
+  const lxPivot =
+    m.kind === 'hinge' && m.side === 'left'
+      ? -ref.shape.w / 2
+      : m.kind === 'hinge' && m.side === 'right'
+        ? ref.shape.w / 2
+        : 0;
+  const yPivot =
+    m.kind === 'hinge' && m.side === 'top'
+      ? ref.y + ref.shape.h
+      : m.kind === 'hinge' && m.side === 'bottom'
+        ? ref.y
+        : 0;
   const px = ref.x + lxPivot * c;
   const pz = ref.z - lxPivot * s;
   const unit = new THREE.Group();
@@ -196,7 +242,11 @@ export function collectMotionUnits(root: THREE.Object3D): THREE.Group[] {
 }
 
 /** Set each unit's animation target from the view state. */
-export function setFrontPoses(units: THREE.Group[], isOpen: (unit: string) => boolean, snap = false): void {
+export function setFrontPoses(
+  units: THREE.Group[],
+  isOpen: (unit: string) => boolean,
+  snap = false
+): void {
   for (const u of units) {
     const d = u.userData as UnitData;
     d.targetT = isOpen(d.motionUnit) ? 1 : 0;
@@ -205,19 +255,36 @@ export function setFrontPoses(units: THREE.Group[], isOpen: (unit: string) => bo
   if (snap) applyPoses(units);
 }
 
-/** Advance the open/close animation one frame. Returns true while moving. */
-export function stepFrontPoses(units: THREE.Group[]): boolean {
+/** Jump every unit straight to its current target, skipping the animation. */
+export function snapFrontPoses(units: THREE.Group[]): void {
+  for (const u of units) {
+    const d = u.userData as UnitData;
+    if (d.openT === d.targetT) continue;
+    d.openT = d.targetT;
+    applyPose(u, d);
+  }
+}
+
+/**
+ * Advance the open/close animation by `dt` SECONDS. Returns true while moving.
+ * Frame-rate independent by construction: stepping 12 x 1/60 s lands on the
+ * same pose as one step of 12/60 s (see test/unit/poses.test.ts).
+ */
+export function stepFrontPoses(units: THREE.Group[], dt: number): boolean {
+  // a paused loop hands back a huge (or, on the first frame, a NaN) delta
+  const step = Number.isFinite(dt) ? Math.min(Math.max(dt, 0), POSE_DT_MAX) : 0;
+  const k = 1 - Math.exp(-POSE_RATE * step);
   let moving = false;
   for (const u of units) {
     const d = u.userData as UnitData;
-    if (Math.abs(d.targetT - d.openT) < 0.005) {
+    if (Math.abs(d.targetT - d.openT) < POSE_EPS) {
       if (d.openT !== d.targetT) {
         d.openT = d.targetT;
         applyPose(u, d);
       }
       continue;
     }
-    d.openT += (d.targetT - d.openT) * POSE_LERP;
+    d.openT += (d.targetT - d.openT) * k;
     applyPose(u, d);
     moving = true;
   }

@@ -15,7 +15,13 @@ import type { Corner, Item, Opening, Point } from '../model/types';
 import { AMBIENT_DAY, skyState } from '../model/sky';
 import { resolveFinish } from '../model/variables';
 import { buildItemGroup, lightLocalY, shade } from './itemMeshes';
-import { collectMotionUnits, setFrontPoses, stepFrontPoses, withClosedPoses } from './partMeshes';
+import {
+  collectMotionUnits,
+  setFrontPoses,
+  snapFrontPoses,
+  stepFrontPoses,
+  withClosedPoses,
+} from './partMeshes';
 import { prism, scaleBoxUV, surfMat } from './meshKit';
 import { resolveDevice } from '../model/navPref';
 import { isMac, wheelGesture, type WheelLike } from './wheelInput';
@@ -116,6 +122,8 @@ export class View3D {
   private rebuildQueued = false;
   private rebuildRaf = 0;
   private contextLost = false;
+  /** rAF timestamp of the last rendered frame; 0 = the loop is (re)starting */
+  private lastFrameMs = 0;
 
   private hemi: THREE.HemisphereLight;
   private sun: THREE.DirectionalLight;
@@ -232,14 +240,23 @@ export class View3D {
     this.camera.updateProjectionMatrix();
   }
 
-  private animate = (): void => {
+  private animate = (nowMs?: number): void => {
     requestAnimationFrame(this.animate);
     // hidden pane or a dead GL context: nothing on screen can change
-    if (!this.active || this.contextLost) return;
+    if (!this.active || this.contextLost) {
+      this.lastFrameMs = 0; // the clock restarts when the loop does
+      return;
+    }
+    const now = nowMs ?? performance.now();
+    // frame-rate independent: the pose animation is driven by wall-clock
+    // seconds, so a slow renderer opens a door in the same TIME, not the same
+    // number of frames (0 on the first frame after a restart)
+    const dt = this.lastFrameMs ? (now - this.lastFrameMs) / 1000 : 0;
+    this.lastFrameMs = now;
     this.controls.update();
     this.updateWallVisibility();
     for (const entry of this.itemEntries.values()) {
-      if (entry.units.length) stepFrontPoses(entry.units);
+      if (entry.units.length) stepFrontPoses(entry.units, dt);
     }
     this.renderer.render(this.scene, this.camera);
   };
@@ -260,6 +277,11 @@ export class View3D {
     }
     this.resize(); // the pane had zero size while hidden
     this.flushRebuild();
+    // fronts toggled while the pane was hidden owe no animation — the user
+    // never saw them closed, so reveal them already in their target pose
+    for (const entry of this.itemEntries.values()) {
+      if (entry.units.length) snapFrontPoses(entry.units);
+    }
   }
 
   private updateWallVisibility(): void {
