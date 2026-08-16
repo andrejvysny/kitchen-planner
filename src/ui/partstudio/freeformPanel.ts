@@ -119,15 +119,25 @@ export class FreeformPanel {
     info.appendChild(this.captionEl);
 
     const colors = section(this.rail, 'Front colour');
-    swatchRow(colors, FRONT_COLORS, () => this.part.color, (c) => {
-      this.part.color = c;
-      this.onChange();
-    });
+    swatchRow(
+      colors,
+      FRONT_COLORS,
+      () => this.part.color,
+      (c) => {
+        this.part.color = c;
+        this.onChange();
+      }
+    );
     const accent = section(this.rail, 'Wood accent');
-    swatchRow(accent, [OAK, WALNUT, ...COUNTER_COLORS.slice(1, 3)], () => this.part.accentColor, (c) => {
-      this.part.accentColor = c;
-      this.onChange();
-    });
+    swatchRow(
+      accent,
+      [OAK, WALNUT, ...COUNTER_COLORS.slice(1, 3)],
+      () => this.part.accentColor,
+      (c) => {
+        this.part.accentColor = c;
+        this.onChange();
+      }
+    );
 
     const boards = section(this.rail, 'Boards');
     this.listEl = document.createElement('div');
@@ -144,7 +154,8 @@ export class FreeformPanel {
     boards.appendChild(add);
     const hint = document.createElement('div');
     hint.className = 'studio-caption';
-    hint.textContent = 'Click a board in the preview to select it. Arrows nudge, ⇧ = 10 cm, ⌥↑↓ = height.';
+    hint.textContent =
+      'Click a board in the preview to select it. Arrows nudge, ⇧ = 10 cm, ⌥↑↓ = height.';
     boards.appendChild(hint);
 
     this.inspectorEl = document.createElement('div');
@@ -194,12 +205,75 @@ export class FreeformPanel {
       this.refreshCaption();
       this.onChange();
     };
-    sync.push(numRow(ins, 'X (center)', () => b.x, (v) => { b.x = v; change(); }));
-    sync.push(numRow(ins, 'Y (bottom)', () => b.y, (v) => { b.y = Math.max(0, v); change(); }));
-    sync.push(numRow(ins, 'Z (center)', () => b.z, (v) => { b.z = v; change(); }));
-    sync.push(numRow(ins, 'Width', () => b.w, (v) => { b.w = v; change(); }, { min: 0.005, max: 4 }));
-    sync.push(numRow(ins, 'Height', () => b.h, (v) => { b.h = v; change(); }, { min: 0.005, max: 2.6 }));
-    sync.push(numRow(ins, 'Depth', () => b.d, (v) => { b.d = v; change(); }, { min: 0.005, max: 2 }));
+    sync.push(
+      numRow(
+        ins,
+        'X (center)',
+        () => b.x,
+        (v) => {
+          b.x = v;
+          change();
+        }
+      )
+    );
+    sync.push(
+      numRow(
+        ins,
+        'Y (bottom)',
+        () => b.y,
+        (v) => {
+          b.y = Math.max(0, v);
+          change();
+        }
+      )
+    );
+    sync.push(
+      numRow(
+        ins,
+        'Z (center)',
+        () => b.z,
+        (v) => {
+          b.z = v;
+          change();
+        }
+      )
+    );
+    sync.push(
+      numRow(
+        ins,
+        'Width',
+        () => b.w,
+        (v) => {
+          b.w = v;
+          change();
+        },
+        { min: 0.005, max: 4 }
+      )
+    );
+    sync.push(
+      numRow(
+        ins,
+        'Height',
+        () => b.h,
+        (v) => {
+          b.h = v;
+          change();
+        },
+        { min: 0.005, max: 2.6 }
+      )
+    );
+    sync.push(
+      numRow(
+        ins,
+        'Depth',
+        () => b.d,
+        (v) => {
+          b.d = v;
+          change();
+        },
+        { min: 0.005, max: 2 }
+      )
+    );
 
     const rot = document.createElement('div');
     rot.className = 'prop-row';
@@ -217,17 +291,44 @@ export class FreeformPanel {
     plus.addEventListener('click', () => turn(1));
     ins.appendChild(rot);
 
-    choiceRow(ins, 'Colour', [['front', 'Front'], ['accent', 'Accent']], () => b.slot, (v) => {
-      b.slot = v as Board['slot'];
-      change();
-    });
-    choiceRow(ins, 'Style', [['plain', 'Plain'], ['front', 'Groove']], () => b.style, (v) => {
-      b.style = v as Board['style'];
-      change();
-    });
-    choiceRow(ins, 'Shape', [['box', 'Board'], ['cyl', 'Cylinder']], () => b.shape, (v) => {
-      b.shape = v as Board['shape'];
-      change();
-    });
+    choiceRow(
+      ins,
+      'Colour',
+      [
+        ['front', 'Front'],
+        ['accent', 'Accent'],
+      ],
+      () => b.slot,
+      (v) => {
+        b.slot = v as Board['slot'];
+        change();
+      }
+    );
+    choiceRow(
+      ins,
+      'Style',
+      [
+        ['plain', 'Plain'],
+        ['front', 'Groove'],
+      ],
+      () => b.style,
+      (v) => {
+        b.style = v as Board['style'];
+        change();
+      }
+    );
+    choiceRow(
+      ins,
+      'Shape',
+      [
+        ['box', 'Board'],
+        ['cyl', 'Cylinder'],
+      ],
+      () => b.shape,
+      (v) => {
+        b.shape = v as Board['shape'];
+        change();
+      }
+    );
   }
 }

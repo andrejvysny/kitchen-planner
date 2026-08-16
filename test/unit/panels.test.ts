@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { CARCASS_T, RAIL_DIA } from '../../src/model/interior';
-import { cabinetPanels, partPanels, PLINTH_H, type Panel, type PartDims } from '../../src/model/panels';
+import {
+  cabinetPanels,
+  partPanels,
+  PLINTH_H,
+  type Panel,
+  type PartDims,
+} from '../../src/model/panels';
 import { newBoardPart, newCabinetPart, newFreeformPart, samplePart } from '../../src/model/parts';
 import type { CabinetPartDef } from '../../src/model/types';
 import { deskBoards } from './fixtures';
@@ -49,13 +55,11 @@ describe('partPanels (manufacturing IR)', () => {
     // one shelf in the open niche + the default auto shelf behind the door pair
     expect(roles('shelf')).toHaveLength(2);
     // hollow shell: left/right/bottom/top/back — real boards, not a solid block
-    expect(roles('carcass').map((p) => p.id).sort()).toEqual([
-      'carcass.back',
-      'carcass.bottom',
-      'carcass.left',
-      'carcass.right',
-      'carcass.top',
-    ]);
+    expect(
+      roles('carcass')
+        .map((p) => p.id)
+        .sort()
+    ).toEqual(['carcass.back', 'carcass.bottom', 'carcass.left', 'carcass.right', 'carcass.top']);
     // 3 stacked zones → 2 divider boards
     expect(roles('divider')).toHaveLength(2);
     // the drawer front pulls a real box: 2 sides + back + bottom

@@ -177,9 +177,15 @@ interface PatternMaps {
 
 /** keyed by pattern + rotation variant (`wood`, `wood|rot`, …) */
 const patternCache = new Map<string, PatternMaps | null>();
-const canvasCache = new Map<TexturePattern, { color: HTMLCanvasElement; bump: HTMLCanvasElement }>();
+const canvasCache = new Map<
+  TexturePattern,
+  { color: HTMLCanvasElement; bump: HTMLCanvasElement }
+>();
 
-function renderPattern(pattern: Exclude<TexturePattern, 'none'>): { color: HTMLCanvasElement; bump: HTMLCanvasElement } {
+function renderPattern(pattern: Exclude<TexturePattern, 'none'>): {
+  color: HTMLCanvasElement;
+  bump: HTMLCanvasElement;
+} {
   const field = FIELDS[pattern];
   const color = document.createElement('canvas');
   const bump = document.createElement('canvas');
@@ -250,7 +256,11 @@ function patternMaps(pattern: TexturePattern, rot = false): PatternMaps | null {
  * callers can fall back to the plain-colour finish. Maps are shared and
  * cached — disposing the returned material never disposes them.
  */
-export function texturedMaterial(matId: string, userColor: string, rot = false): THREE.MeshStandardMaterial | null {
+export function texturedMaterial(
+  matId: string,
+  userColor: string,
+  rot = false
+): THREE.MeshStandardMaterial | null {
   const def = materialDef(matId);
   if (!def) return null;
   const mat = new THREE.MeshStandardMaterial({

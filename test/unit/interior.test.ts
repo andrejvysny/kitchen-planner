@@ -61,13 +61,25 @@ describe('resolveInterior', () => {
 
   it('custom: a rail too close to a shelf falls to the same overlap rule', () => {
     const tight = resolveInterior(
-      { mode: 'custom', elements: [{ kind: 'rail', y: 1.6 }, { kind: 'shelf', y: 1.62 }] },
+      {
+        mode: 'custom',
+        elements: [
+          { kind: 'rail', y: 1.6 },
+          { kind: 'shelf', y: 1.62 },
+        ],
+      },
       2.0
     );
     // 2 cm apart — the lowest wins, exactly like shelf/shelf
     expect(tight).toEqual([{ kind: 'rail', y: 1.6 }]);
     const loose = resolveInterior(
-      { mode: 'custom', elements: [{ kind: 'rail', y: 1.6 }, { kind: 'shelf', y: 1.68 }] },
+      {
+        mode: 'custom',
+        elements: [
+          { kind: 'rail', y: 1.6 },
+          { kind: 'shelf', y: 1.68 },
+        ],
+      },
       2.0
     );
     expect(loose).toHaveLength(2);

@@ -23,7 +23,11 @@ export class OpenFronts {
    * the set re-seeds from the visible state minus this unit, so the click
    * closes exactly the door the user touched.
    */
-  toggle(itemId: string, unit: string, allUnits?: () => Iterable<{ itemId: string; unit: string }>): void {
+  toggle(
+    itemId: string,
+    unit: string,
+    allUnits?: () => Iterable<{ itemId: string; unit: string }>
+  ): void {
     const key = `${itemId}/${unit}`;
     if (this.all) {
       this.all = false;

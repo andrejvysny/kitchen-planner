@@ -5,7 +5,13 @@
 // The detector is a module singleton because the user has one physical device:
 // evidence seen in the 3D view resolves ambiguous events in the 2D plan too.
 
-import { isNavInput, WheelDevice, type NavDevice, type NavInput, type WheelLike } from '../view3d/wheelInput';
+import {
+  isNavInput,
+  WheelDevice,
+  type NavDevice,
+  type NavInput,
+  type WheelLike,
+} from '../view3d/wheelInput';
 import { LEGACY_NAV_KEYS, NAV_KEY, readKey } from './storageKeys';
 
 const detector = new WheelDevice();

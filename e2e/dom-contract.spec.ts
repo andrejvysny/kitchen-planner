@@ -242,7 +242,9 @@ async function assertContract(page: Page, group: readonly ContractEntry[]): Prom
   }
 }
 
-test('DOM contract: selector table stays present across every pinned app state', async ({ app }) => {
+test('DOM contract: selector table stays present across every pinned app state', async ({
+  app,
+}) => {
   // One long tour through every pinned selection state, each assertion group
   // scanning ~10-90 selectors under SwiftShader — comfortably over the
   // config's default 60s, and this repo's shared CI/dev sandbox can run

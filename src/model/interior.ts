@@ -41,7 +41,10 @@ export function defaultInterior(fill: ZoneFill): Interior | undefined {
  * bottom, shelves in the remainder); custom clamps into the cavity, sorts by
  * y and drops overlaps keeping the lowest. Degenerate cavities yield [].
  */
-export function resolveInterior(interior: Interior | undefined, cavityH: number): InteriorElement[] {
+export function resolveInterior(
+  interior: Interior | undefined,
+  cavityH: number
+): InteriorElement[] {
   if (!interior || cavityH < MIN_ELEM_SPACE * 2) return [];
   if (interior.mode === 'auto') {
     const out: InteriorElement[] = [];
@@ -73,7 +76,10 @@ export function resolveInterior(interior: Interior | undefined, cavityH: number)
     if (e.kind === 'rail') return { kind: 'rail', y: clamp(e.y, lo, hi) };
     return { kind: 'drawerBox', y: clamp(e.y, 0.005, hi), h: clamp(e.h, 0.06, 0.4) };
   };
-  const sorted = interior.elements.slice(0, MAX_INTERIOR_ELEMENTS).map(fit).sort((a, b) => a.y - b.y);
+  const sorted = interior.elements
+    .slice(0, MAX_INTERIOR_ELEMENTS)
+    .map(fit)
+    .sort((a, b) => a.y - b.y);
   const out: InteriorElement[] = [];
   let top = -Infinity; // top of the last kept element
   for (const e of sorted) {
@@ -101,7 +107,11 @@ export interface DrawerBoxDims {
  * narrower than the cavity by the slide clearance on each side. Null when the
  * cavity can't hold a functional box.
  */
-export function drawerBoxDims(cavityW: number, boxH: number, cavityD: number): DrawerBoxDims | null {
+export function drawerBoxDims(
+  cavityW: number,
+  boxH: number,
+  cavityD: number
+): DrawerBoxDims | null {
   const boxW = cavityW - SLIDE_CLEAR * 2;
   const boxD = cavityD - 0.02;
   const sideH = boxH;

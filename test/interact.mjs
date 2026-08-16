@@ -640,10 +640,7 @@ await page.mouse.move(bb.x + mp.x, bb.y + mp.y);
 await page.mouse.down();
 await page.mouse.move(bb.x + mp.x - 30, bb.y + mp.y, { steps: 4 });
 await page.mouse.up();
-await waitUntil(
-  (n0c) => window.__kp.store.activeRoom().corners.length > n0c,
-  cornersBefore
-);
+await waitUntil((n0c) => window.__kp.store.activeRoom().corners.length > n0c, cornersBefore);
 const midDrag = await page.evaluate(() => ({
   n: window.__kp.store.activeRoom().corners.length,
   sel: window.__kp.store.selection.kind,
@@ -653,10 +650,7 @@ results.push([
   midDrag.n === cornersBefore + 1 && midDrag.sel === 'corner',
 ]);
 await page.keyboard.press('Control+z');
-await waitUntil(
-  (n0c) => window.__kp.store.activeRoom().corners.length === n0c,
-  cornersBefore
-);
+await waitUntil((n0c) => window.__kp.store.activeRoom().corners.length === n0c, cornersBefore);
 results.push([
   'undo midpoint drag',
   (await page.evaluate(() => window.__kp.store.activeRoom().corners.length)) === cornersBefore,
@@ -704,16 +698,16 @@ await page.evaluate(() =>
     .dispatchEvent(new PointerEvent('pointercancel', { bubbles: true }))
 );
 await page.mouse.up();
-await waitUntil(
-  (a) => Math.abs(window.__kp.store.itemById(a.id).x - a.x0) > 0.2,
-  { id: pcItem.id, x0: pcItem.x }
-);
+await waitUntil((a) => Math.abs(window.__kp.store.itemById(a.id).x - a.x0) > 0.2, {
+  id: pcItem.id,
+  x0: pcItem.x,
+});
 const pcMoved = await page.evaluate((id) => window.__kp.store.itemById(id).x, pcItem.id);
 await page.keyboard.press('Control+z');
-await waitUntil(
-  (a) => Math.abs(window.__kp.store.itemById(a.id).x - a.x0) < 0.02,
-  { id: pcItem.id, x0: pcItem.x }
-);
+await waitUntil((a) => Math.abs(window.__kp.store.itemById(a.id).x - a.x0) < 0.02, {
+  id: pcItem.id,
+  x0: pcItem.x,
+});
 const pcUndone = await page.evaluate((id) => window.__kp.store.itemById(id).x, pcItem.id);
 results.push([
   'pointercancel commits drag',
@@ -910,17 +904,15 @@ await page.evaluate(() => window.__kp.view.setPreset('corner'));
 const sendWheel = (sel, init) =>
   page.evaluate(
     ([s, i]) => {
-      document
-        .querySelector(s)
-        .dispatchEvent(
-          new WheelEvent('wheel', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 300,
-            clientY: 300,
-            ...i,
-          })
-        );
+      document.querySelector(s).dispatchEvent(
+        new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 300,
+          clientY: 300,
+          ...i,
+        })
+      );
     },
     [sel, init]
   );
@@ -1017,7 +1009,10 @@ const worktopChip = await page.evaluate(() => {
   chip.click();
   return true;
 });
-await waitUntil((id) => window.__kp.store.itemById(id)?.counterMaterial === 'marble-dark', stackIds.baseId);
+await waitUntil(
+  (id) => window.__kp.store.itemById(id)?.counterMaterial === 'marble-dark',
+  stackIds.baseId
+);
 const counterState = await page.evaluate((id) => {
   const it = window.__kp.store.itemById(id);
   let textured = false;
@@ -1040,7 +1035,10 @@ await page.evaluate(() => {
   );
   sec?.querySelector('.toggle-row input')?.click();
 });
-await waitUntil((id) => window.__kp.store.itemById(id)?.counterMaterialRot === true, stackIds.baseId);
+await waitUntil(
+  (id) => window.__kp.store.itemById(id)?.counterMaterialRot === true,
+  stackIds.baseId
+);
 const rotState = await page.evaluate((id) => {
   const it = window.__kp.store.itemById(id);
   let rot = 0;
@@ -1085,7 +1083,10 @@ results.push(['item material rotation applies', frontRot]);
 // 17e. KITCHENP-12: picking a front COLOUR must drop a texture so the colour
 // shows (else the surface is stuck on textures). Drive the real props UI.
 await page.evaluate((id) => window.__kp.store.select({ kind: 'item', id }), stackIds.baseId);
-await waitUntil((id) => window.__kp.store.selection.kind === 'item' && window.__kp.store.selection.id === id, stackIds.baseId);
+await waitUntil(
+  (id) => window.__kp.store.selection.kind === 'item' && window.__kp.store.selection.id === id,
+  stackIds.baseId
+);
 const colourSection = () =>
   page.evaluate(() =>
     [...document.querySelectorAll('.prop-section')].findIndex(
@@ -1137,15 +1138,15 @@ results.push(['reverted front renders untextured', revert.mappedFronts === 0]);
 
 // 17f. tintable plastic keeps tinting on a colour pick (must NOT be dropped)
 await clickInColourSection('.swatch[title="Matte plastic"]');
-await waitUntil((id) => window.__kp.store.itemById(id)?.material === 'plastic-matte', stackIds.baseId);
-await clickInColourSection('.swatch[title^="#"]');
 await waitUntil(
-  (id) => {
-    const c = window.__kp.store.itemById(id)?.color;
-    return typeof c === 'string' && c[0] === '#';
-  },
+  (id) => window.__kp.store.itemById(id)?.material === 'plastic-matte',
   stackIds.baseId
 );
+await clickInColourSection('.swatch[title^="#"]');
+await waitUntil((id) => {
+  const c = window.__kp.store.itemById(id)?.color;
+  return typeof c === 'string' && c[0] === '#';
+}, stackIds.baseId);
 const plasticKept = await page.evaluate(
   (id) => window.__kp.store.itemById(id).material,
   stackIds.baseId
@@ -1622,7 +1623,9 @@ await studioReady('editor');
   // synchronously, but positional mouse.dblclick() has no built-in wait —
   // .count() below doesn't retry, so poll for the "← Done" button ourselves
   await waitUntil(() =>
-    [...document.querySelectorAll('.zone-toolbar button')].some((b) => b.textContent.includes('← Done'))
+    [...document.querySelectorAll('.zone-toolbar button')].some((b) =>
+      b.textContent.includes('← Done')
+    )
   );
 }
 const interiorToolbar = await page.locator('.zone-toolbar button', { hasText: '← Done' }).count();
@@ -2382,7 +2385,9 @@ await page.mouse.click(bb13.x + sofaScr.x, bb13.y + sofaScr.y);
 // .stepper button click below already auto-waits for the Seats row (only
 // rendered once the sofa's selection/props re-render has landed)
 await page.locator('.prop-row', { hasText: 'Seats' }).locator('.stepper button').nth(1).click();
-await waitUntil(() => window.__kp.store.design.items.find((i) => i.defId === 'sofa')?.params?.seats === 4);
+await waitUntil(
+  () => window.__kp.store.design.items.find((i) => i.defId === 'sofa')?.params?.seats === 4
+);
 const sofa13 = await page.evaluate(() => {
   const it = window.__kp.store.design.items.find((i) => i.defId === 'sofa');
   return it ? { seats: it.params?.seats, w: it.w } : null;

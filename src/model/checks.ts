@@ -25,7 +25,13 @@
  */
 
 import { defOfDesign, partOfDesign } from './attach';
-import { isDecorative, isWallMounted, snapsToWall, type CatalogDef, type ItemKind } from './catalog';
+import {
+  isDecorative,
+  isWallMounted,
+  snapsToWall,
+  type CatalogDef,
+  type ItemKind,
+} from './catalog';
 import {
   dist,
   fmtCm,
@@ -64,8 +70,7 @@ export type CheckKind =
 
 /** Where to draw the highlight; a sector is just a polygon. */
 export type WarningGeom =
-  | { kind: 'segment'; a: Point; b: Point }
-  | { kind: 'polygon'; points: Point[] };
+  { kind: 'segment'; a: Point; b: Point } | { kind: 'polygon'; points: Point[] };
 
 export interface Warning {
   /** `kind:subjectIdsSorted` — stable across recomputes and item order */
@@ -332,12 +337,7 @@ function landingRect(g: RoomWall, o: WallOpening): Obb {
  * it actually opens into without any special case. Exterior walls only have an
  * inside, which is exactly the side the model knows anything about.
  */
-function doorChecks(
-  design: Design,
-  shapes: Shape[],
-  walls: RoomWall[],
-  out: Warning[]
-): void {
+function doorChecks(design: Design, shapes: Shape[], walls: RoomWall[], out: Warning[]): void {
   for (const g of walls) {
     for (const o of openingsOfWall(design, g)) {
       if (o.type !== 'door') continue;
@@ -706,11 +706,7 @@ function frontChecks(
  * wardrobe is a normal single bed, so only a bed that is tight on BOTH sides
  * is worth a word.
  */
-function bedChecks(
-  shapes: Shape[],
-  wallFacesOf: (roomId: string) => Face[],
-  out: Warning[]
-): void {
+function bedChecks(shapes: Shape[], wallFacesOf: (roomId: string) => Face[], out: Warning[]): void {
   for (const s of shapes) {
     if (s.def.kind !== 'bed' || s.item.attach) continue;
     const sides = bedSideFaces(s);
@@ -775,13 +771,17 @@ function triangleChecks(shapes: Shape[], out: Warning[]): void {
     const short = best.legs.some((l) => l < CLEARANCE.TRIANGLE_LEG_MIN - TOUCH_EPS);
     const long = best.legs.some((l) => l > CLEARANCE.TRIANGLE_LEG_MAX + TOUCH_EPS);
     if (!short && !long && best.sum <= CLEARANCE.TRIANGLE_SUM_MAX + TOUCH_EPS) continue;
-    const name = (i: number): string => TRIANGLE_KINDS[i][0].toUpperCase() + TRIANGLE_KINDS[i].slice(1);
+    const name = (i: number): string =>
+      TRIANGLE_KINDS[i][0].toUpperCase() + TRIANGLE_KINDS[i].slice(1);
     const legText = best.legs
       .map((l, i) => `${name(i)}→${TRIANGLE_KINDS[(i + 1) % 3]} ${fmtCm(l)}`)
       .join(', ');
     const closest = combos > 1 ? ` (closest of ${combos} combinations)` : '';
     out.push({
-      id: warningId('workTriangle', best.trio.map((s) => s.item.id)),
+      id: warningId(
+        'workTriangle',
+        best.trio.map((s) => s.item.id)
+      ),
       kind: 'workTriangle',
       severity: 'info',
       itemIds: best.trio.map((s) => s.item.id).sort(),
@@ -844,6 +844,7 @@ export function runChecks(design: Design): Warning[] {
   for (const w of found) if (!unique.has(w.id)) unique.set(w.id, w);
   return [...unique.values()].sort(
     (a, b) =>
-      SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   );
 }

@@ -135,7 +135,8 @@ function swatch(hex: string): string {
   return isHex(hex) ? `<i class="sw" style="background:${hex}"></i>${esc(hex)}` : esc(hex);
 }
 
-const th = (label: string, num = false): string => `<th${num ? ' class="num"' : ''}>${esc(label)}</th>`;
+const th = (label: string, num = false): string =>
+  `<th${num ? ' class="num"' : ''}>${esc(label)}</th>`;
 const td = (v: string, num = false): string => `<td${num ? ' class="num"' : ''}>${v}</td>`;
 
 function table(head: string, body: string[]): string {
@@ -204,8 +205,16 @@ function byPart(rows: CutRow[]): { name: string; rows: CutRow[] }[] {
 }
 
 const CUT_COLS =
-  th('Panel') + th('Role') + th('Qty', true) + th('L (mm)', true) + th('W (mm)', true) +
-  th('T (mm)', true) + th('Material') + th('Colour') + th('Area (m²)', true) + th('Notes');
+  th('Panel') +
+  th('Role') +
+  th('Qty', true) +
+  th('L (mm)', true) +
+  th('W (mm)', true) +
+  th('T (mm)', true) +
+  th('Material') +
+  th('Colour') +
+  th('Area (m²)', true) +
+  th('Notes');
 
 function cutTable(rows: CutRow[]): string {
   return table(
@@ -229,8 +238,14 @@ function cutTable(rows: CutRow[]): string {
 }
 
 const BUY_COLS =
-  th('Room') + th('Category') + th('Product') + th('Qty', true) + th('Size (mm)') +
-  th('Options') + th('Colour') + th('Notes');
+  th('Room') +
+  th('Category') +
+  th('Product') +
+  th('Qty', true) +
+  th('Size (mm)') +
+  th('Options') +
+  th('Colour') +
+  th('Notes');
 
 function buyTable(rows: BuyRow[]): string {
   return table(

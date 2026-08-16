@@ -42,8 +42,7 @@ import { isMac, NAV_INPUTS, type NavInput } from '../view3d/wheelInput';
 import type { View3D, CamPreset } from '../view3d/view3d';
 import { PartStudio } from './partstudio';
 
-const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
-  document.querySelector(sel) as T;
+const $ = <T extends HTMLElement = HTMLElement>(sel: string): T => document.querySelector(sel) as T;
 
 /** defId → catalog section title, so placed items list under the same type group they were placed from. */
 const CATALOG_GROUP = new Map<string, string>();
@@ -287,7 +286,9 @@ export class UI {
         grid2.appendChild(newTile);
         // group tiles by part type: cabinets, then boards, then freeform
         const order = { cabinet: 0, board: 1, freeform: 2 };
-        const parts = [...this.store.design.customParts].sort((a, b) => order[a.type] - order[b.type]);
+        const parts = [...this.store.design.customParts].sort(
+          (a, b) => order[a.type] - order[b.type]
+        );
         for (const part of parts) {
           addTile(grid2, toCatalogDef(part), true);
         }
@@ -329,8 +330,7 @@ export class UI {
       const def = this.store.defOf(it.defId);
       // preset ids group under their catalog section, not "My parts" —
       // checked first because presets also read as kind 'custom'
-      const group =
-        CATALOG_GROUP.get(it.defId) ?? (def.kind === 'custom' ? 'My parts' : 'Other');
+      const group = CATALOG_GROUP.get(it.defId) ?? (def.kind === 'custom' ? 'My parts' : 'Other');
       add(group, {
         label: def.label,
         sel: { kind: 'item', id: it.id },
@@ -340,7 +340,9 @@ export class UI {
 
     // the total counts placed components; rooms are the container, not content
     const total = this.store.design.items.length + this.store.design.openings.length;
-    const head = this.el(`<div class="ol-head">Components<span class="ol-total">${total}</span></div>`);
+    const head = this.el(
+      `<div class="ol-head">Components<span class="ol-total">${total}</span></div>`
+    );
     root.appendChild(head);
 
     // Rooms lead the outline: it is the primary room switcher
@@ -434,7 +436,9 @@ export class UI {
   }
 
   private section(root: HTMLElement, title: string): HTMLElement {
-    const s = this.el(`<div class="prop-section"><div class="prop-section-title">${title}</div></div>`);
+    const s = this.el(
+      `<div class="prop-section"><div class="prop-section-title">${title}</div></div>`
+    );
     root.appendChild(s);
     return s;
   }
@@ -544,7 +548,9 @@ export class UI {
     const row = this.el('<div class="swatches var-chips"></div>');
     for (const v of vars) {
       const active = isVarRef(current) && refId(current) === v.id;
-      const chip = this.el(`<button class="var-chip${active ? ' active' : ''}"><span class="dot"></span></button>`);
+      const chip = this.el(
+        `<button class="var-chip${active ? ' active' : ''}"><span class="dot"></span></button>`
+      );
       (chip.querySelector('.dot') as HTMLElement).style.background = v.color;
       chip.append(document.createTextNode(v.name));
       chip.title = `Bind to variable "${v.name}"`;
@@ -590,24 +596,36 @@ export class UI {
     const design = this.store.design;
     const sec = this.section(root, 'Variables');
     sec.appendChild(
-      this.el(`<p class="props-sub">Named colours &amp; textures — bind cabinets, walls, floor or worktops to one so a single edit re-themes them all.</p>`)
+      this.el(
+        `<p class="props-sub">Named colours &amp; textures — bind cabinets, walls, floor or worktops to one so a single edit re-themes them all.</p>`
+      )
     );
 
     for (const v of design.variables) {
       const card = this.el('<div class="var-item"></div>');
-      const name = this.el('<input class="var-name" type="text" spellcheck="false">') as HTMLInputElement;
+      const name = this.el(
+        '<input class="var-name" type="text" spellcheck="false">'
+      ) as HTMLInputElement;
       name.value = v.name;
       name.addEventListener('change', () => {
         this.store.updateVariable(v.id, { name: name.value.trim() || 'Variable' });
         this.store.commit();
       });
       card.appendChild(name);
-      this.swatchRow(card, FRONT_COLORS, v.color, (c) => this.store.updateVariable(v.id, overridesColor(v.material)
-        ? { color: c, material: undefined, materialRot: undefined }
-        : { color: c }));
-      this.materialRow(card, ITEM_MATERIALS, v.material, (id) => this.store.updateVariable(v.id, { material: id }));
+      this.swatchRow(card, FRONT_COLORS, v.color, (c) =>
+        this.store.updateVariable(
+          v.id,
+          overridesColor(v.material)
+            ? { color: c, material: undefined, materialRot: undefined }
+            : { color: c }
+        )
+      );
+      this.materialRow(card, ITEM_MATERIALS, v.material, (id) =>
+        this.store.updateVariable(v.id, { material: id })
+      );
       this.rotToggle(card, v.material, v.materialRot === true, (r) =>
-        this.store.updateVariable(v.id, { materialRot: r || undefined }));
+        this.store.updateVariable(v.id, { materialRot: r || undefined })
+      );
       const actions = this.el('<div class="btn-row"></div>');
       const apply = this.el('<button class="btn">Apply to all fronts</button>');
       apply.addEventListener('click', () => {
@@ -699,7 +717,9 @@ export class UI {
   ): void {
     const row = this.el('<div class="btn-row"></div>');
     for (const [value, label] of options) {
-      const b = this.el(`<button class="btn${value === current ? ' active' : ''}">${label}</button>`);
+      const b = this.el(
+        `<button class="btn${value === current ? ' active' : ''}">${label}</button>`
+      );
       b.addEventListener('click', () => {
         onPick(value);
         row.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
@@ -710,7 +730,12 @@ export class UI {
     parent.appendChild(row);
   }
 
-  private toggleRow(parent: HTMLElement, label: string, value: boolean, onChange: (v: boolean) => void): void {
+  private toggleRow(
+    parent: HTMLElement,
+    label: string,
+    value: boolean,
+    onChange: (v: boolean) => void
+  ): void {
     const row = this.el(`<div class="toggle-row"><label>${label}</label>
       <label class="switch"><input type="checkbox" ${value ? 'checked' : ''}><span class="track"></span></label></div>`);
     const cb = row.querySelector('input') as HTMLInputElement;
@@ -760,7 +785,9 @@ export class UI {
     const rooms = this.store.design.rooms;
 
     // the title IS the room name — renaming is the most common room-level edit
-    const name = this.el('<input class="room-name" type="text" spellcheck="false">') as HTMLInputElement;
+    const name = this.el(
+      '<input class="room-name" type="text" spellcheck="false">'
+    ) as HTMLInputElement;
     name.value = room.name;
     name.title = 'Rename this room';
     name.addEventListener('change', () => {
@@ -775,7 +802,9 @@ export class UI {
     });
     root.appendChild(name);
     root.appendChild(
-      this.el(`<p class="props-sub">${this.store.floorArea().toFixed(1)} m² · ${room.corners.length} corners</p>`)
+      this.el(
+        `<p class="props-sub">${this.store.floorArea().toFixed(1)} m² · ${room.corners.length} corners</p>`
+      )
     );
 
     const list = this.section(root, 'Rooms');
@@ -812,18 +841,42 @@ export class UI {
     const rect = this.store.rectangleSize();
     const size = this.section(root, 'Size');
     if (rect) {
-      this.numberRow(size, 'Width', Math.round(rect.w * 100), 'cm', (v) =>
-        this.store.setRectangleSize(v / 100, rect.d), { min: 100, max: 2000 });
-      this.numberRow(size, 'Depth', Math.round(rect.d * 100), 'cm', (v) =>
-        this.store.setRectangleSize(rect.w, v / 100), { min: 100, max: 2000 });
+      this.numberRow(
+        size,
+        'Width',
+        Math.round(rect.w * 100),
+        'cm',
+        (v) => this.store.setRectangleSize(v / 100, rect.d),
+        { min: 100, max: 2000 }
+      );
+      this.numberRow(
+        size,
+        'Depth',
+        Math.round(rect.d * 100),
+        'cm',
+        (v) => this.store.setRectangleSize(rect.w, v / 100),
+        { min: 100, max: 2000 }
+      );
     } else {
-      size.appendChild(this.el(`<p class="props-sub">Select a wall to edit its length, or drag corners in the plan.</p>`));
+      size.appendChild(
+        this.el(
+          `<p class="props-sub">Select a wall to edit its length, or drag corners in the plan.</p>`
+        )
+      );
     }
-    this.numberRow(size, 'Ceiling', Math.round(style.wallHeight * 100), 'cm', (v) =>
-      this.store.setRoomStyle({ wallHeight: Math.min(4, Math.max(2, v / 100)) }), { min: 200, max: 400 });
+    this.numberRow(
+      size,
+      'Ceiling',
+      Math.round(style.wallHeight * 100),
+      'cm',
+      (v) => this.store.setRoomStyle({ wallHeight: Math.min(4, Math.max(2, v / 100)) }),
+      { min: 200, max: 400 }
+    );
 
     const shape = this.section(root, 'Room shape');
-    const btns = this.el(`<div class="btn-row"><button class="btn">Rectangle</button><button class="btn">L-shape</button></div>`);
+    const btns = this.el(
+      `<div class="btn-row"><button class="btn">Rectangle</button><button class="btn">L-shape</button></div>`
+    );
     const [rectBtn, lBtn] = Array.from(btns.querySelectorAll('button'));
     const applyPreset = (preset: 'rect' | 'lshape') => {
       this.store.setShapePreset(preset);
@@ -839,26 +892,45 @@ export class UI {
       }
     }
     shape.appendChild(btns);
-    shape.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Drag ■ corners to reshape · drag ◆ to bend a wall</p>`));
+    shape.appendChild(
+      this.el(
+        `<p class="props-sub" style="margin-top:8px">Drag ■ corners to reshape · drag ◆ to bend a wall</p>`
+      )
+    );
 
     const ceiling = this.section(root, 'Ceiling');
-    this.choiceRow(ceiling, [['auto', 'Auto'], ['show', 'Show'], ['hide', 'Hide']],
-      this.store.ceilingVisibility(), (v) =>
-        this.store.setCeilingVisibility(v as WallVisMode));
-    ceiling.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Auto shows the ceiling only when the camera is below it</p>`));
+    this.choiceRow(
+      ceiling,
+      [
+        ['auto', 'Auto'],
+        ['show', 'Show'],
+        ['hide', 'Hide'],
+      ],
+      this.store.ceilingVisibility(),
+      (v) => this.store.setCeilingVisibility(v as WallVisMode)
+    );
+    ceiling.appendChild(
+      this.el(
+        `<p class="props-sub" style="margin-top:8px">Auto shows the ceiling only when the camera is below it</p>`
+      )
+    );
 
     const design = this.store.design;
     const colors = this.section(root, 'Walls');
     this.varChips(colors, style.wallColor, (ref) => this.store.setRoomStyle({ wallColor: ref }));
     this.swatchRow(colors, WALL_COLORS, resolveColor(design, style.wallColor), (c) =>
-      this.store.setRoomStyle(overridesColor(style.wallMaterial)
-        ? { wallColor: c, wallMaterial: undefined, wallMaterialRot: undefined }
-        : { wallColor: c }));
+      this.store.setRoomStyle(
+        overridesColor(style.wallMaterial)
+          ? { wallColor: c, wallMaterial: undefined, wallMaterialRot: undefined }
+          : { wallColor: c }
+      )
+    );
     this.materialRow(colors, WALL_MATERIALS, style.wallMaterial, (id) =>
-      this.store.setRoomStyle({ wallMaterial: id }));
-    this.rotToggle(colors, style.wallMaterial,
-      style.wallMaterialRot === true, (v) =>
-        this.store.setRoomStyle({ wallMaterialRot: v || undefined }));
+      this.store.setRoomStyle({ wallMaterial: id })
+    );
+    this.rotToggle(colors, style.wallMaterial, style.wallMaterialRot === true, (v) =>
+      this.store.setRoomStyle({ wallMaterialRot: v || undefined })
+    );
     const visRow = this.el(`<div class="btn-row">
       <button class="btn" data-m="auto">Auto all</button>
       <button class="btn" data-m="show">Show all</button>
@@ -867,36 +939,53 @@ export class UI {
       b.addEventListener('click', () => {
         this.store.setAllWallVisibility(b.getAttribute('data-m') as WallVisMode);
         this.store.commit();
-      }));
+      })
+    );
     colors.appendChild(visRow);
-    colors.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Or select a single wall to override it</p>`));
+    colors.appendChild(
+      this.el(
+        `<p class="props-sub" style="margin-top:8px">Or select a single wall to override it</p>`
+      )
+    );
     const floor = this.section(root, 'Floor');
     this.varChips(floor, style.floorColor, (ref) => this.store.setRoomStyle({ floorColor: ref }));
     this.swatchRow(floor, FLOOR_COLORS, resolveColor(design, style.floorColor), (c) =>
-      this.store.setRoomStyle(overridesColor(style.floorMaterial)
-        ? { floorColor: c, floorMaterial: undefined, floorMaterialRot: undefined }
-        : { floorColor: c }));
+      this.store.setRoomStyle(
+        overridesColor(style.floorMaterial)
+          ? { floorColor: c, floorMaterial: undefined, floorMaterialRot: undefined }
+          : { floorColor: c }
+      )
+    );
     this.materialRow(floor, FLOOR_MATERIALS, style.floorMaterial, (id) =>
-      this.store.setRoomStyle({ floorMaterial: id }));
-    this.rotToggle(floor, style.floorMaterial,
-      style.floorMaterialRot === true, (v) =>
-        this.store.setRoomStyle({ floorMaterialRot: v || undefined }));
+      this.store.setRoomStyle({ floorMaterial: id })
+    );
+    this.rotToggle(floor, style.floorMaterial, style.floorMaterialRot === true, (v) =>
+      this.store.setRoomStyle({ floorMaterialRot: v || undefined })
+    );
     const counter = this.section(root, 'Worktops');
-    this.varChips(counter, style.counterColor, (ref) => this.store.setRoomStyle({ counterColor: ref }));
+    this.varChips(counter, style.counterColor, (ref) =>
+      this.store.setRoomStyle({ counterColor: ref })
+    );
     this.swatchRow(counter, COUNTER_COLORS, resolveColor(design, style.counterColor), (c) =>
-      this.store.setRoomStyle(overridesColor(style.counterMaterial)
-        ? { counterColor: c, counterMaterial: undefined, counterMaterialRot: undefined }
-        : { counterColor: c }));
+      this.store.setRoomStyle(
+        overridesColor(style.counterMaterial)
+          ? { counterColor: c, counterMaterial: undefined, counterMaterialRot: undefined }
+          : { counterColor: c }
+      )
+    );
     this.materialRow(counter, COUNTER_MATERIALS, style.counterMaterial, (id) =>
-      this.store.setRoomStyle({ counterMaterial: id }));
-    this.rotToggle(counter, style.counterMaterial,
-      style.counterMaterialRot === true, (v) =>
-        this.store.setRoomStyle({ counterMaterialRot: v || undefined }));
+      this.store.setRoomStyle({ counterMaterial: id })
+    );
+    this.rotToggle(counter, style.counterMaterial, style.counterMaterialRot === true, (v) =>
+      this.store.setRoomStyle({ counterMaterialRot: v || undefined })
+    );
 
     this.renderLightingProps(root);
 
     const actions = this.section(root, 'Actions');
-    const delRow = this.el('<div class="btn-row"><button class="btn danger">Delete room</button></div>');
+    const delRow = this.el(
+      '<div class="btn-row"><button class="btn danger">Delete room</button></div>'
+    );
     const delBtn = delRow.querySelector('button') as HTMLButtonElement;
     if (rooms.length === 1) {
       delBtn.disabled = true;
@@ -932,18 +1021,30 @@ export class UI {
     const ref = this.store.underlayRef();
     if (!ref) {
       const row = this.el('<div class="btn-row"><button class="btn">Import photo…</button></div>');
-      (row.querySelector('button') as HTMLButtonElement).addEventListener('click', () => this.pickUnderlay());
+      (row.querySelector('button') as HTMLButtonElement).addEventListener('click', () =>
+        this.pickUnderlay()
+      );
       sec.appendChild(row);
-      sec.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Trace an existing floor plan: import it, drag it under the room, then calibrate its scale.</p>`));
+      sec.appendChild(
+        this.el(
+          `<p class="props-sub" style="margin-top:8px">Trace an existing floor plan: import it, drag it under the room, then calibrate its scale.</p>`
+        )
+      );
       return;
     }
 
     const u = ref.u;
-    this.sliderRow(sec, 'Opacity', Math.round(u.opacity * 100),
+    this.sliderRow(
+      sec,
+      'Opacity',
+      Math.round(u.opacity * 100),
       (v) => this.store.updateUnderlay({ opacity: v / 100 }),
-      { min: 0, max: 100, step: 1, fmt: (v) => `${Math.round(v)}%` });
+      { min: 0, max: 100, step: 1, fmt: (v) => `${Math.round(v)}%` }
+    );
 
-    const calRow = this.el('<div class="btn-row"><button class="btn underlay-calibrate">Calibrate scale</button></div>');
+    const calRow = this.el(
+      '<div class="btn-row"><button class="btn underlay-calibrate">Calibrate scale</button></div>'
+    );
     const calBtn = calRow.querySelector('button') as HTMLButtonElement;
     calBtn.classList.toggle('active', this.plan.calibrateOn);
     calBtn.addEventListener('click', () => this.plan.setCalibrate(!this.plan.calibrateOn));
@@ -951,7 +1052,9 @@ export class UI {
 
     this.underlayToggles(sec, u);
 
-    const manage = this.el('<div class="btn-row"><button class="btn">Replace…</button><button class="btn danger">Remove</button></div>');
+    const manage = this.el(
+      '<div class="btn-row"><button class="btn">Replace…</button><button class="btn danger">Remove</button></div>'
+    );
     const [replaceBtn, removeBtn] = Array.from(manage.querySelectorAll('button'));
     replaceBtn.addEventListener('click', () => this.pickUnderlay());
     removeBtn.addEventListener('click', () => {
@@ -960,12 +1063,18 @@ export class UI {
       this.renderProps();
     });
     sec.appendChild(manage);
-    sec.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">1 photo pixel = ${(u.scale * 100).toFixed(2)} cm · drag the photo in the plan to move it</p>`));
+    sec.appendChild(
+      this.el(
+        `<p class="props-sub" style="margin-top:8px">1 photo pixel = ${(u.scale * 100).toFixed(2)} cm · drag the photo in the plan to move it</p>`
+      )
+    );
   }
 
   /** Show/hide + lock, relabelling in place so neither needs a panel rebuild. */
   private underlayToggles(sec: HTMLElement, u: Underlay): void {
-    const row = this.el('<div class="btn-row"><button class="btn"></button><button class="btn"></button></div>');
+    const row = this.el(
+      '<div class="btn-row"><button class="btn"></button><button class="btn"></button></div>'
+    );
     const [visBtn, lockBtn] = Array.from(row.querySelectorAll('button'));
     const relabel = () => {
       visBtn.textContent = u.visible ? 'Hide' : 'Show';
@@ -1076,15 +1185,42 @@ export class UI {
     const pct = (v: number) => `${Math.round(v * 100)}%`;
 
     const light = this.section(root, 'Lighting');
-    this.sliderRow(light, 'Sun direction', scene.sunAzimuth, (v) => this.store.setScene({ sunAzimuth: v }), {
-      min: 0, max: 360, step: 5, fmt: deg,
-    });
-    this.sliderRow(light, 'Sun height', scene.sunElevation, (v) => this.store.setScene({ sunElevation: v }), {
-      min: SUN_ELEV_MIN, max: SUN_ELEV_MAX, step: 1, fmt: deg,
-    });
-    this.sliderRow(light, 'Brightness', scene.brightness, (v) => this.store.setScene({ brightness: v }), {
-      min: 0, max: 2, step: 0.05, fmt: pct,
-    });
+    this.sliderRow(
+      light,
+      'Sun direction',
+      scene.sunAzimuth,
+      (v) => this.store.setScene({ sunAzimuth: v }),
+      {
+        min: 0,
+        max: 360,
+        step: 5,
+        fmt: deg,
+      }
+    );
+    this.sliderRow(
+      light,
+      'Sun height',
+      scene.sunElevation,
+      (v) => this.store.setScene({ sunElevation: v }),
+      {
+        min: SUN_ELEV_MIN,
+        max: SUN_ELEV_MAX,
+        step: 1,
+        fmt: deg,
+      }
+    );
+    this.sliderRow(
+      light,
+      'Brightness',
+      scene.brightness,
+      (v) => this.store.setScene({ brightness: v }),
+      {
+        min: 0,
+        max: 2,
+        step: 0.05,
+        fmt: pct,
+      }
+    );
   }
 
   /* ---------- item ---------- */
@@ -1094,7 +1230,9 @@ export class UI {
     // presets are parts too, but read as built-ins to the user
     const isOwnPart = !!this.store.customPartById(item.defId);
     root.appendChild(this.el(`<h2 class="props-title">${def.label}</h2>`));
-    root.appendChild(this.el(`<p class="props-sub">${isOwnPart ? 'Custom part' : 'Catalog item'}</p>`));
+    root.appendChild(
+      this.el(`<p class="props-sub">${isOwnPart ? 'Custom part' : 'Catalog item'}</p>`)
+    );
 
     this.checksSection(
       root,
@@ -1125,24 +1263,49 @@ export class UI {
     const dims = this.section(root, 'Dimensions');
     const MIN_DIM = 0.01; // 1 cm
     const dimRow = (label: string, key: 'w' | 'd' | 'h') => {
-      this.numberRow(dims, label, Math.round(item[key] * 100), 'cm', (v) => {
-        this.store.updateItem(item.id, { [key]: Math.max(MIN_DIM, v / 100) } as Partial<Item>);
-      }, { min: 1 });
+      this.numberRow(
+        dims,
+        label,
+        Math.round(item[key] * 100),
+        'cm',
+        (v) => {
+          this.store.updateItem(item.id, { [key]: Math.max(MIN_DIM, v / 100) } as Partial<Item>);
+        },
+        { min: 1 }
+      );
     };
     dimRow('Width', 'w');
     dimRow('Depth', 'd');
     dimRow('Height', 'h');
     if (!item.attach) {
       // Off-floor placement is likewise freeform for every item (floor at 0, no ceiling cap).
-      this.numberRow(dims, 'Off floor', Math.round(item.elevation * 100), 'cm', (v) =>
-        this.store.updateItem(item.id, { elevation: Math.max(0, v / 100) }), { min: 0 });
+      this.numberRow(
+        dims,
+        'Off floor',
+        Math.round(item.elevation * 100),
+        'cm',
+        (v) => this.store.updateItem(item.id, { elevation: Math.max(0, v / 100) }),
+        { min: 0 }
+      );
 
       // position
       const pos = this.section(root, 'Position');
-      this.numberRow(pos, 'X', Math.round(item.x * 100), 'cm', (v) =>
-        this.store.updateItem(item.id, { x: v / 100 }), { cls: 'pos-x' });
-      this.numberRow(pos, 'Y', Math.round(item.y * 100), 'cm', (v) =>
-        this.store.updateItem(item.id, { y: v / 100 }), { cls: 'pos-y' });
+      this.numberRow(
+        pos,
+        'X',
+        Math.round(item.x * 100),
+        'cm',
+        (v) => this.store.updateItem(item.id, { x: v / 100 }),
+        { cls: 'pos-x' }
+      );
+      this.numberRow(
+        pos,
+        'Y',
+        Math.round(item.y * 100),
+        'cm',
+        (v) => this.store.updateItem(item.id, { y: v / 100 }),
+        { cls: 'pos-y' }
+      );
       const rotRow = this.el(`<div class="prop-row"><label>Rotate</label>
         <div class="stepper"><button title="Rotate left">⟲</button><input type="number" data-cls="rot" step="15" value="${displayDeg(item.rotation)}"><button title="Rotate right">⟳</button></div>
         <span class="unit">°</span></div>`);
@@ -1177,8 +1340,12 @@ export class UI {
           span.textContent = String(nv);
           this.store.commit();
         };
-        minus.addEventListener('click', () => apply((this.store.itemById(item.id)?.params?.[p.key] ?? p.def) - 1));
-        plus.addEventListener('click', () => apply((this.store.itemById(item.id)?.params?.[p.key] ?? p.def) + 1));
+        minus.addEventListener('click', () =>
+          apply((this.store.itemById(item.id)?.params?.[p.key] ?? p.def) - 1)
+        );
+        plus.addEventListener('click', () =>
+          apply((this.store.itemById(item.id)?.params?.[p.key] ?? p.def) + 1)
+        );
         opts.appendChild(row);
       }
     }
@@ -1190,16 +1357,26 @@ export class UI {
       this.varChips(colors, item.color, (ref) => this.store.updateItem(item.id, { color: ref }));
       // picking a plain colour drops a colour-hiding texture so the colour shows
       this.swatchRow(colors, FRONT_COLORS, resolveColor(this.store.design, item.color), (c) =>
-        this.store.updateItem(item.id, overridesColor(item.material)
-          ? { color: c, material: undefined, materialRot: undefined }
-          : { color: c }));
+        this.store.updateItem(
+          item.id,
+          overridesColor(item.material)
+            ? { color: c, material: undefined, materialRot: undefined }
+            : { color: c }
+        )
+      );
       if (!isVarRef(item.color)) {
         this.materialRow(colors, ITEM_MATERIALS, item.material, (id) =>
-          this.store.updateItem(item.id, { material: id }));
+          this.store.updateItem(item.id, { material: id })
+        );
         this.rotToggle(colors, item.material, item.materialRot === true, (v) =>
-          this.store.updateItem(item.id, { materialRot: v || undefined }));
+          this.store.updateItem(item.id, { materialRot: v || undefined })
+        );
       } else {
-        colors.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Texture follows the bound variable</p>`));
+        colors.appendChild(
+          this.el(
+            `<p class="props-sub" style="margin-top:8px">Texture follows the bound variable</p>`
+          )
+        );
       }
 
       // per-item worktop finish for anything topped with a counter slab
@@ -1209,20 +1386,33 @@ export class UI {
       if (part) {
         const accent = this.section(root, 'Accent');
         this.varChips(accent, item.accentColor ?? '', (ref) =>
-          this.store.updateItem(item.id, { accentColor: ref }));
-        this.swatchRow(accent, COUNTER_COLORS, resolveColor(this.store.design, item.accentColor ?? part.accentColor), (c) =>
-          this.store.updateItem(item.id, { accentColor: c }));
+          this.store.updateItem(item.id, { accentColor: ref })
+        );
+        this.swatchRow(
+          accent,
+          COUNTER_COLORS,
+          resolveColor(this.store.design, item.accentColor ?? part.accentColor),
+          (c) => this.store.updateItem(item.id, { accentColor: c })
+        );
       }
       // worktops live on cabinet parts now — nothing else carries one
       const withWorktop = part ? part.type === 'cabinet' && part.worktop : false;
       if (withWorktop) {
         const counter = this.section(root, 'Worktop');
-        this.materialRow(counter, COUNTER_MATERIALS, item.counterMaterial, (id) =>
-          this.store.updateItem(item.id, { counterMaterial: id }), 'Room default');
+        this.materialRow(
+          counter,
+          COUNTER_MATERIALS,
+          item.counterMaterial,
+          (id) => this.store.updateItem(item.id, { counterMaterial: id }),
+          'Room default'
+        );
         this.rotToggle(counter, item.counterMaterial, item.counterMaterialRot === true, (v) =>
-          this.store.updateItem(item.id, { counterMaterialRot: v || undefined }));
+          this.store.updateItem(item.id, { counterMaterialRot: v || undefined })
+        );
         counter.appendChild(
-          this.el(`<p class="props-sub" style="margin-top:8px">First chip follows the room's worktop setting</p>`)
+          this.el(
+            `<p class="props-sub" style="margin-top:8px">First chip follows the room's worktop setting</p>`
+          )
         );
       }
     }
@@ -1230,19 +1420,26 @@ export class UI {
     // light
     if (item.light) {
       const light = this.section(root, 'Light');
-      this.toggleRow(light, 'On', item.light.on, (v) => this.store.updateItemLight(item.id, { on: v }));
+      this.toggleRow(light, 'On', item.light.on, (v) =>
+        this.store.updateItemLight(item.id, { on: v })
+      );
       this.sliderRow(light, 'Brightness', item.light.intensity, (v) =>
-        this.store.updateItemLight(item.id, { intensity: v }));
+        this.store.updateItemLight(item.id, { intensity: v })
+      );
       this.sliderRow(light, 'Warmth', item.light.warmth, (v) =>
-        this.store.updateItemLight(item.id, { warmth: v }));
+        this.store.updateItemLight(item.id, { warmth: v })
+      );
       // explicit colour wins over warmth when set
       this.swatchRow(light, LIGHT_COLORS, item.light.color ?? '#fff4e0', (c) =>
-        this.store.updateItemLight(item.id, { color: c }));
+        this.store.updateItemLight(item.id, { color: c })
+      );
     }
 
     // actions
     const actions = this.section(root, 'Actions');
-    const row = this.el(`<div class="btn-row"><button class="btn">Duplicate</button><button class="btn danger">Delete</button></div>`);
+    const row = this.el(
+      `<div class="btn-row"><button class="btn">Duplicate</button><button class="btn danger">Delete</button></div>`
+    );
     const [dup, del] = Array.from(row.querySelectorAll('button'));
     dup.addEventListener('click', () => {
       const copy = this.store.duplicateItem(item.id);
@@ -1256,7 +1453,9 @@ export class UI {
     actions.appendChild(row);
 
     if (this.store.customPartById(item.defId)) {
-      const editRow = this.el(`<div class="btn-row"><button class="btn">Edit part template…</button></div>`);
+      const editRow = this.el(
+        `<div class="btn-row"><button class="btn">Edit part template…</button></div>`
+      );
       editRow.querySelector('button')!.addEventListener('click', () => {
         const part = this.store.customPartById(item.defId);
         if (part) this.studio.open(part);
@@ -1264,7 +1463,9 @@ export class UI {
       actions.appendChild(editRow);
     } else if (hasPreset(item.defId)) {
       // fork the preset into "My parts" so just this instance becomes editable
-      const custRow = this.el(`<div class="btn-row"><button class="btn">Customize part…</button></div>`);
+      const custRow = this.el(
+        `<div class="btn-row"><button class="btn">Customize part…</button></div>`
+      );
       custRow.querySelector('button')!.addEventListener('click', () => {
         const fork = this.store.forkPartForItem(item.id);
         if (!fork) return;
@@ -1315,21 +1516,49 @@ export class UI {
       root.appendChild(line);
     }
     const s = this.section(root, 'Size');
-    this.numberRow(s, 'Length', Math.round(g.len * 100), 'cm', (v) =>
-      this.store.setWallLength(wallId, Math.max(30, v) / 100), { min: 30, max: 3000 });
+    this.numberRow(
+      s,
+      'Length',
+      Math.round(g.len * 100),
+      'cm',
+      (v) => this.store.setWallLength(wallId, Math.max(30, v) / 100),
+      { min: 30, max: 3000 }
+    );
     // thickness is a property of the wall's OWN room, not the active one
     const wallRoom = this.store.roomOfWall(wallId) ?? this.store.activeRoom();
-    this.numberRow(s, 'Thickness', Math.round(wallRoom.style.wallThickness * 100), 'cm', (v) =>
-      this.store.setRoomStyle({ wallThickness: Math.min(0.4, Math.max(0.05, v / 100)) }, wallRoom.id),
-      { min: 5, max: 40 });
+    this.numberRow(
+      s,
+      'Thickness',
+      Math.round(wallRoom.style.wallThickness * 100),
+      'cm',
+      (v) =>
+        this.store.setRoomStyle(
+          { wallThickness: Math.min(0.4, Math.max(0.05, v / 100)) },
+          wallRoom.id
+        ),
+      { min: 5, max: 40 }
+    );
     const vis = this.section(root, 'Visibility');
-    this.choiceRow(vis, [['auto', 'Auto'], ['show', 'Show'], ['hide', 'Hide']],
-      this.store.wallVisibility(wallId), (v) =>
-        this.store.setWallVisibility(wallId, v as WallVisMode));
-    vis.appendChild(this.el(`<p class="props-sub" style="margin-top:8px">Auto hides this wall when the camera looks past it</p>`));
+    this.choiceRow(
+      vis,
+      [
+        ['auto', 'Auto'],
+        ['show', 'Show'],
+        ['hide', 'Hide'],
+      ],
+      this.store.wallVisibility(wallId),
+      (v) => this.store.setWallVisibility(wallId, v as WallVisMode)
+    );
+    vis.appendChild(
+      this.el(
+        `<p class="props-sub" style="margin-top:8px">Auto hides this wall when the camera looks past it</p>`
+      )
+    );
 
     const a = this.section(root, 'Shape');
-    const btn = this.el(`<div class="btn-row"><button class="btn">Add corner in the middle</button></div>`);
+    const btn = this.el(
+      `<div class="btn-row"><button class="btn">Add corner in the middle</button></div>`
+    );
     btn.querySelector('button')!.addEventListener('click', () => {
       const nc = this.store.splitWall(wallId, g.len / 2);
       if (nc) {
@@ -1343,27 +1572,69 @@ export class UI {
   private renderOpeningProps(root: HTMLElement, id: string): void {
     const o = this.store.openingById(id)!;
     const g = this.store.wallById(o.wallId);
-    root.appendChild(this.el(`<h2 class="props-title">${o.type === 'door' ? 'Door' : 'Window'}</h2>`));
-    root.appendChild(this.el(`<p class="props-sub">Slides along its wall — drag it in the plan</p>`));
+    root.appendChild(
+      this.el(`<h2 class="props-title">${o.type === 'door' ? 'Door' : 'Window'}</h2>`)
+    );
+    root.appendChild(
+      this.el(`<p class="props-sub">Slides along its wall — drag it in the plan</p>`)
+    );
     const s = this.section(root, 'Size');
-    this.numberRow(s, 'Width', Math.round(o.width * 100), 'cm', (v) =>
-      this.store.updateOpening(id, { width: v / 100 }), { min: 30, max: 400 });
-    this.numberRow(s, 'Height', Math.round(o.height * 100), 'cm', (v) =>
-      this.store.updateOpening(id, { height: v / 100 }), { min: 30, max: 300 });
+    this.numberRow(
+      s,
+      'Width',
+      Math.round(o.width * 100),
+      'cm',
+      (v) => this.store.updateOpening(id, { width: v / 100 }),
+      { min: 30, max: 400 }
+    );
+    this.numberRow(
+      s,
+      'Height',
+      Math.round(o.height * 100),
+      'cm',
+      (v) => this.store.updateOpening(id, { height: v / 100 }),
+      { min: 30, max: 300 }
+    );
     if (o.type === 'window') {
-      this.numberRow(s, 'Sill height', Math.round(o.sill * 100), 'cm', (v) =>
-        this.store.updateOpening(id, { sill: v / 100 }), { min: 0, max: 250 });
+      this.numberRow(
+        s,
+        'Sill height',
+        Math.round(o.sill * 100),
+        'cm',
+        (v) => this.store.updateOpening(id, { sill: v / 100 }),
+        { min: 0, max: 250 }
+      );
     }
     if (g) {
-      this.numberRow(s, 'From corner', Math.round(o.offset * 100), 'cm', (v) =>
-        this.store.updateOpening(id, { offset: v / 100 }), { min: 0, max: Math.round(g.len * 100), cls: 'opening-off' });
+      this.numberRow(
+        s,
+        'From corner',
+        Math.round(o.offset * 100),
+        'cm',
+        (v) => this.store.updateOpening(id, { offset: v / 100 }),
+        { min: 0, max: Math.round(g.len * 100), cls: 'opening-off' }
+      );
     }
     if (o.type === 'door') {
       const swing = this.section(root, 'Swing');
-      this.choiceRow(swing, [['left', 'Hinge left'], ['right', 'Hinge right']], o.hinge ?? 'left', (v) =>
-        this.store.updateOpening(id, { hinge: v as 'left' | 'right' }));
-      this.choiceRow(swing, [['in', 'Opens in'], ['out', 'Opens out']], o.swing ?? 'in', (v) =>
-        this.store.updateOpening(id, { swing: v as 'in' | 'out' }));
+      this.choiceRow(
+        swing,
+        [
+          ['left', 'Hinge left'],
+          ['right', 'Hinge right'],
+        ],
+        o.hinge ?? 'left',
+        (v) => this.store.updateOpening(id, { hinge: v as 'left' | 'right' })
+      );
+      this.choiceRow(
+        swing,
+        [
+          ['in', 'Opens in'],
+          ['out', 'Opens out'],
+        ],
+        o.swing ?? 'in',
+        (v) => this.store.updateOpening(id, { swing: v as 'in' | 'out' })
+      );
     }
     const a = this.section(root, 'Actions');
     const del = this.el(`<div class="btn-row"><button class="btn danger">Delete</button></div>`);
@@ -1377,14 +1648,30 @@ export class UI {
   private renderCornerProps(root: HTMLElement, id: string): void {
     const c = this.store.cornerById(id)!;
     root.appendChild(this.el(`<h2 class="props-title">Corner</h2>`));
-    root.appendChild(this.el(`<p class="props-sub">Drag it in the plan, or set exact coordinates</p>`));
+    root.appendChild(
+      this.el(`<p class="props-sub">Drag it in the plan, or set exact coordinates</p>`)
+    );
     const s = this.section(root, 'Position');
-    this.numberRow(s, 'X', Math.round(c.x * 100), 'cm', (v) =>
-      this.store.moveCorner(id, v / 100, c.y, false), { cls: 'corner-x' });
-    this.numberRow(s, 'Y', Math.round(c.y * 100), 'cm', (v) =>
-      this.store.moveCorner(id, c.x, v / 100, false), { cls: 'corner-y' });
+    this.numberRow(
+      s,
+      'X',
+      Math.round(c.x * 100),
+      'cm',
+      (v) => this.store.moveCorner(id, v / 100, c.y, false),
+      { cls: 'corner-x' }
+    );
+    this.numberRow(
+      s,
+      'Y',
+      Math.round(c.y * 100),
+      'cm',
+      (v) => this.store.moveCorner(id, c.x, v / 100, false),
+      { cls: 'corner-y' }
+    );
     const a = this.section(root, 'Actions');
-    const del = this.el(`<div class="btn-row"><button class="btn danger">Remove corner</button></div>`);
+    const del = this.el(
+      `<div class="btn-row"><button class="btn danger">Remove corner</button></div>`
+    );
     const delBtn = del.querySelector('button') as HTMLButtonElement;
     if ((this.store.roomOfCorner(id)?.corners.length ?? 0) <= 3) {
       delBtn.disabled = true;
@@ -1405,22 +1692,30 @@ export class UI {
       $('#pane2d').classList.toggle('hidden', mode === '3d');
       $('#pane3d').classList.toggle('hidden', mode === '2d');
       this.view.setActive(mode !== '2d'); // a hidden 3D pane renders nothing
-      document.querySelectorAll<HTMLElement>('#view-toggle button').forEach((b) =>
-        b.classList.toggle('active', b.dataset.view === mode));
+      document
+        .querySelectorAll<HTMLElement>('#view-toggle button')
+        .forEach((b) => b.classList.toggle('active', b.dataset.view === mode));
     };
-    document.querySelectorAll<HTMLElement>('#view-toggle button').forEach((b) =>
-      b.addEventListener('click', () => setView(b.dataset.view as '2d' | 'split' | '3d')));
+    document
+      .querySelectorAll<HTMLElement>('#view-toggle button')
+      .forEach((b) =>
+        b.addEventListener('click', () => setView(b.dataset.view as '2d' | 'split' | '3d'))
+      );
 
     // 2D pane sub-mode: top-down plan vs. front-view wall elevation
     const setMode2d = (mode: 'plan' | 'elev') => {
       $('#pane2d').classList.toggle('elev-mode', mode === 'elev');
-      document.querySelectorAll<HTMLElement>('#mode2d-toggle button').forEach((b) =>
-        b.classList.toggle('active', b.dataset['2dmode'] === mode));
+      document
+        .querySelectorAll<HTMLElement>('#mode2d-toggle button')
+        .forEach((b) => b.classList.toggle('active', b.dataset['2dmode'] === mode));
       this.elev.setActive(mode === 'elev');
       if (mode === 'plan') this.plan.requestDraw();
     };
-    document.querySelectorAll<HTMLElement>('#mode2d-toggle button').forEach((b) =>
-      b.addEventListener('click', () => setMode2d(b.dataset['2dmode'] as 'plan' | 'elev')));
+    document
+      .querySelectorAll<HTMLElement>('#mode2d-toggle button')
+      .forEach((b) =>
+        b.addEventListener('click', () => setMode2d(b.dataset['2dmode'] as 'plan' | 'elev'))
+      );
     $('#btn-wall-prev').addEventListener('click', () => this.elev.stepWall(-1));
     $('#btn-wall-next').addEventListener('click', () => this.elev.stepWall(1));
 
@@ -1457,14 +1752,19 @@ export class UI {
     // door/drawer open-preview: pure view state, never part of the design
     const openBtn = $('#btn-openfronts');
     const refreshOpen = () => openBtn.classList.toggle('active', this.store.openFronts.allOpen);
-    openBtn.addEventListener('click', () => this.store.openFronts.setAll(!this.store.openFronts.allOpen));
+    openBtn.addEventListener('click', () =>
+      this.store.openFronts.setAll(!this.store.openFronts.allOpen)
+    );
     this.store.on('pose', refreshOpen);
     refreshOpen();
 
     this.wireNavInput();
 
     $('#btn-new').addEventListener('click', () => {
-      if (!confirm('Start a new design? Your current design will be replaced (Undo can restore it).')) return;
+      if (
+        !confirm('Start a new design? Your current design will be replaced (Undo can restore it).')
+      )
+        return;
       this.plan.setArmed(null);
       this.store.replaceDesign(emptyDesign());
       this.plan.zoomFit();
@@ -1530,8 +1830,7 @@ export class UI {
 
     const measureBtn = $('#btn-measure');
     measureBtn.addEventListener('click', () => this.plan.setMeasure(!this.plan.measureOn));
-    this.plan.onMeasureChange = () =>
-      measureBtn.classList.toggle('active', this.plan.measureOn);
+    this.plan.onMeasureChange = () => measureBtn.classList.toggle('active', this.plan.measureOn);
 
     const checksBtn = $('#btn-checks');
     checksBtn.addEventListener('click', () => this.plan.setChecks(!this.plan.checksOn));
@@ -1547,9 +1846,11 @@ export class UI {
     document.querySelectorAll<HTMLElement>('#cam-controls button').forEach((b) =>
       b.addEventListener('click', () => {
         this.view.setPreset(b.dataset.cam as CamPreset);
-        document.querySelectorAll<HTMLElement>('#cam-controls button').forEach((x) =>
-          x.classList.toggle('active', x === b));
-      }));
+        document
+          .querySelectorAll<HTMLElement>('#cam-controls button')
+          .forEach((x) => x.classList.toggle('active', x === b));
+      })
+    );
   }
 
   private download(url: string, name: string): void {
@@ -1594,7 +1895,11 @@ export class UI {
 
     action('buy').addEventListener('click', () => {
       const bom = buildBom(this.store.design);
-      this.downloadText(shoppingListCsv(bom), 'interior-shopping-list.csv', 'text/csv;charset=utf-8');
+      this.downloadText(
+        shoppingListCsv(bom),
+        'interior-shopping-list.csv',
+        'text/csv;charset=utf-8'
+      );
       $('#status-hint').textContent = 'interior-shopping-list.csv exported';
       closeMenu();
     });

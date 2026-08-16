@@ -19,7 +19,13 @@ function defaultFootprint(kind: FootKind, part: CabinetPartDef): Footprint {
     case 'diagonal':
       return { kind: 'chamfer', corner: 'right', cx: c, cz: c, face: 'angled' };
     case 'angledEnd':
-      return { kind: 'chamfer', corner: 'right', cx: Math.min(0.3, c), cz: Math.min(0.3, c), face: 'front' };
+      return {
+        kind: 'chamfer',
+        corner: 'right',
+        cx: Math.min(0.3, c),
+        cz: Math.min(0.3, c),
+        face: 'front',
+      };
     case 'cornerL':
       return {
         kind: 'cornerL',
@@ -48,13 +54,48 @@ export function renderCabinetPanel(
   onChange: () => void
 ): void {
   const dims = section(rail, 'Dimensions (cm)');
-  dimRow(dims, 'Width', () => part.w, (v) => { part.w = v; onChange(); }, 0.2, 3.0);
-  dimRow(dims, 'Depth', () => part.d, (v) => { part.d = v; onChange(); }, 0.2, 1.2);
-  dimRow(dims, 'Height', () => part.h, (v) => { part.h = v; onChange(); }, 0.2, 2.5);
-  toggleRow(dims, 'Wall-mounted', () => part.elevation > 0.3, (v) => {
-    part.elevation = v ? 1.45 : 0;
-    onChange();
-  });
+  dimRow(
+    dims,
+    'Width',
+    () => part.w,
+    (v) => {
+      part.w = v;
+      onChange();
+    },
+    0.2,
+    3.0
+  );
+  dimRow(
+    dims,
+    'Depth',
+    () => part.d,
+    (v) => {
+      part.d = v;
+      onChange();
+    },
+    0.2,
+    1.2
+  );
+  dimRow(
+    dims,
+    'Height',
+    () => part.h,
+    (v) => {
+      part.h = v;
+      onChange();
+    },
+    0.2,
+    2.5
+  );
+  toggleRow(
+    dims,
+    'Wall-mounted',
+    () => part.elevation > 0.3,
+    (v) => {
+      part.elevation = v ? 1.45 : 0;
+      onChange();
+    }
+  );
 
   const foot = section(rail, 'Footprint');
   const buttons = document.createElement('div');
@@ -64,35 +105,82 @@ export function renderCabinetPanel(
     detail.innerHTML = '';
     const fp = part.footprint;
     if (fp.kind === 'chamfer') {
-      numRow(detail, 'Cut width', () => fp.cx, (v) => {
-        fp.cx = clamp(v, 0.05, part.w - 0.05);
-        onChange();
-      });
-      numRow(detail, 'Cut depth', () => fp.cz, (v) => {
-        fp.cz = clamp(v, 0.05, part.d - 0.05);
-        onChange();
-      });
-      choiceRow(detail, 'Cut corner', [['left', 'Left'], ['right', 'Right']], () => fp.corner, (v) => {
-        fp.corner = v as 'left' | 'right';
-        onChange();
-      });
+      numRow(
+        detail,
+        'Cut width',
+        () => fp.cx,
+        (v) => {
+          fp.cx = clamp(v, 0.05, part.w - 0.05);
+          onChange();
+        }
+      );
+      numRow(
+        detail,
+        'Cut depth',
+        () => fp.cz,
+        (v) => {
+          fp.cz = clamp(v, 0.05, part.d - 0.05);
+          onChange();
+        }
+      );
+      choiceRow(
+        detail,
+        'Cut corner',
+        [
+          ['left', 'Left'],
+          ['right', 'Right'],
+        ],
+        () => fp.corner,
+        (v) => {
+          fp.corner = v as 'left' | 'right';
+          onChange();
+        }
+      );
     } else if (fp.kind === 'cornerL') {
-      numRow(detail, 'Notch width', () => fp.nw, (v) => {
-        fp.nw = clamp(v, 0.05, part.w - 0.05);
-        onChange();
-      });
-      numRow(detail, 'Notch depth', () => fp.nd, (v) => {
-        fp.nd = clamp(v, 0.05, part.d - 0.05);
-        onChange();
-      });
-      choiceRow(detail, 'Notch side', [['left', 'Left'], ['right', 'Right']], () => fp.notch, (v) => {
-        fp.notch = v as 'left' | 'right';
-        onChange();
-      });
-      choiceRow(detail, 'Return front', [['panel', 'Panel'], ['door', 'Door']], () => fp.face2, (v) => {
-        fp.face2 = v as 'panel' | 'door';
-        onChange();
-      });
+      numRow(
+        detail,
+        'Notch width',
+        () => fp.nw,
+        (v) => {
+          fp.nw = clamp(v, 0.05, part.w - 0.05);
+          onChange();
+        }
+      );
+      numRow(
+        detail,
+        'Notch depth',
+        () => fp.nd,
+        (v) => {
+          fp.nd = clamp(v, 0.05, part.d - 0.05);
+          onChange();
+        }
+      );
+      choiceRow(
+        detail,
+        'Notch side',
+        [
+          ['left', 'Left'],
+          ['right', 'Right'],
+        ],
+        () => fp.notch,
+        (v) => {
+          fp.notch = v as 'left' | 'right';
+          onChange();
+        }
+      );
+      choiceRow(
+        detail,
+        'Return front',
+        [
+          ['panel', 'Panel'],
+          ['door', 'Door'],
+        ],
+        () => fp.face2,
+        (v) => {
+          fp.face2 = v as 'panel' | 'door';
+          onChange();
+        }
+      );
     }
   };
   for (const [kind, label, title] of FOOT_LABELS) {
@@ -114,44 +202,89 @@ export function renderCabinetPanel(
   renderDetail();
 
   const body = section(rail, 'Body');
-  toggleRow(body, 'Plinth', () => part.plinth, (v) => { part.plinth = v; onChange(); });
+  toggleRow(
+    body,
+    'Plinth',
+    () => part.plinth,
+    (v) => {
+      part.plinth = v;
+      onChange();
+    }
+  );
   const overhangDetail = document.createElement('div');
   const renderOverhang = () => {
     overhangDetail.innerHTML = '';
     if (!part.worktop) return;
-    const ov = () =>
-      (part.worktopOverhang ??= { front: 0.015, back: 0.005, sides: 0.01 });
-    numRow(overhangDetail, 'Overhang front', () => part.worktopOverhang?.front ?? 0.015, (v) => {
-      ov().front = clamp(v, 0, 0.4);
-      onChange();
-    });
-    numRow(overhangDetail, 'Overhang back', () => part.worktopOverhang?.back ?? 0.005, (v) => {
-      ov().back = clamp(v, 0, 0.4);
-      onChange();
-    });
-    numRow(overhangDetail, 'Overhang sides', () => part.worktopOverhang?.sides ?? 0.01, (v) => {
-      ov().sides = clamp(v, 0, 0.4);
-      onChange();
-    });
+    const ov = () => (part.worktopOverhang ??= { front: 0.015, back: 0.005, sides: 0.01 });
+    numRow(
+      overhangDetail,
+      'Overhang front',
+      () => part.worktopOverhang?.front ?? 0.015,
+      (v) => {
+        ov().front = clamp(v, 0, 0.4);
+        onChange();
+      }
+    );
+    numRow(
+      overhangDetail,
+      'Overhang back',
+      () => part.worktopOverhang?.back ?? 0.005,
+      (v) => {
+        ov().back = clamp(v, 0, 0.4);
+        onChange();
+      }
+    );
+    numRow(
+      overhangDetail,
+      'Overhang sides',
+      () => part.worktopOverhang?.sides ?? 0.01,
+      (v) => {
+        ov().sides = clamp(v, 0, 0.4);
+        onChange();
+      }
+    );
   };
-  toggleRow(body, 'Worktop', () => part.worktop, (v) => {
-    part.worktop = v;
-    renderOverhang();
-    onChange();
-  });
+  toggleRow(
+    body,
+    'Worktop',
+    () => part.worktop,
+    (v) => {
+      part.worktop = v;
+      renderOverhang();
+      onChange();
+    }
+  );
   body.appendChild(overhangDetail);
   renderOverhang();
-  toggleRow(body, 'Finished back', () => part.finishedBack === true, (v) => {
-    if (v) part.finishedBack = true;
-    else delete part.finishedBack;
-    onChange();
-  });
+  toggleRow(
+    body,
+    'Finished back',
+    () => part.finishedBack === true,
+    (v) => {
+      if (v) part.finishedBack = true;
+      else delete part.finishedBack;
+      onChange();
+    }
+  );
 
   const colors = section(rail, 'Front colour');
-  swatchRow(colors, FRONT_COLORS, () => part.color, (c) => { part.color = c; onChange(); });
+  swatchRow(
+    colors,
+    FRONT_COLORS,
+    () => part.color,
+    (c) => {
+      part.color = c;
+      onChange();
+    }
+  );
   const accent = section(rail, 'Wood accent (top / niches)');
-  swatchRow(accent, [OAK, WALNUT, ...COUNTER_COLORS.slice(1, 3)], () => part.accentColor, (c) => {
-    part.accentColor = c;
-    onChange();
-  });
+  swatchRow(
+    accent,
+    [OAK, WALNUT, ...COUNTER_COLORS.slice(1, 3)],
+    () => part.accentColor,
+    (c) => {
+      part.accentColor = c;
+      onChange();
+    }
+  );
 }

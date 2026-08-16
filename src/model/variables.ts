@@ -51,7 +51,9 @@ export function resolveFinish(
 ): ResolvedFinish {
   if (isVarRef(color)) {
     const v = variableById(design, refId(color));
-    return v ? { color: v.color, material: v.material, rot: v.materialRot } : { color: VAR_FALLBACK };
+    return v
+      ? { color: v.color, material: v.material, rot: v.materialRot }
+      : { color: VAR_FALLBACK };
   }
   return { color, material, rot };
 }
@@ -70,7 +72,12 @@ export function resolveColor(design: Design, color: string): string {
  * identically in both.
  */
 export function counterFin(design: Design, room: RoomStyle, item?: Item): ResolvedFinish {
-  const base = resolveFinish(design, room.counterColor, room.counterMaterial, room.counterMaterialRot);
+  const base = resolveFinish(
+    design,
+    room.counterColor,
+    room.counterMaterial,
+    room.counterMaterialRot
+  );
   if (item?.counterMaterial) {
     return { color: base.color, material: item.counterMaterial, rot: item.counterMaterialRot };
   }

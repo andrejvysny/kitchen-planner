@@ -81,8 +81,12 @@ export class PartStudio {
     document.body.appendChild(overlay);
     this.overlay = overlay;
 
-    (overlay.querySelector('.studio-x') as HTMLElement).addEventListener('click', () => this.close());
-    (overlay.querySelector('.studio-cancel') as HTMLElement).addEventListener('click', () => this.close());
+    (overlay.querySelector('.studio-x') as HTMLElement).addEventListener('click', () =>
+      this.close()
+    );
+    (overlay.querySelector('.studio-cancel') as HTMLElement).addEventListener('click', () =>
+      this.close()
+    );
     overlay.addEventListener('pointerdown', (e) => {
       if (e.target === overlay) this.close();
     });
@@ -95,7 +99,11 @@ export class PartStudio {
 
   /** Escape inside the studio: clear in-studio selection first, then close. */
   handleEscape(): void {
-    if (this.freeform?.handleEscape() || this.board?.handleEscape() || this.zoneCanvas?.handleEscape()) {
+    if (
+      this.freeform?.handleEscape() ||
+      this.board?.handleEscape() ||
+      this.zoneCanvas?.handleEscape()
+    ) {
       this.refreshPreview();
       return;
     }
@@ -142,7 +150,11 @@ export class PartStudio {
     (this.overlay!.querySelector('.studio-type-badge') as HTMLElement).textContent = 'New part';
     renderTypePicker(body, CREATABLE, (type) => {
       this.part =
-        type === 'cabinet' ? newCabinetPart() : type === 'board' ? newBoardPart() : newFreeformPart();
+        type === 'cabinet'
+          ? newCabinetPart()
+          : type === 'board'
+            ? newBoardPart()
+            : newFreeformPart();
       this.originalJson = JSON.stringify(this.part);
       this.renderEditor();
     });
@@ -163,7 +175,8 @@ export class PartStudio {
     name.value = part.name;
     name.addEventListener('input', () => (part.name = name.value || 'Part'));
 
-    (overlay.querySelector('.studio-type-badge') as HTMLElement).textContent = TYPE_LABELS[part.type];
+    (overlay.querySelector('.studio-type-badge') as HTMLElement).textContent =
+      TYPE_LABELS[part.type];
 
     const save = overlay.querySelector('.studio-save') as HTMLButtonElement;
     save.style.display = '';
@@ -260,7 +273,11 @@ export class PartStudio {
     const target = e.target as HTMLElement;
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
     if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (this.freeform?.handleDelete() || this.board?.handleDelete() || this.zoneCanvas?.handleDelete()) {
+      if (
+        this.freeform?.handleDelete() ||
+        this.board?.handleDelete() ||
+        this.zoneCanvas?.handleDelete()
+      ) {
         e.preventDefault();
         this.refreshPreview();
       }

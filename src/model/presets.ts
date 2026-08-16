@@ -1,5 +1,12 @@
 import { FRONT_COLORS, OAK } from './catalog';
-import type { Board, CabinetPartDef, CustomPartDef, FreeformPartDef, Interior, Zone } from './types';
+import type {
+  Board,
+  CabinetPartDef,
+  CustomPartDef,
+  FreeformPartDef,
+  Interior,
+  Zone,
+} from './types';
 
 /**
  * Built-in cabinet presets: readonly part defs that replace the retired
@@ -41,8 +48,32 @@ const wallShelf: FreeformPartDef = {
   color: OAK,
   accentColor: OAK,
   boards: [
-    { id: 'shelf-0', x: 0, y: 0, z: 0, w: 0.8, h: SHELF_T, d: 0.25, rotY: 0, shape: 'box', slot: 'front', style: 'plain' },
-    { id: 'shelf-1', x: 0, y: 0.55 - SHELF_T, z: 0, w: 0.8, h: SHELF_T, d: 0.25, rotY: 0, shape: 'box', slot: 'front', style: 'plain' },
+    {
+      id: 'shelf-0',
+      x: 0,
+      y: 0,
+      z: 0,
+      w: 0.8,
+      h: SHELF_T,
+      d: 0.25,
+      rotY: 0,
+      shape: 'box',
+      slot: 'front',
+      style: 'plain',
+    },
+    {
+      id: 'shelf-1',
+      x: 0,
+      y: 0.55 - SHELF_T,
+      z: 0,
+      w: 0.8,
+      h: SHELF_T,
+      d: 0.25,
+      rotY: 0,
+      shape: 'box',
+      slot: 'front',
+      style: 'plain',
+    },
   ],
 };
 
@@ -58,10 +89,27 @@ function deskBoards(w: number, d: number, h: number, drawers: number): Board[] {
   const legH = h - DESK_TOP_T;
   const inset = 0.06;
   const boards: Board[] = [
-    { id: 'top', x: 0, y: h - DESK_TOP_T, z: 0, w, h: DESK_TOP_T, d, rotY: 0, shape: 'box', slot: 'accent', style: 'plain' },
+    {
+      id: 'top',
+      x: 0,
+      y: h - DESK_TOP_T,
+      z: 0,
+      w,
+      h: DESK_TOP_T,
+      d,
+      rotY: 0,
+      shape: 'box',
+      slot: 'accent',
+      style: 'plain',
+    },
   ];
   let n = 0;
-  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+  for (const [sx, sz] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ] as const) {
     boards.push({
       id: `leg-${n++}`,
       x: sx * (w / 2 - inset),

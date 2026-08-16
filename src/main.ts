@@ -79,4 +79,11 @@ const view = new View3D(document.getElementById('canvas3d') as HTMLCanvasElement
 new UI(store, plan, view, elev);
 
 // small debug/testing handle
-(window as unknown as Record<string, unknown>).__kp = { store, plan, view, elev, navInput, setNavInput };
+(window as unknown as Record<string, unknown>).__kp = {
+  store,
+  plan,
+  view,
+  elev,
+  navInput,
+  setNavInput,
+};

@@ -1,7 +1,18 @@
 import { catalogDef, defaultParams, FLOOR_COLORS, hasCatalogDef, type CatalogDef } from './catalog';
 import { runChecks, type Warning } from './checks';
 import { hasPreset, presetPart } from './presets';
-import { clamp, dist, polygonBounds, polygonIsSimple, projectOnWall, signedArea, wallGeom, wallPoint, worldToLocal, type WallGeom } from './geometry';
+import {
+  clamp,
+  dist,
+  polygonBounds,
+  polygonIsSimple,
+  projectOnWall,
+  signedArea,
+  wallGeom,
+  wallPoint,
+  worldToLocal,
+  type WallGeom,
+} from './geometry';
 import { hasMaterial } from './materials';
 import { DESIGN_VERSION, migrateDesign } from './migrate';
 import { applianceTowerPart, samplePart, sanitizePart, toCatalogDef } from './parts';
@@ -26,11 +37,34 @@ import {
   type RoomWall,
 } from './rooms';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from './sky';
-import type { Attachment, ChangeInfo, Corner, CustomPartDef, Design, DesignVar, Item, Opening, Point, Room, RoomStyle, Selection, Underlay, WallVisMode } from './types';
+import type {
+  Attachment,
+  ChangeInfo,
+  Corner,
+  CustomPartDef,
+  Design,
+  DesignVar,
+  Item,
+  Opening,
+  Point,
+  Room,
+  RoomStyle,
+  Selection,
+  Underlay,
+  WallVisMode,
+} from './types';
 import { uid } from './types';
 import { syncAttachments } from './attach';
 import { OpenFronts } from './openFronts';
-import { DESIGN_KEY, LEGACY_DESIGN_KEYS, LEGACY_PARTS_KEYS, PARTS_KEY, readKey, RECOVERY_KEY, UNDERLAY_KEY } from './storageKeys';
+import {
+  DESIGN_KEY,
+  LEGACY_DESIGN_KEYS,
+  LEGACY_PARTS_KEYS,
+  PARTS_KEY,
+  readKey,
+  RECOVERY_KEY,
+  UNDERLAY_KEY,
+} from './storageKeys';
 import { sanitizeUnderlay } from './underlay';
 import { detach, isVarRef, refId, toVarRef, VAR_FALLBACK } from './variables';
 
@@ -693,9 +727,7 @@ export class Store {
     const wasActive = this.activeRoomId === id;
     const doomed = this.withAttached(
       new Set(
-        this.design.items
-          .filter((i) => roomOfItem(this.design, i)?.id === id)
-          .map((i) => i.id)
+        this.design.items.filter((i) => roomOfItem(this.design, i)?.id === id).map((i) => i.id)
       )
     );
     const own = new Set(room.corners.map((c) => c.id));
@@ -968,7 +1000,11 @@ export class Store {
     return o;
   }
 
-  updateOpening(id: string, patch: Partial<Opening>, info: ChangeInfo = { structural: true }): void {
+  updateOpening(
+    id: string,
+    patch: Partial<Opening>,
+    info: ChangeInfo = { structural: true }
+  ): void {
     const o = this.openingById(id);
     if (!o) return;
     Object.assign(o, patch);
@@ -979,7 +1015,8 @@ export class Store {
 
   deleteOpening(id: string): void {
     this.design.openings = this.design.openings.filter((o) => o.id !== id);
-    if (this.selection.kind === 'opening' && this.selection.id === id) this.select({ kind: 'none' });
+    if (this.selection.kind === 'opening' && this.selection.id === id)
+      this.select({ kind: 'none' });
     this.notify({ structural: true });
   }
 
@@ -1009,7 +1046,9 @@ export class Store {
       h: def.h,
       elevation: def.elevation,
       color: def.color,
-      light: def.light ? { on: def.light.on, intensity: def.light.intensity, warmth: def.light.warmth } : undefined,
+      light: def.light
+        ? { on: def.light.on, intensity: def.light.intensity, warmth: def.light.warmth }
+        : undefined,
       params: defaultParams(def),
       roomId: (this.roomContaining({ x, y }) ?? this.activeRoom()).id,
     };
@@ -1176,7 +1215,8 @@ export class Store {
     // deleting a host takes its mounted appliances with it (one undo step)
     const doomed = this.withAttached(new Set([id]));
     this.design.items = this.design.items.filter((i) => !doomed.has(i.id));
-    if (this.selection.kind === 'item' && doomed.has(this.selection.id)) this.select({ kind: 'none' });
+    if (this.selection.kind === 'item' && doomed.has(this.selection.id))
+      this.select({ kind: 'none' });
     this.notify({ structural: true });
   }
 
@@ -1536,7 +1576,8 @@ export function sanitizeDesign(raw: unknown): Design | null {
   for (const i of d.items as Item[]) {
     repairItemDims(i, partsById);
     if (i.material !== undefined && !hasMaterial(i.material)) delete i.material;
-    if (i.counterMaterial !== undefined && !hasMaterial(i.counterMaterial)) delete i.counterMaterial;
+    if (i.counterMaterial !== undefined && !hasMaterial(i.counterMaterial))
+      delete i.counterMaterial;
     if (i.materialRot !== true) delete i.materialRot;
     if (i.counterMaterialRot !== true) delete i.counterMaterialRot;
     if (typeof i.roomId !== 'string' || !roomIds.has(i.roomId)) delete i.roomId;
@@ -1545,7 +1586,9 @@ export function sanitizeDesign(raw: unknown): Design | null {
   // detach dangling `var:` refs so no slot points at a removed variable
   const varIds = new Set((d.variables as DesignVar[]).map((v) => v.id));
   const settle = (v: unknown): string | undefined =>
-    isVarRef(v as string) && !varIds.has(refId(v as string)) ? VAR_FALLBACK : (v as string | undefined);
+    isVarRef(v as string) && !varIds.has(refId(v as string))
+      ? VAR_FALLBACK
+      : (v as string | undefined);
   for (const i of d.items as Item[]) {
     i.color = settle(i.color) ?? i.color;
     if (i.accentColor !== undefined) {
@@ -1560,8 +1603,10 @@ export function sanitizeDesign(raw: unknown): Design | null {
   }
 
   // defaults hold a bare variable id — clear ones that no longer resolve
-  if (typeof d.defaultFrontVar !== 'string' || !varIds.has(d.defaultFrontVar)) delete d.defaultFrontVar;
-  if (typeof d.defaultAccentVar !== 'string' || !varIds.has(d.defaultAccentVar)) delete d.defaultAccentVar;
+  if (typeof d.defaultFrontVar !== 'string' || !varIds.has(d.defaultFrontVar))
+    delete d.defaultFrontVar;
+  if (typeof d.defaultAccentVar !== 'string' || !varIds.has(d.defaultAccentVar))
+    delete d.defaultAccentVar;
   d.scene = sanitizeScene(d.scene);
   // the tracing photo travels alongside a saved file as an extra top-level
   // field; it is NOT part of a Design, so it never survives this gate (the
@@ -1595,8 +1640,14 @@ function repairItemDims(i: Item, partsById: Map<string, CustomPartDef>): void {
 
 /** The caller already knows defId resolves; 0.6×0.6×0.9 only guards a def
  * whose own dims are somehow missing/invalid. */
-function defaultDimsFor(defId: string, partsById: Map<string, CustomPartDef>): { w: number; d: number; h: number } {
-  const src = partsById.get(defId) ?? presetPart(defId) ?? (hasCatalogDef(defId) ? catalogDef(defId) : undefined);
+function defaultDimsFor(
+  defId: string,
+  partsById: Map<string, CustomPartDef>
+): { w: number; d: number; h: number } {
+  const src =
+    partsById.get(defId) ??
+    presetPart(defId) ??
+    (hasCatalogDef(defId) ? catalogDef(defId) : undefined);
   const ok = src && [src.w, src.d, src.h].every((n) => Number.isFinite(n) && n > 0);
   return ok ? { w: src!.w, d: src!.d, h: src!.h } : { w: 0.6, d: 0.6, h: 0.9 };
 }
@@ -1618,7 +1669,9 @@ function sanitizeAttachments(design: Design): void {
       host !== it &&
       !host.attach &&
       ((a.kind === 'counter' && Number.isFinite(a.u) && Number.isFinite(a.v)) ||
-        (a.kind === 'zone' && Array.isArray(a.path) && a.path.every((n: unknown) => Number.isInteger(n) && (n as number) >= 0)));
+        (a.kind === 'zone' &&
+          Array.isArray(a.path) &&
+          a.path.every((n: unknown) => Number.isInteger(n) && (n as number) >= 0)));
     if (!shapeOk) {
       delete it.attach;
       continue;
@@ -1673,7 +1726,8 @@ function sanitizeVariables(raw: unknown): DesignVar[] {
   for (const v of raw) {
     if (!v || typeof v !== 'object') continue;
     const r = v as Record<string, unknown>;
-    if (typeof r.id !== 'string' || typeof r.name !== 'string' || typeof r.color !== 'string') continue;
+    if (typeof r.id !== 'string' || typeof r.name !== 'string' || typeof r.color !== 'string')
+      continue;
     if (seen.has(r.id)) continue;
     seen.add(r.id);
     const dv: DesignVar = { id: r.id, name: r.name, color: r.color };
@@ -1869,7 +1923,15 @@ export function demoDesign(): Design {
   add('pendant', (x1 + bx1) / 2, (y0 + y1) / 2, 0, { roomId: bedroomId, elevation: 1.85 });
 
   const openings: Opening[] = [
-    { id: uid('o'), wallId: c1.id, type: 'window', offset: 1.2, width: 1.3, height: 1.15, sill: 0.95 },
+    {
+      id: uid('o'),
+      wallId: c1.id,
+      type: 'window',
+      offset: 1.2,
+      width: 1.3,
+      height: 1.15,
+      sill: 0.95,
+    },
     { id: uid('o'), wallId: c3.id, type: 'door', offset: 0.8, width: 0.95, height: 2.05, sill: 0 },
   ];
 

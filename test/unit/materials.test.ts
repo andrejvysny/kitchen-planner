@@ -109,7 +109,11 @@ describe('material registry', () => {
   it('counterFin: item override wins over the room worktop', () => {
     const room: RoomStyle = { ...ROOM, counterMaterial: 'oak', counterMaterialRot: true };
     const item = { counterMaterial: 'marble-dark', counterMaterialRot: false } as Item;
-    expect(counterFin(DESIGN, room)).toEqual({ color: ROOM.counterColor, material: 'oak', rot: true });
+    expect(counterFin(DESIGN, room)).toEqual({
+      color: ROOM.counterColor,
+      material: 'oak',
+      rot: true,
+    });
     const over = counterFin(DESIGN, room, item);
     expect(over.material).toBe('marble-dark');
     expect(over.rot).toBe(false);
@@ -169,7 +173,12 @@ describe('sanitizeDesign material validation', () => {
       counterMaterial: 'marble-light',
       counterMaterialRot: 'yes' as unknown as boolean,
     };
-    const bad = { ...item, id: 'i2', counterMaterial: 'unobtanium', materialRot: 1 as unknown as boolean };
+    const bad = {
+      ...item,
+      id: 'i2',
+      counterMaterial: 'unobtanium',
+      materialRot: 1 as unknown as boolean,
+    };
     const d = sanitizeDesign({
       version: 5,
       corners: base(),

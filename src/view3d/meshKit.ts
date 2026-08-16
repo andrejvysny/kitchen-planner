@@ -48,7 +48,11 @@ export type Finish = ResolvedFinish;
  * resolves to the textured PBR material (src/view3d/textures.ts); otherwise
  * the classic flat matte/wood finish. `tint` darkens (carcass, legs).
  */
-export function surfMat(f: string | Finish, fallback: 'matte' | 'wood' = 'matte', tint = 1): THREE.MeshStandardMaterial {
+export function surfMat(
+  f: string | Finish,
+  fallback: 'matte' | 'wood' = 'matte',
+  tint = 1
+): THREE.MeshStandardMaterial {
   const fin = typeof f === 'string' ? { color: f } : f;
   const color = tint === 1 ? fin.color : shade(fin.color, tint);
   if (fin.material) {
@@ -68,7 +72,14 @@ export function surfMat(f: string | Finish, fallback: 'matte' | 'wood' = 'matte'
  */
 export function scaleBoxUV(geo: THREE.BoxGeometry, w: number, h: number, d: number): void {
   const uv = geo.attributes.uv as THREE.BufferAttribute;
-  const scales: [number, number][] = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  const scales: [number, number][] = [
+    [d, h],
+    [d, h],
+    [w, d],
+    [w, d],
+    [w, h],
+    [w, h],
+  ];
   for (let i = 0; i < uv.count; i++) {
     const [su, sv] = scales[Math.floor(i / 4)];
     uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
@@ -90,7 +101,11 @@ export function steelMat(): THREE.MeshStandardMaterial {
 }
 
 export function applianceGlass(): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color: APPLIANCE_BLACK, roughness: 0.25, metalness: 0.4 });
+  return new THREE.MeshStandardMaterial({
+    color: APPLIANCE_BLACK,
+    roughness: 0.25,
+    metalness: 0.4,
+  });
 }
 
 export function box(
@@ -164,7 +179,14 @@ export function plinth(g: THREE.Group, w: number, d: number): void {
   box(g, w - 0.06, PLINTH_H, d - 0.05, matte(PLINTH_COLOR), 0, 0, -0.02);
 }
 
-export function carcass(g: THREE.Group, w: number, h: number, d: number, color: string | Finish, y0: number): void {
+export function carcass(
+  g: THREE.Group,
+  w: number,
+  h: number,
+  d: number,
+  color: string | Finish,
+  y0: number
+): void {
   box(g, w, h, d - FRONT_T, surfMat(color, 'matte', CARCASS_DARKEN), 0, y0, -FRONT_T / 2);
 }
 

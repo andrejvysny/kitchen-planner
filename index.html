@@ -3,7 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='5' fill='%232f6f5e'/%3E%3Crect x='8' y='14' width='16' height='10' rx='1.5' fill='%23f2f1ec'/%3E%3Crect x='8' y='8' width='16' height='3' rx='1.5' fill='%23c9a87c'/%3E%3C/svg%3E" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='5' fill='%232f6f5e'/%3E%3Crect x='8' y='14' width='16' height='10' rx='1.5' fill='%23f2f1ec'/%3E%3Crect x='8' y='8' width='16' height='3' rx='1.5' fill='%23c9a87c'/%3E%3C/svg%3E"
+    />
     <title>Interior Planner</title>
   </head>
   <body>
@@ -25,7 +28,12 @@
         </div>
         <div class="topbar-group">
           <button id="btn-daynight" title="Toggle day / night">☀ Day</button>
-          <button id="btn-openfronts" title="Preview all doors and drawers open (3D only, never saved)">Open fronts</button>
+          <button
+            id="btn-openfronts"
+            title="Preview all doors and drawers open (3D only, never saved)"
+          >
+            Open fronts
+          </button>
         </div>
         <div class="topbar-group" id="navinput-group" hidden>
           <button id="btn-navinput" title="How to read the scroll wheel">Nav: Auto</button>
@@ -36,9 +44,13 @@
           <button id="btn-save" title="Download design as JSON">Save</button>
           <button id="btn-load" title="Load design from JSON">Load</button>
           <button id="btn-png" title="Export 3D snapshot as PNG">Snapshot</button>
-          <button id="btn-glb" title="Export the modelled interior as .glb for Blender">Blender</button>
+          <button id="btn-glb" title="Export the modelled interior as .glb for Blender">
+            Blender
+          </button>
           <div class="topbar-menu-wrap">
-            <button id="btn-export" title="Cut list, shopping list and printable sheets">Export ▾</button>
+            <button id="btn-export" title="Cut list, shopping list and printable sheets">
+              Export ▾
+            </button>
             <div id="export-menu" class="topbar-menu">
               <button data-export="cut">Cut list (CSV)</button>
               <button data-export="buy">Shopping list (CSV)</button>
@@ -54,17 +66,59 @@
       <main id="workspace">
         <aside id="catalog">
           <div id="sidebar-tabs" role="tablist" aria-label="Left sidebar">
-            <button id="tab-btn-library" role="tab" data-tab="library" class="active" aria-selected="true" aria-controls="tab-library">Library</button>
-            <button id="tab-btn-components" role="tab" data-tab="components" aria-selected="false" aria-controls="tab-components">Components</button>
-            <button id="tab-btn-variables" role="tab" data-tab="variables" aria-selected="false" aria-controls="tab-variables">Variables</button>
+            <button
+              id="tab-btn-library"
+              role="tab"
+              data-tab="library"
+              class="active"
+              aria-selected="true"
+              aria-controls="tab-library"
+            >
+              Library
+            </button>
+            <button
+              id="tab-btn-components"
+              role="tab"
+              data-tab="components"
+              aria-selected="false"
+              aria-controls="tab-components"
+            >
+              Components
+            </button>
+            <button
+              id="tab-btn-variables"
+              role="tab"
+              data-tab="variables"
+              aria-selected="false"
+              aria-controls="tab-variables"
+            >
+              Variables
+            </button>
           </div>
-          <div id="tab-library" class="tab-panel active" role="tabpanel" aria-labelledby="tab-btn-library">
+          <div
+            id="tab-library"
+            class="tab-panel active"
+            role="tabpanel"
+            aria-labelledby="tab-btn-library"
+          >
             <div id="catalog-inner"></div>
           </div>
-          <div id="tab-components" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-components" hidden>
+          <div
+            id="tab-components"
+            class="tab-panel"
+            role="tabpanel"
+            aria-labelledby="tab-btn-components"
+            hidden
+          >
             <div id="outline"></div>
           </div>
-          <div id="tab-variables" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-variables" hidden>
+          <div
+            id="tab-variables"
+            class="tab-panel"
+            role="tabpanel"
+            aria-labelledby="tab-btn-variables"
+            hidden
+          >
             <div id="variables-panel"></div>
           </div>
         </aside>
@@ -85,9 +139,24 @@
               <button id="btn-zoom-out" title="Zoom out">−</button>
             </div>
             <div id="measure-controls">
-              <button id="btn-room" title="Add a room — click in the plan, or hover a wall to attach it">▧</button>
-              <button id="btn-draw-room" title="Draw a room — click each corner, click the first again (or Enter) to close">✎</button>
-              <button id="btn-measure" title="Measure distances — click two points (snaps to corners, edges & walls)">📏</button>
+              <button
+                id="btn-room"
+                title="Add a room — click in the plan, or hover a wall to attach it"
+              >
+                ▧
+              </button>
+              <button
+                id="btn-draw-room"
+                title="Draw a room — click each corner, click the first again (or Enter) to close"
+              >
+                ✎
+              </button>
+              <button
+                id="btn-measure"
+                title="Measure distances — click two points (snaps to corners, edges & walls)"
+              >
+                📏
+              </button>
               <button id="btn-checks" title="Show clearance warnings">⚠</button>
             </div>
             <div id="wall-nav">
@@ -115,7 +184,9 @@
 
       <footer id="statusbar">
         <span id="status-hint"></span>
-        <span id="status-savefail" class="statusbar-warn" hidden>⚠ Changes are NOT being saved — storage full or blocked</span>
+        <span id="status-savefail" class="statusbar-warn" hidden
+          >⚠ Changes are NOT being saved — storage full or blocked</span
+        >
         <span class="statusbar-spacer"></span>
         <span id="status-info"></span>
       </footer>

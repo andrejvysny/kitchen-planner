@@ -1,6 +1,14 @@
 import { FRONT_COLORS, OAK, type CatalogDef } from './catalog';
 import { clamp, polygonBounds, polygonIsSimple, signedArea } from './geometry';
-import type { Board, BoardPartDef, CabinetPartDef, CustomPartDef, FreeformPartDef, Point, WorktopOverhang } from './types';
+import type {
+  Board,
+  BoardPartDef,
+  CabinetPartDef,
+  CustomPartDef,
+  FreeformPartDef,
+  Point,
+  WorktopOverhang,
+} from './types';
 import { uid } from './types';
 import { cabinetTreeFromCounts, sanitizeZone } from './zones';
 

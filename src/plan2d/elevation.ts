@@ -33,7 +33,8 @@ export class ElevationView {
   private cssW = 100;
   private cssH = 100;
   private raf = 0;
-  private drag: { sx: number; sy: number; panX0: number; panY0: number; moved: boolean } | null = null;
+  private drag: { sx: number; sy: number; panX0: number; panY0: number; moved: boolean } | null =
+    null;
   private pinch = new PinchGesture(); // two-finger pinch-zoom / pan (touch)
   private pinching = false; // separate from `drag` (which only ever holds a pan)
 
@@ -434,7 +435,11 @@ export class ElevationView {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillStyle = '#8a877f';
-    ctx.fillText(`${fmtCm(data.len)} · ceiling ${fmtCm(data.height)}`, p0.x + (data.len * this.zoom) / 2, p0.y + 0.14 * this.zoom);
+    ctx.fillText(
+      `${fmtCm(data.len)} · ceiling ${fmtCm(data.height)}`,
+      p0.x + (data.len * this.zoom) / 2,
+      p0.y + 0.14 * this.zoom
+    );
   }
 
   private drawEmpty(msg: string): void {

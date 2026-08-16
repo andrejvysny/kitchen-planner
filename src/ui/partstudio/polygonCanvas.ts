@@ -1,11 +1,14 @@
-import { fmtCm, pointInPolygon, polygonBounds, polygonIsSimple, signedArea } from '../../model/geometry';
+import {
+  fmtCm,
+  pointInPolygon,
+  polygonBounds,
+  polygonIsSimple,
+  signedArea,
+} from '../../model/geometry';
 import { MAX_OUTLINE_POINTS } from '../../model/parts';
 import type { BoardPartDef, Point } from '../../model/types';
 
-type PolySelection =
-  | { kind: 'corner'; i: number }
-  | { kind: 'hole'; i: number }
-  | { kind: 'none' };
+type PolySelection = { kind: 'corner'; i: number } | { kind: 'hole'; i: number } | { kind: 'none' };
 
 type PolyDrag =
   | { kind: 'corner'; i: number }
@@ -210,7 +213,10 @@ export class PolygonCanvas {
       // axis-lock: snap to a neighbour's x/y when close (orthogonal outlines stay orthogonal)
       const v = this.view();
       const lock = 7 / v.scale;
-      for (const n of [o[(this.drag.i + o.length - 1) % o.length], o[(this.drag.i + 1) % o.length]]) {
+      for (const n of [
+        o[(this.drag.i + o.length - 1) % o.length],
+        o[(this.drag.i + 1) % o.length],
+      ]) {
         if (Math.abs(n.x - x) < lock) x = n.x;
         if (Math.abs(n.y - y) < lock) y = n.y;
       }
