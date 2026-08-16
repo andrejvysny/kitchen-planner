@@ -109,7 +109,7 @@ export function mountLegacyUI(): void {
   if (uiMounted) return;
   uiMounted = true;
   if (needsRecoveryBanner) showRecoveryBanner();
-  new UI(store, plan, view, elev);
+  new UI(store, plan, elev);
 }
 
 /** Ephemeral editor state — nothing reads it yet; see src/editor/editorState.ts. */

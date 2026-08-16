@@ -26,20 +26,14 @@ import {
   type MaterialDef,
 } from '../model/materials';
 import type { Warning } from '../model/checks';
-import { buildBom } from '../model/export';
-import { bomHtml, cutListCsv, shoppingListCsv } from '../model/exportFormats';
-import { navInput, setNavInput } from '../model/navPref';
-import { openPrintSheet } from '../print/sheet';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../model/sky';
-import { demoDesign, emptyDesign, sanitizeDesign, Store } from '../model/store';
+import { demoDesign, Store } from '../model/store';
 import type { Item, Selection, Underlay, WallVisMode } from '../model/types';
 import { isVarRef, refId, resolveColor, toVarRef } from '../model/variables';
 import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
 import type { ElevationView } from '../plan2d/elevation';
 import { materialSwatch } from '../view3d/textures';
-import { isMac, NAV_INPUTS, type NavInput } from '../view3d/wheelInput';
-import type { View3D, CamPreset } from '../view3d/view3d';
 import { PartStudio } from './partstudio';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T => document.querySelector(sel) as T;
@@ -60,14 +54,15 @@ function displayDeg(rad: number): number {
 export class UI {
   private store: Store;
   private plan: Plan2D;
-  private view: View3D;
   private elev: ElevationView;
   private studio: PartStudio;
 
-  constructor(store: Store, plan: Plan2D, view: View3D, elev: ElevationView) {
+  // The 3D view left this class in step B2 with the topbar buttons that drove
+  // it (snapshot / GLB / camera presets / pane visibility) — everything ui.ts
+  // still owns is 2D or panel DOM.
+  constructor(store: Store, plan: Plan2D, elev: ElevationView) {
     this.store = store;
     this.plan = plan;
-    this.view = view;
     this.elev = elev;
     this.studio = new PartStudio(store, () => this.renderCatalogIfPartsChanged());
 
@@ -94,62 +89,15 @@ export class UI {
       if (!this.isEditingVariableName(active)) this.renderVariables();
       this.renderCatalogIfPartsChanged();
       this.renderOutline();
-      this.updateUndoButtons();
-      this.updateInfo();
     });
     store.on('change', (info) => {
-      this.updateInfo();
       if (info.transient) this.refreshTransientInputs();
     });
     // ephemeral, but it retargets every room-scoped panel and the elevation
     store.on('activeRoom', () => {
       if (!this.isEditingRoomName(document.activeElement)) this.renderProps();
       this.renderOutline();
-      this.updateInfo();
     });
-    // persistent — stays lit across unrelated hint messages until a save succeeds
-    store.on('savefail', (failing) => {
-      ($('#status-savefail') as HTMLElement).hidden = !failing;
-    });
-    ($('#status-savefail') as HTMLElement).hidden = !store.savingFailed();
-    this.updateUndoButtons();
-    this.updateInfo();
-  }
-
-  /* ================= nav input ================= */
-
-  /**
-   * Wheel-reading preference (KITCHENP-13). Mouse-vs-trackpad cannot be decided
-   * from the DOM in every case — a high-resolution wheel is indistinguishable
-   * from a two-finger swipe — so "Auto" is a good guess and this is the manual
-   * override. macOS-only: elsewhere the wheel always zooms, so it would be a
-   * no-op control.
-   */
-  private wireNavInput(): void {
-    if (!isMac(navigator.platform, navigator.userAgent)) return;
-    const group = $('#navinput-group');
-    const btn = $('#btn-navinput');
-    group.hidden = false;
-    const LABELS: Record<NavInput, string> = {
-      auto: 'Nav: Auto',
-      mouse: 'Nav: Mouse',
-      trackpad: 'Nav: Trackpad',
-    };
-    const HINTS: Record<NavInput, string> = {
-      auto: 'Detect mouse vs trackpad automatically — click if the wheel pans when it should zoom',
-      mouse: 'Wheel always zooms',
-      trackpad: 'Two-finger swipe pans, +Shift orbits, pinch zooms',
-    };
-    const refresh = () => {
-      btn.textContent = LABELS[navInput()];
-      btn.title = HINTS[navInput()];
-    };
-    btn.addEventListener('click', () => {
-      const next = NAV_INPUTS[(NAV_INPUTS.indexOf(navInput()) + 1) % NAV_INPUTS.length];
-      setNavInput(next);
-      refresh();
-    });
-    refresh();
   }
 
   /* ================= sidebar tabs ================= */
@@ -1684,24 +1632,15 @@ export class UI {
     a.appendChild(del);
   }
 
-  /* ================= topbar & shortcuts ================= */
+  /* ================= tool buttons & shortcuts ================= */
 
+  /**
+   * What is LEFT of the old topbar wiring after step B2 handed the rest to
+   * React (src/ui/react/Topbar.tsx, StatusBar.tsx, Workspace.tsx): the controls
+   * whose `.active` class mirrors Plan2D/ElevationView tool state, plus the
+   * catalog drawer. They move in B5, together with the tool state itself.
+   */
   private wireTopbar(): void {
-    // view toggle
-    const setView = (mode: '2d' | 'split' | '3d') => {
-      $('#pane2d').classList.toggle('hidden', mode === '3d');
-      $('#pane3d').classList.toggle('hidden', mode === '2d');
-      this.view.setActive(mode !== '2d'); // a hidden 3D pane renders nothing
-      document
-        .querySelectorAll<HTMLElement>('#view-toggle button')
-        .forEach((b) => b.classList.toggle('active', b.dataset.view === mode));
-    };
-    document
-      .querySelectorAll<HTMLElement>('#view-toggle button')
-      .forEach((b) =>
-        b.addEventListener('click', () => setView(b.dataset.view as '2d' | 'split' | '3d'))
-      );
-
     // 2D pane sub-mode: top-down plan vs. front-view wall elevation
     const setMode2d = (mode: 'plan' | 'elev') => {
       $('#pane2d').classList.toggle('elev-mode', mode === 'elev');
@@ -1733,101 +1672,6 @@ export class UI {
       if (this.plan.armedDef) $('#catalog').classList.remove('open');
     };
 
-    $('#btn-undo').addEventListener('click', () => this.store.undo());
-    $('#btn-redo').addEventListener('click', () => this.store.redo());
-
-    const dayBtn = $('#btn-daynight');
-    const isNight = () => this.store.design.scene.night;
-    const refreshDay = () => {
-      dayBtn.textContent = isNight() ? '☾ Night' : '☀ Day';
-    };
-    dayBtn.addEventListener('click', () => {
-      this.store.setNight(!isNight());
-      this.store.commit();
-      refreshDay();
-    });
-    this.store.on('history', refreshDay);
-    refreshDay();
-
-    // door/drawer open-preview: pure view state, never part of the design
-    const openBtn = $('#btn-openfronts');
-    const refreshOpen = () => openBtn.classList.toggle('active', this.store.openFronts.allOpen);
-    openBtn.addEventListener('click', () =>
-      this.store.openFronts.setAll(!this.store.openFronts.allOpen)
-    );
-    this.store.on('pose', refreshOpen);
-    refreshOpen();
-
-    this.wireNavInput();
-
-    $('#btn-new').addEventListener('click', () => {
-      if (
-        !confirm('Start a new design? Your current design will be replaced (Undo can restore it).')
-      )
-        return;
-      this.plan.setArmed(null);
-      this.store.replaceDesign(emptyDesign());
-      this.plan.zoomFit();
-    });
-
-    $('#btn-save').addEventListener('click', () => {
-      const blob = new Blob([this.store.exportJson()], { type: 'application/json' });
-      this.download(URL.createObjectURL(blob), 'interior-design.json');
-    });
-
-    const fileInput = $('#file-input') as HTMLInputElement;
-    $('#btn-load').addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', async () => {
-      const f = fileInput.files?.[0];
-      fileInput.value = '';
-      if (!f) return;
-      try {
-        const raw: unknown = JSON.parse(await f.text());
-        const d = sanitizeDesign(raw);
-        if (!d) throw new Error('bad file');
-        // the reference photo rides ALONGSIDE the design (it is never part of
-        // it, so sanitizeDesign drops the field) — reinstall it afterwards, and
-        // never let a photo-less file resurrect the previous one
-        const src = (raw as { underlaySrc?: unknown }).underlaySrc;
-        const hasSrc = typeof src === 'string' && !!src;
-        if (!hasSrc) delete d.underlay;
-        this.store.replaceDesign(d);
-        if (hasSrc && d.underlay && !this.store.setUnderlay(src as string)) {
-          $('#status-hint').textContent =
-            'Design loaded, but the reference photo could not be stored — storage is full or blocked';
-        }
-        this.plan.zoomFit();
-      } catch {
-        $('#status-hint').textContent = 'Could not read that file — is it an interior-design.json?';
-      }
-    });
-
-    $('#btn-png').addEventListener('click', () => {
-      this.download(this.view.snapshotPNG(), 'interior-3d.png');
-    });
-
-    $('#btn-glb').addEventListener('click', async () => {
-      const btn = $('#btn-glb') as HTMLButtonElement;
-      btn.disabled = true;
-      try {
-        const blob = await this.view.exportGLB();
-        this.download(URL.createObjectURL(blob), 'interior.glb');
-        $('#status-hint').textContent =
-          'interior.glb exported — in Blender: File → Import → glTF 2.0';
-      } catch {
-        $('#status-hint').textContent = 'GLB export failed — try again after a reload.';
-      } finally {
-        btn.disabled = false;
-      }
-    });
-
-    this.wireExportMenu();
-
-    // pane controls
-    $('#btn-zoom-in').addEventListener('click', () => this.plan.zoomBy(1.25));
-    $('#btn-zoom-out').addEventListener('click', () => this.plan.zoomBy(0.8));
-    $('#btn-zoom-fit').addEventListener('click', () => this.plan.zoomFit());
-
     const measureBtn = $('#btn-measure');
     measureBtn.addEventListener('click', () => this.plan.setMeasure(!this.plan.measureOn));
     this.plan.onMeasureChange = () => measureBtn.classList.toggle('active', this.plan.measureOn);
@@ -1843,102 +1687,6 @@ export class UI {
     const drawBtn = $('#btn-draw-room');
     drawBtn.addEventListener('click', () => this.plan.setDrawRoom(!this.plan.drawRoomOn));
     this.plan.onDrawRoomChange = () => drawBtn.classList.toggle('active', this.plan.drawRoomOn);
-    document.querySelectorAll<HTMLElement>('#cam-controls button').forEach((b) =>
-      b.addEventListener('click', () => {
-        this.view.setPreset(b.dataset.cam as CamPreset);
-        document
-          .querySelectorAll<HTMLElement>('#cam-controls button')
-          .forEach((x) => x.classList.toggle('active', x === b));
-      })
-    );
-  }
-
-  private download(url: string, name: string): void {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    // the click consumed the URL synchronously; hand the blob's memory back
-    if (url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-
-  private downloadText(text: string, name: string, type: string): void {
-    const blob = new Blob([text], { type });
-    this.download(URL.createObjectURL(blob), name);
-  }
-
-  /** Export menu: cut list / shopping list CSVs, the BOM sheet, the plan sheet. */
-  private wireExportMenu(): void {
-    const btn = $('#btn-export');
-    const menu = $('#export-menu');
-    const closeMenu = () => menu.classList.remove('open');
-
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      menu.classList.toggle('open');
-    });
-    document.addEventListener('pointerdown', (e) => {
-      if (!menu.classList.contains('open')) return;
-      const t = e.target as Node;
-      if (!menu.contains(t) && !btn.contains(t)) closeMenu();
-    });
-
-    const action = (kind: 'cut' | 'buy' | 'sheet' | 'plan') =>
-      menu.querySelector(`[data-export="${kind}"]`) as HTMLButtonElement;
-
-    action('cut').addEventListener('click', () => {
-      const bom = buildBom(this.store.design);
-      this.downloadText(cutListCsv(bom), 'interior-cutlist.csv', 'text/csv;charset=utf-8');
-      $('#status-hint').textContent = 'interior-cutlist.csv exported';
-      closeMenu();
-    });
-
-    action('buy').addEventListener('click', () => {
-      const bom = buildBom(this.store.design);
-      this.downloadText(
-        shoppingListCsv(bom),
-        'interior-shopping-list.csv',
-        'text/csv;charset=utf-8'
-      );
-      $('#status-hint').textContent = 'interior-shopping-list.csv exported';
-      closeMenu();
-    });
-
-    action('sheet').addEventListener('click', () => {
-      const bom = buildBom(this.store.design);
-      const url = URL.createObjectURL(new Blob([bomHtml(bom)], { type: 'text/html' }));
-      const w = window.open(url, '_blank');
-      if (!w) this.download(url, 'interior-bom.html');
-      // the opened tab keeps reading the URL while it loads — outlive that, then free it
-      else setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      $('#status-hint').textContent = w
-        ? 'Printable sheet opened in a new tab'
-        : 'Pop-ups are blocked — interior-bom.html downloaded instead';
-      closeMenu();
-    });
-
-    action('plan').addEventListener('click', () => {
-      const opened = openPrintSheet(this.store);
-      $('#status-hint').textContent = opened
-        ? 'Plan sheet opened in a new tab — print it at 100% on A4 landscape'
-        : 'Pop-ups are blocked — interior-plan-sheet.html downloaded instead';
-      closeMenu();
-    });
-  }
-
-  private updateUndoButtons(): void {
-    ($('#btn-undo') as HTMLButtonElement).disabled = !this.store.canUndo();
-    ($('#btn-redo') as HTMLButtonElement).disabled = !this.store.canRedo();
-  }
-
-  private updateInfo(): void {
-    const rooms = this.store.design.rooms.length;
-    // info-severity findings are hints, not issues — they stay out of the count
-    const issues = this.store.warnings().filter((w) => w.severity !== 'info').length;
-    $('#status-info').textContent =
-      `${this.store.design.items.length} items · ${this.store.totalFloorArea().toFixed(1)} m²` +
-      (rooms > 1 ? ` · ${rooms} rooms` : '') +
-      (issues > 0 ? ` · ${issues} issue${issues === 1 ? '' : 's'}` : '');
   }
 
   private wireKeyboard(): void {
