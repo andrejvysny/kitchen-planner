@@ -251,6 +251,34 @@ may legally share space — lights, sockets, rugs, wall panels — set
 itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
 `snapsToWall`/`isWallMounted`/`isOverhead`.
 
+## Editor infrastructure contracts (Phase A — baseline lock)
+
+- `Store.on()` returns a disposer; calling it twice is a no-op, and `emit`
+  dispatches over a snapshot so unsubscribing mid-dispatch never skips a
+  sibling. `store.handlerCount(evt)` is a read-only test seam — a view that
+  attaches and detaches must leave it at its baseline.
+- Plan2D, ElevationView and View3D share one lifecycle contract:
+  `attach(canvas)` (idempotent for the held canvas) / `detach()` (idempotent;
+  aborts listeners, disconnects the ResizeObserver, runs store-subscription
+  disposers, cancels rAF loops) / `dispose()` (detach + permanent teardown).
+  Constructors delegate wiring to `attach()`. View3D keeps its WebGLRenderer
+  when re-attached to the SAME canvas (StrictMode remounts) and marks itself
+  rebuild-dirty while detached so it catches up on attach. Never call
+  `forceContextLoss()`. e2e/lifecycle.spec.ts is the leak gate.
+- Tests drive Plan2D ONLY through its façade: `viewport()/setViewport()/
+  toolState()/overlayState()/debug()`. `debug().drawCount/gestureCount` are
+  monotonic counters — the no-sleep assertion seam. If a test needs a private
+  field, the façade is wrong: fix the façade, not the test.
+- E2E waits POLL, never sleep: `waitUntil`/`resetReady`/`flushView`/
+  `waitForPose` + the debug counters. `test/interact.mjs` has exactly ONE
+  `waitForTimeout` (an annotated dblclick-folding pacing beat); do not add
+  more. Suite must stay green at `KP_CPU_THROTTLE=6`.
+- e2e/*.ts is covered by lint AND typecheck (eslint block + tsconfig.test.json
+  include) — a selector or API drift breaks the build, not just the specs.
+- e2e/dom-contract.spec.ts pins every DOM id/class/data-attr the suites use.
+  Renaming one means updating the contract table AND both suites in the same
+  change.
+
 ## Gotchas
 
 - Lights: emissive "bulb" meshes are tagged `userData.bulb = true`; View3D

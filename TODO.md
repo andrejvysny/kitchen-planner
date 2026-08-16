@@ -1,4 +1,45 @@
-# M7 — Editor core foundations (Cycle 1 of the migration + hardening program)
+# M8 — Phase A: baseline lock — COMPLETE
+
+Plan: ~/.claude/plans/act-as-senior-software-polished-blanket.md (supersedes
+the M7 plan below; approved program: A baseline → B React shell → C editor
+core → D multi-select → E precision → F stable edge ids + dimensions +
+constraints → G UX overhaul). Gate every step: `npm run lint && npm run
+typecheck && npm run test:unit && npm run build && node test/interact.mjs`
+(104/104) and `npx playwright test`.
+
+- [x] Baseline re-verified green before any change: lint · typecheck ·
+  434 unit · build · interact **104/104, ERRORS: none**.
+- [x] A1 `@playwright/test` enabled (see M0 below) — CI runs the spec suite
+  on port 4174 after the interact step.
+- [x] A2 `Store.on()` returns a disposer; emit dispatches over a snapshot;
+  `test/unit/store-events.test.ts` (+5, 439 total).
+- [x] A3 `attach(canvas)/detach()/dispose()` on Plan2D, ElevationView and
+  View3D — AbortController-signal listeners, subscription disposers, rAF
+  cancellation, renderer reuse on same-canvas re-attach (StrictMode-safe),
+  detach marks rebuild-dirty and attach catches up. `Store.handlerCount()`
+  test seam. `e2e/lifecycle.spec.ts` (3 tests) is the leak gate.
+- [x] A4 Plan2D façade `viewport()/setViewport()/toolState()/overlayState()/
+  debug()`; interact.mjs no longer touches a private field (pure rename,
+  104/104 unchanged).
+- [x] A5 sleep sweep: **129 → 1** `waitForTimeout` (the survivor is an
+  annotated dblclick-folding pacing beat). New poll helpers `resetReady`/
+  `flushView`/`waitForCameraSettled`; two waits became exact via
+  `camera.updateMatrixWorld()`. Wall/ceiling-visibility waits now poll the
+  mesh `.visible` flag (same frame-rate bug class as the M0 pose fix).
+  Verified **104/104 at 1× and at 6× CPU throttle**.
+- [x] A6 `e2e/dom-contract.spec.ts`: 12-phase tour, ~95 selector assertions
+  pinning every id/class/data-attr both suites use — the gate every React
+  step must keep green. e2e/*.ts brought under lint + typecheck.
+- [x] Repo-wide prettier reflow landed as its own commit (41 files), all
+  gates green after.
+- [ ] Verify CI green via `workflow_dispatch` on this branch (deploy workflow
+  triggers on master push; the branch run proves the new spec step).
+
+Next: Phase B — React shell with behavior parity (B0 units.ts/prefs/
+EditorState v0/StoreBridge/bootstrap → B1 app frame → B2 topbar+status),
+re-evaluate before B4-B6. See the plan file for the full phase specs.
+
+# M7 — Editor core foundations (superseded by the plan above)
 
 Plan: ~/.claude/plans/act-as-senior-software-hashed-honey.md
 Program: Cycle 1 (M0 CI · M1 editor core · M2 multi-selection · M3 React shell),
@@ -51,8 +92,7 @@ npm run build && node test/interact.mjs` (104/104).
   `placement`, `room-editing`. `test/interact.mjs` stays the full net.
 - [ ] Verify CI green via `workflow_dispatch` on a branch before merging — the
   deploy workflow only triggers on push to master, and a red E2E blocks Pages.
-- [ ] Sweep the remaining 131 sleeps opportunistically (input-pacing sleeps
-  after `mouse.move` are fine; render/rebuild/animation waits are not).
+- [x] Sweep the remaining sleeps — done in Phase A (see M8 above): 129 → 1.
 
 ## M1 — editor core (`src/editor/`), not started
 
