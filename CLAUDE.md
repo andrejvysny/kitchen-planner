@@ -261,10 +261,25 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   `attach(canvas)` (idempotent for the held canvas) / `detach()` (idempotent;
   aborts listeners, disconnects the ResizeObserver, runs store-subscription
   disposers, cancels rAF loops) / `dispose()` (detach + permanent teardown).
-  Constructors delegate wiring to `attach()`. View3D keeps its WebGLRenderer
-  when re-attached to the SAME canvas (StrictMode remounts) and marks itself
-  rebuild-dirty while detached so it catches up on attach. Never call
-  `forceContextLoss()`. e2e/lifecycle.spec.ts is the leak gate.
+  All three are constructed DETACHED — `new Plan2D(store, onHint)`,
+  `new ElevationView(store, onWallChange)`, `new View3D(store, opts)` never
+  touch the DOM — and the React shell hands each one its canvas from a ref
+  effect (src/ui/react/Workspace.tsx). View3D therefore starts rebuild-dirty
+  and frames the design (`setPreset('corner')`) on its FIRST attach only. It
+  keeps its WebGLRenderer when re-attached to the SAME canvas (StrictMode
+  remounts) and marks itself rebuild-dirty while detached so it catches up on
+  attach. Never call `forceContextLoss()`. e2e/lifecycle.spec.ts is the leak
+  gate.
+- React owns the application DOM: index.html is `<div id="react-root">` plus
+  the module script, and src/ui/react/App.tsx renders the former markup
+  node-for-node (Topbar / Sidebar / Workspace / PropsPanel / StatusBar are
+  organizational splits — the rendered tree is identical, and
+  e2e/layout.spec.ts pins the boot geometry). The shell holds NO state and
+  never re-renders, so src/ui/ui.ts keeps filling #catalog-inner, #outline,
+  #variables-panel and #props-inner exactly as before. `UI` itself has no
+  dispose(), so `mountLegacyUI()` (src/app/bootstrap.ts) constructs it once
+  behind a module guard, from an App-level effect that runs after the canvas
+  effects; the guard goes away when ui.ts is dissolved into components.
 - Tests drive Plan2D ONLY through its façade: `viewport()/setViewport()/
   toolState()/overlayState()/debug()`. `debug().drawCount/gestureCount` are
   monotonic counters — the no-sleep assertion seam. If a test needs a private

@@ -12,8 +12,13 @@ import { StoreBridge } from '../ui/react/storeBridge';
 /**
  * App bootstrap: constructs the singletons, in the order the pre-React
  * src/main.ts did. Importing this module IS the construction — src/app/main.tsx
- * imports it before it mounts React, so the legacy views own the DOM first and
- * the React root only ever attaches on top of a fully booted app.
+ * imports it before it mounts React.
+ *
+ * Nothing here touches the DOM any more: React owns the markup now, so the
+ * store and the three views are built DETACHED and the shell hands each view
+ * its canvas through `attach()` (a ref effect per canvas in
+ * src/ui/react/Workspace.tsx). The legacy `UI` controller, which document-
+ * queries its whole world in its constructor, waits for `mountLegacyUI()`.
  */
 
 // Test-only hook (KITCHENP-13 E2E coverage on any platform): a page-init
@@ -27,8 +32,11 @@ const loadedDesign = Store.loadAutosaved();
 export const store = new Store(loadedDesign ?? demoDesign());
 
 // loadAutosaved only stashes a recovery backup when the saved text existed
-// but failed to parse/sanitize — a brand-new install has neither, so no banner
-if (!loadedDesign && Store.recoveryPayload()) showRecoveryBanner();
+// but failed to parse/sanitize — a brand-new install has neither, so no banner.
+// The DECISION is taken here, before anything else can touch storage; the
+// banner itself lives inside #app, which React renders, so showing it waits
+// for mountLegacyUI().
+const needsRecoveryBanner = !loadedDesign && Store.recoveryPayload() !== null;
 
 /** One-shot banner offering the raw (unparseable) autosave text as a download. */
 function showRecoveryBanner(): void {
@@ -67,25 +75,42 @@ function showRecoveryBanner(): void {
   document.getElementById('app')!.prepend(bar);
 }
 
-const hintEl = document.getElementById('status-hint')!;
+// the status bar is React's markup now, so both callbacks resolve their target
+// on each call — they only ever fire from an ATTACHED view, i.e. after render
 export const plan = new Plan2D(
-  document.getElementById('canvas2d') as HTMLCanvasElement,
   store,
-  (hint) => (hintEl.textContent = hint)
+  (hint) => (document.getElementById('status-hint')!.textContent = hint)
 );
 
 export const elev = new ElevationView(
-  document.getElementById('canvas-elev') as HTMLCanvasElement,
   store,
   () => (document.getElementById('wall-label')!.textContent = elev.wallLabel())
 );
 
-export const view = new View3D(document.getElementById('canvas3d') as HTMLCanvasElement, store, {
+export const view = new View3D(store, {
   getArmed: () => plan.armedDef,
   clearArmed: () => plan.setArmed(null),
 });
 
-new UI(store, plan, view, elev);
+/** UI has no dispose() yet, so it may only ever be constructed once. */
+let uiMounted = false;
+
+/**
+ * Wire the legacy UI controller over the DOM React has just rendered.
+ *
+ * `UI` document-queries every element it owns in its constructor and registers
+ * listeners that it has no way to release, so this runs from an App-level
+ * effect — after the canvas effects, hence after every view is attached — and
+ * exactly once: React StrictMode calls that effect twice, and the guard makes
+ * the second call a no-op. When UI is dissolved into components in a later B
+ * step it gains a dispose() and the guard goes with it.
+ */
+export function mountLegacyUI(): void {
+  if (uiMounted) return;
+  uiMounted = true;
+  if (needsRecoveryBanner) showRecoveryBanner();
+  new UI(store, plan, view, elev);
+}
 
 /** Ephemeral editor state — nothing reads it yet; see src/editor/editorState.ts. */
 export const editor = new EditorState();

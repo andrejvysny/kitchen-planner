@@ -47,10 +47,14 @@ export class ElevationView {
   private subs: (() => void)[] = [];
   private attached = false;
 
-  constructor(canvas: HTMLCanvasElement, store: Store, onWallChange: () => void) {
+  /**
+   * Constructed DETACHED: the canvas arrives from `attach()`, which is what a
+   * React ref effect calls once the element is in the document. Nothing here
+   * touches the DOM, so the view can be built before the shell renders.
+   */
+  constructor(store: Store, onWallChange: () => void) {
     this.store = store;
     this.onWallChange = onWallChange;
-    this.attach(canvas);
   }
 
   /**

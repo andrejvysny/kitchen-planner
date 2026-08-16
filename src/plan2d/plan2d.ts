@@ -128,10 +128,14 @@ export class Plan2D {
   private subs: (() => void)[] = [];
   private attached = false;
 
-  constructor(canvas: HTMLCanvasElement, store: Store, onHint: (hint: string) => void) {
+  /**
+   * Constructed DETACHED: the canvas arrives from `attach()`, which is what a
+   * React ref effect calls once the element is in the document. Nothing here
+   * touches the DOM, so the view can be built before the shell renders.
+   */
+  constructor(store: Store, onHint: (hint: string) => void) {
     this.store = store;
     this.onHint = onHint;
-    this.attach(canvas);
   }
 
   /**

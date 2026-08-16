@@ -119,7 +119,8 @@ export class View3D {
 
   /** false while the 3D pane is hidden: no rendering, structural edits just queue */
   private active = true;
-  private rebuildQueued = false;
+  /** starts dirty: a view constructed detached owes its first build to attach() */
+  private rebuildQueued = true;
   private rebuildRaf = 0;
   private contextLost = false;
   /** rAF timestamp of the last rendered frame; 0 = the loop is (re)starting */
@@ -138,6 +139,8 @@ export class View3D {
   /** the animate() loop re-queues itself only while true — detach() stops it */
   private running = false;
   private animRaf = 0;
+  /** false until the first attach() framed the design; later attaches keep the pose */
+  private framed = false;
   /** context-loss curtain of the bound canvas, removed with the renderer */
   private lostOverlay: HTMLElement | null = null;
 
@@ -155,11 +158,13 @@ export class View3D {
   private getArmed: () => CatalogDef | null;
   private clearArmed: () => void;
 
-  constructor(
-    canvas: HTMLCanvasElement,
-    store: Store,
-    opts: { getArmed: () => CatalogDef | null; clearArmed: () => void }
-  ) {
+  /**
+   * Constructed DETACHED: the scene graph is assembled here, but the renderer,
+   * the controls and the first framing all need a canvas, so they wait for
+   * `attach()` — which is what a React ref effect calls once the element is in
+   * the document.
+   */
+  constructor(store: Store, opts: { getArmed: () => CatalogDef | null; clearArmed: () => void }) {
     this.store = store;
     this.getArmed = opts.getArmed;
     this.clearArmed = opts.clearArmed;
@@ -193,11 +198,7 @@ export class View3D {
 
     this.scene.add(this.roomGroup);
     this.scene.add(this.itemsGroup);
-
-    this.attach(canvas); // renderer, controls, gizmo, listeners, subscriptions
-
-    this.rebuild();
-    this.setPreset('corner');
+    // the scene starts empty and unframed; the first attach() pays both debts
   }
 
   /* ---------------- lifecycle ---------------- */
@@ -245,6 +246,13 @@ export class View3D {
 
     // edits made while detached were never heard: detach() left the scene dirty
     if (this.active) this.flushRebuild();
+
+    // the camera pose survives detach/attach, so only the FIRST canvas frames
+    // the design — the preset needs controls, which is why it waits for one
+    if (!this.framed) {
+      this.framed = true;
+      this.setPreset('corner');
+    }
 
     this.running = true;
     this.lastFrameMs = 0; // the pose clock restarts with the loop

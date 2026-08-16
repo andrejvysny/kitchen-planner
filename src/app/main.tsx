@@ -1,22 +1,18 @@
-// Import order is the contract: bootstrap constructs Store/Plan2D/View3D/UI as
-// a side effect of being imported, so the legacy app is fully booted before the
-// React root below mounts. Keep this import first.
+// Import order is the contract: bootstrap constructs Store/Plan2D/ElevationView/
+// View3D as a side effect of being imported, so every singleton <App/> reaches
+// for exists before the first render. Keep this import first.
 import './bootstrap';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from '../ui/react/App';
 
 /**
- * React entry point. The root is mounted but inert: <App/> renders null, so the
- * DOM stays exactly what index.html + src/ui/ui.ts produce. StrictMode is on
- * from day one — every view already honours the attach/detach/attach double
- * mount it forces (see e2e/lifecycle.spec.ts).
+ * React entry point. <App/> renders the whole application shell — index.html is
+ * down to the root div below — and src/ui/ui.ts keeps filling the containers it
+ * always did. StrictMode is on from day one: every view honours the
+ * attach/detach/attach double mount it forces (see e2e/lifecycle.spec.ts).
  */
-const reactRoot = document.createElement('div');
-reactRoot.id = 'react-root';
-document.body.appendChild(reactRoot);
-
-createRoot(reactRoot).render(
+createRoot(document.getElementById('react-root')!).render(
   <StrictMode>
     <App />
   </StrictMode>
