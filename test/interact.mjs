@@ -113,6 +113,74 @@ const waitForPose = (itemId, open) =>
     { itemId, open }
   );
 
+/** After #btn-new (or a corrupt-autosave reload lands on the demo/fresh
+ * design): the deterministic empty 4x3 room has landed — 0 items, 1 room,
+ * 4 corners. Polls the actual reset state instead of guessing how long
+ * replaceDesign() + zoomFit() take (both are synchronous, but the click
+ * goes through a confirm() dialog round-trip that is not). */
+const resetReady = () =>
+  waitUntil(() => {
+    const d = window.__kp?.store?.design;
+    return !!d && d.items.length === 0 && d.rooms.length === 1 && d.rooms[0].corners.length === 4;
+  });
+
+/** Force the queued structural rebuild synchronously. `view.items`/
+ * `view.worldToScreen` already do this internally, but raw reads of
+ * `view['scene']`/`view['walls']`/`view.renderer` do not — see CLAUDE.md:
+ * "Anything that reads the scene synchronously must call flushRebuild()
+ * first." Deterministic: no polling needed once this resolves. */
+const flushView = () => page.evaluate(() => window.__kp.view.flushRebuild());
+
+// Note: no helper wraps `plan.debug().drawCount` here — every plan-overlay
+// assertion in this suite (measure, roomGhost, drawRing) reads Plan2D's live
+// fields directly (this.measure/this.roomGhost/drawRing()), not draw()'s
+// canvas output, so a drawCount-advance poll was never actually needed; the
+// counter is still exposed on window.__kp.plan.debug() for any future check
+// that genuinely depends on a repaint having happened.
+
+/** The design's JSON fingerprint has changed since `before` — the same
+ * snapshot the undo stack itself stores (store.commit() pushes
+ * JSON.stringify(design)), so this is exactly the signal a real mutation
+ * (edit, undo, redo) produces. Use for "bare" undo/redo cleanup with no
+ * more specific resulting value asserted right after; capture `before` with
+ * `designFingerprint()` immediately before the action. */
+const designFingerprint = () => page.evaluate(() => JSON.stringify(window.__kp.store.design));
+const waitForDesignChange = (before) =>
+  waitUntil((b) => JSON.stringify(window.__kp.store.design) !== b, before);
+
+/** OrbitControls (enableDamping/dampingFactor in View3D) animates the camera
+ * toward its target pose over real wall-clock frames after a drag/wheel nav
+ * gesture ends — the same class of bug the door-pose animation had (TODO.md
+ * M0): a fixed sleep silently assumes a frame rate. Poll position+target
+ * until they stop changing instead of guessing a settle time. */
+const waitForCameraSettled = () =>
+  page
+    .evaluate(() => {
+      window.__camSettle = { last: '', stable: 0 };
+    })
+    .then(() =>
+      waitUntil(() => {
+        const { camera, controls } = window.__kp.view;
+        const cur = [
+          camera.position.x,
+          camera.position.y,
+          camera.position.z,
+          controls.target.x,
+          controls.target.y,
+          controls.target.z,
+        ]
+          .map((n) => n.toFixed(5))
+          .join(',');
+        const st = window.__camSettle;
+        if (st.last === cur) st.stable++;
+        else {
+          st.stable = 0;
+          st.last = cur;
+        }
+        return st.stable >= 3;
+      })
+    );
+
 await bootReady();
 // deterministic state: empty 4x3 room, no items
 await page.evaluate(() => localStorage.clear());
@@ -136,7 +204,7 @@ await page.mouse.move(mbb.x + mp1.x, mbb.y + mp1.y);
 await page.mouse.down();
 await page.mouse.move(mbb.x + mp2.x, mbb.y + mp2.y, { steps: 6 });
 await page.mouse.up();
-await page.waitForTimeout(120);
+await waitUntil(() => !!window.__kp.plan.overlayState().measure.b);
 const measured = await page.evaluate(() => {
   const m = window.__kp.plan.overlayState().measure;
   const d = m.a && m.b ? Math.hypot(m.b.x - m.a.x, m.b.y - m.a.y) : -1;
@@ -158,7 +226,7 @@ await page.click('.cat-item[data-def-id="base-cabinet"]');
 const bb = await paneOffset();
 const target = await worldToScreen(2.0, 2.75); // inside the room, near the bottom wall of the 4x3 room
 await page.mouse.click(bb.x + target.x, bb.y + target.y);
-await page.waitForTimeout(300);
+await waitUntil((n) => window.__kp.store.design.items.length > n, n0);
 const n1 = await count();
 results.push(['place base cabinet', n1 === n0 + 1]);
 
@@ -179,7 +247,7 @@ results.push(['props shows item', title === 'Base cabinet']);
 // 2b. components outline lists the placed item under its type group + row selects it
 // (outline lives on the "Components" sidebar tab — switch to it first)
 await page.click('#sidebar-tabs button[data-tab="components"]');
-await page.waitForTimeout(80);
+await waitUntil(() => document.getElementById('tab-components')?.classList.contains('active'));
 results.push([
   'components tab shows outline, hides library',
   (await page.isVisible('#outline .ol-head')) && !(await page.isVisible('#catalog-inner')),
@@ -196,10 +264,10 @@ results.push([
   !!baseGroup && baseGroup.rows.includes('Base cabinet'),
 ]);
 await page.evaluate(() => window.__kp.store.select({ kind: 'none' }));
-await page.waitForTimeout(80);
+await waitUntil(() => window.__kp.store.selection.kind === 'none');
 // the outline now leads with a Rooms group — the first component row follows it
 await page.click('#outline .ol-row:not(.room-row)');
-await page.waitForTimeout(120);
+await waitUntil(() => window.__kp.store.selection.kind === 'item');
 const outlineSel = await page.evaluate(() => window.__kp.store.selection);
 results.push([
   'outline row selects item',
@@ -212,7 +280,7 @@ results.push([
 ]);
 // back to the Library tab for subsequent catalog placements
 await page.click('#sidebar-tabs button[data-tab="library"]');
-await page.waitForTimeout(80);
+await waitUntil(() => document.getElementById('tab-library')?.classList.contains('active'));
 
 // 3. drag the item along the wall
 const from = await worldToScreen(placed.x, placed.y);
@@ -220,7 +288,10 @@ await page.mouse.move(bb.x + from.x, bb.y + from.y);
 await page.mouse.down();
 await page.mouse.move(bb.x + from.x + 120, bb.y + from.y, { steps: 8 });
 await page.mouse.up();
-await page.waitForTimeout(200);
+await waitUntil((x0) => {
+  const items = window.__kp.store.design.items;
+  return Math.abs(items[items.length - 1].x - x0) > 0.3;
+}, placed.x);
 const moved = await page.evaluate(() => {
   const items = window.__kp.store.design.items;
   const it = items[items.length - 1];
@@ -233,7 +304,10 @@ results.push([
 
 // 4. undo restores
 await page.keyboard.press('Control+z');
-await page.waitForTimeout(200);
+await waitUntil((mx) => {
+  const items = window.__kp.store.design.items;
+  return Math.abs(items[items.length - 1].x - mx) > 0.01;
+}, moved.x);
 const afterUndo = await page.evaluate(() => {
   const items = window.__kp.store.design.items;
   const it = items[items.length - 1];
@@ -241,14 +315,14 @@ const afterUndo = await page.evaluate(() => {
 });
 results.push(['undo drag', Math.abs(afterUndo - placed.x) < 0.02]);
 await page.keyboard.press('Control+z');
-await page.waitForTimeout(200);
+await waitUntil((n) => window.__kp.store.design.items.length < n, n1);
 results.push(['undo place', (await count()) === n0]);
 
 // 5. place a window on the top wall
 await page.click('.cat-item[data-def-id="window"]');
 const wt = await worldToScreen(2.0, 0.0);
 await page.mouse.click(bb.x + wt.x, bb.y + wt.y);
-await page.waitForTimeout(200);
+await waitUntil(() => window.__kp.store.design.openings.length > 0);
 const openings = await page.evaluate(() => window.__kp.store.design.openings.length);
 results.push(['place window', openings === 1]);
 
@@ -257,23 +331,26 @@ await page.mouse.click(
   bb.x + (await worldToScreen(0.0, 1.0)).x,
   bb.y + (await worldToScreen(0.0, 1.0)).y
 );
-await page.waitForTimeout(300);
+await waitUntil(() => window.__kp.store.selection.kind === 'wall');
 const wallTitle = await page.textContent('.props-title');
 const lenInput = page.locator('#props-inner input[type=number]').first();
 await lenInput.fill('350');
 await lenInput.press('Enter');
-await page.waitForTimeout(300);
+await waitUntil(() => Math.abs(window.__kp.store.floorArea() - 4 * 3.5) < 0.05);
 const area = await page.evaluate(() => window.__kp.store.floorArea());
 results.push(['wall selected', wallTitle === 'Wall']);
 results.push(['wall length edit', Math.abs(area - 4 * 3.5) < 0.05]);
 
 // 7. rectangle resize via room panel
 await page.keyboard.press('Escape');
-await page.waitForTimeout(300);
+await waitUntil(() => window.__kp.store.selection.kind === 'none');
 const widthInput = page.locator('#props-inner input[type=number]').first();
 await widthInput.fill('500');
 await widthInput.press('Enter');
-await page.waitForTimeout(300);
+await waitUntil(() => {
+  const r = window.__kp.store.rectangleSize();
+  return !!r && Math.abs(r.w - 5) < 0.01;
+});
 const rect = await page.evaluate(() => window.__kp.store.rectangleSize());
 results.push(['room resize', rect && Math.abs(rect.w - 5) < 0.01 && Math.abs(rect.d - 3.5) < 0.01]);
 
@@ -293,7 +370,10 @@ const partId = await page.evaluate(() => window.__kp.store.design.customParts[1]
 await page.click(`.cat-item[data-def-id="${partId}"]`);
 const ct = await worldToScreen(2.5, 2.0);
 await page.mouse.click(bb.x + ct.x, bb.y + ct.y);
-await page.waitForTimeout(300);
+await waitUntil((pid) => {
+  const items = window.__kp.store.design.items;
+  return items[items.length - 1]?.defId === pid;
+}, partId);
 const lastDef = await page.evaluate(() => {
   const items = window.__kp.store.design.items;
   return items[items.length - 1]?.defId;
@@ -309,7 +389,10 @@ await studioReady('editor');
 const saveGated = await page.locator('.studio-save').isDisabled();
 await page.click('.board-add');
 await page.click('.board-add');
-await page.waitForTimeout(300);
+await waitUntil(() => {
+  const btn = document.querySelector('.studio-save');
+  return !!btn && !btn.disabled;
+});
 const saveOpen = await page.locator('.studio-save').isEnabled();
 await page.click('.studio-save');
 await studioClosed();
@@ -325,7 +408,10 @@ const ffId = await page.evaluate(() => {
 await page.click(`.cat-item[data-def-id="${ffId}"]`);
 const ffAt = await worldToScreen(3.6, 1.6);
 await page.mouse.click(bb.x + ffAt.x, bb.y + ffAt.y);
-await page.waitForTimeout(300);
+await waitUntil((fid) => {
+  const items = window.__kp.store.design.items;
+  return items[items.length - 1]?.defId === fid;
+}, ffId);
 const ffPlaced = await page.evaluate(() => {
   const items = window.__kp.store.design.items;
   return items[items.length - 1]?.defId;
@@ -351,7 +437,9 @@ await studioReady('picker');
 await page.click('.studio-card[data-type="board"]');
 await studioReady('editor');
 await page.click('.studio-form .choice-btn:has-text("L-shape")');
-await page.waitForTimeout(300);
+// the outline swap + canvas.draw() run synchronously in the click handler —
+// just confirm the canvas is laid out before reading its box
+await waitUntil(() => (document.querySelector('.poly-canvas')?.clientWidth ?? 0) > 0);
 // drag the midpoint of the bottom edge of the L (world (-0.31, -0.13)) downward
 const pcBox = await page.locator('.poly-canvas').boundingBox();
 const pcView = await page.evaluate(() => {
@@ -365,17 +453,18 @@ await page.mouse.move(pmx, pmy);
 await page.mouse.down();
 await page.mouse.move(pmx, pmy + 25, { steps: 4 });
 await page.mouse.up();
-await page.waitForTimeout(200);
+await waitUntil(() => (document.querySelector('.poly-canvas')?.clientWidth ?? 0) > 0);
 // cutout in the bottom band of the L
 await page.click('.studio-form .board-add');
-await page.waitForTimeout(200);
+// yInput.fill() below already auto-waits for the "Selected cutout" inspector
+// (rendered synchronously by canvas.onSelect) to be attached — no extra wait
 const yInput = page
   .locator('.studio-form .prop-section', { hasText: 'Selected cutout' })
   .locator('input')
   .nth(1);
 await yInput.fill('-44');
 await yInput.press('Enter');
-await page.waitForTimeout(200);
+await waitUntil(() => !document.querySelector('.studio-save')?.disabled);
 const saveOk = await page.locator('.studio-save').isEnabled();
 await page.click('.studio-save');
 await studioClosed();
@@ -386,8 +475,9 @@ const boardPart = await page.evaluate(() => {
 });
 await page.click(`.cat-item[data-def-id="${boardPart.id}"]`);
 const bAt = await worldToScreen(2.5, 1.6);
+const boardN0 = await count();
 await page.mouse.click(bb.x + bAt.x, bb.y + bAt.y);
-await page.waitForTimeout(250);
+await waitUntil((n) => window.__kp.store.design.items.length > n, boardN0);
 const boardItemId = await page.evaluate(() => {
   const items = window.__kp.store.design.items;
   const it = items[items.length - 1];
@@ -398,16 +488,18 @@ const boardItemId = await page.evaluate(() => {
 });
 // click inside the L's notch: bbox hit but polygon miss → must NOT select the board
 const notch = await worldToScreen(2.5 - 0.6, 1.6 + 0.4);
+const gcNotch = await page.evaluate(() => window.__kp.plan.debug().gestureCount);
 await page.mouse.click(bb.x + notch.x, bb.y + notch.y);
-await page.waitForTimeout(200);
+await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gcNotch);
 const notchSel = await page.evaluate(() => {
   const s = window.__kp.store.selection;
   return s.kind === 'item' ? s.id : null;
 });
 // click inside the L's arm → selects the board
 const arm = await worldToScreen(2.5 + 0.9, 1.6 + 0.3);
+const gcArm = await page.evaluate(() => window.__kp.plan.debug().gestureCount);
 await page.mouse.click(bb.x + arm.x, bb.y + arm.y);
-await page.waitForTimeout(200);
+await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gcArm);
 const armSel = await page.evaluate(() => {
   const s = window.__kp.store.selection;
   return s.kind === 'item' ? s.id : null;
@@ -435,12 +527,12 @@ await page.click('.studio-card[data-type="cabinet"]');
 await studioReady('editor');
 const zcBox = await page.locator('.zone-canvas').boundingBox();
 await page.mouse.click(zcBox.x + zcBox.width / 2, zcBox.y + zcBox.height / 2);
-await page.waitForTimeout(200);
+// the click handler selects the zone + re-renders the toolbar synchronously
+await waitUntil(() => !!document.querySelector('.zone-toolbar'));
 const splitEnabled = await page.locator('.zone-toolbar button:has-text("⬌ Split")').isEnabled();
 await page.click('.zone-toolbar button:has-text("⬌ Split")');
-await page.waitForTimeout(200);
+// page.click() below already auto-waits for the post-split "Door" fill button
 await page.click('.zone-toolbar button:text-is("Door")');
-await page.waitForTimeout(200);
 await page.click('.studio-save');
 await studioClosed();
 const zonePart = await page.evaluate(() => {
@@ -465,7 +557,7 @@ await studioReady('picker');
 await page.click('.studio-card[data-type="cabinet"]');
 await studioReady('editor');
 await page.click('.foot-choice button:has-text("Diagonal corner")');
-await page.waitForTimeout(300);
+// page.click() below already auto-waits for .studio-save
 await page.click('.studio-save');
 await studioClosed();
 const cornerPart = await page.evaluate(() => {
@@ -475,8 +567,9 @@ const cornerPart = await page.evaluate(() => {
 });
 await page.click(`.cat-item[data-def-id="${cornerPart.id}"]`);
 const cAt = await worldToScreen(0.5, 0.45);
+const cornerN0 = await count();
 await page.mouse.click(bb.x + cAt.x, bb.y + cAt.y);
-await page.waitForTimeout(250);
+await waitUntil((n) => window.__kp.store.design.items.length > n, cornerN0);
 const cornerItem = await page.evaluate(() => {
   const items = window.__kp.store.design.items;
   const it = items[items.length - 1];
@@ -492,15 +585,17 @@ const cutHit = await page.evaluate((ci) => {
   };
 }, cornerItem);
 const cutPt = await worldToScreen(cutHit.x, cutHit.y);
+const gcCut = await page.evaluate(() => window.__kp.plan.debug().gestureCount);
 await page.mouse.click(bb.x + cutPt.x, bb.y + cutPt.y);
-await page.waitForTimeout(200);
+await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gcCut);
 const cutSel = await page.evaluate(() => {
   const s = window.__kp.store.selection;
   return s.kind === 'item' ? s.id : null;
 });
 const bodyPt = await worldToScreen(cornerItem.x, cornerItem.y);
+const gcBody = await page.evaluate(() => window.__kp.plan.debug().gestureCount);
 await page.mouse.click(bb.x + bodyPt.x, bb.y + bodyPt.y);
-await page.waitForTimeout(200);
+await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gcBody);
 const bodySel = await page.evaluate(() => {
   const s = window.__kp.store.selection;
   return s.kind === 'item' ? s.id : null;
@@ -523,7 +618,7 @@ await page.keyboard.press('Escape');
 
 // 10. wall midpoint: click selects the wall, only a drag adds a corner
 await page.keyboard.press('Escape');
-await page.waitForTimeout(150);
+await waitUntil(() => window.__kp.store.selection.kind === 'none');
 const cornersBefore = await page.evaluate(() => window.__kp.store.activeRoom().corners.length);
 const midWorld = await page.evaluate(() => {
   // the left wall (x = 0) — the right one can sit outside the un-refitted viewport
@@ -532,7 +627,7 @@ const midWorld = await page.evaluate(() => {
 });
 const mp = await worldToScreen(midWorld.x, midWorld.y);
 await page.mouse.click(bb.x + mp.x, bb.y + mp.y);
-await page.waitForTimeout(200);
+await waitUntil(() => window.__kp.store.selection.kind === 'wall');
 const midClick = await page.evaluate(() => ({
   n: window.__kp.store.activeRoom().corners.length,
   sel: window.__kp.store.selection.kind,
@@ -545,7 +640,10 @@ await page.mouse.move(bb.x + mp.x, bb.y + mp.y);
 await page.mouse.down();
 await page.mouse.move(bb.x + mp.x - 30, bb.y + mp.y, { steps: 4 });
 await page.mouse.up();
-await page.waitForTimeout(200);
+await waitUntil(
+  (n0c) => window.__kp.store.activeRoom().corners.length > n0c,
+  cornersBefore
+);
 const midDrag = await page.evaluate(() => ({
   n: window.__kp.store.activeRoom().corners.length,
   sel: window.__kp.store.selection.kind,
@@ -555,7 +653,10 @@ results.push([
   midDrag.n === cornersBefore + 1 && midDrag.sel === 'corner',
 ]);
 await page.keyboard.press('Control+z');
-await page.waitForTimeout(200);
+await waitUntil(
+  (n0c) => window.__kp.store.activeRoom().corners.length === n0c,
+  cornersBefore
+);
 results.push([
   'undo midpoint drag',
   (await page.evaluate(() => window.__kp.store.activeRoom().corners.length)) === cornersBefore,
@@ -583,8 +684,9 @@ const ccw = await page.evaluate(() => {
   return { area: s / 2, openingsOk };
 });
 results.push(['corner flip keeps CCW invariant', ccw.area > 0 && ccw.openingsOk]);
+const ccwFp = await designFingerprint();
 await page.keyboard.press('Control+z');
-await page.waitForTimeout(200);
+await waitForDesignChange(ccwFp);
 
 // 12. pointercancel mid-drag commits the move and resets the gesture
 const pcItem = await page.evaluate(() => {
@@ -602,10 +704,16 @@ await page.evaluate(() =>
     .dispatchEvent(new PointerEvent('pointercancel', { bubbles: true }))
 );
 await page.mouse.up();
-await page.waitForTimeout(200);
+await waitUntil(
+  (a) => Math.abs(window.__kp.store.itemById(a.id).x - a.x0) > 0.2,
+  { id: pcItem.id, x0: pcItem.x }
+);
 const pcMoved = await page.evaluate((id) => window.__kp.store.itemById(id).x, pcItem.id);
 await page.keyboard.press('Control+z');
-await page.waitForTimeout(200);
+await waitUntil(
+  (a) => Math.abs(window.__kp.store.itemById(a.id).x - a.x0) < 0.02,
+  { id: pcItem.id, x0: pcItem.x }
+);
 const pcUndone = await page.evaluate((id) => window.__kp.store.itemById(id).x, pcItem.id);
 results.push([
   'pointercancel commits drag',
@@ -622,10 +730,10 @@ const stackIds = await page.evaluate(() => {
 });
 const sp = await worldToScreen(1.0, 1.0);
 await page.mouse.click(bb.x + sp.x, bb.y + sp.y);
-await page.waitForTimeout(150);
+await waitUntil((id) => window.__kp.store.selection.id === id, stackIds.wallId);
 const cycleSel1 = await page.evaluate(() => window.__kp.store.selection.id);
 await page.mouse.click(bb.x + sp.x, bb.y + sp.y);
-await page.waitForTimeout(150);
+await waitUntil((id) => window.__kp.store.selection.id === id, stackIds.baseId);
 const cycleSel2 = await page.evaluate(() => window.__kp.store.selection.id);
 results.push([
   'click cycles stacked items',
@@ -648,14 +756,14 @@ const kbSetup = await page.evaluate(() => {
 await page.keyboard.press('r');
 await page.keyboard.press('ArrowRight');
 await page.keyboard.press('Control+d');
-await page.waitForTimeout(150);
+await waitUntil((n) => window.__kp.store.design.items.length > n, kbSetup.n);
 const kb = await page.evaluate((id) => {
   const st = window.__kp.store;
   const it = st.itemById(id);
   return { rot: it.rotation, x: it.x, n: st.design.items.length };
 }, kbSetup.id);
 await page.keyboard.press('Delete'); // removes the selected duplicate
-await page.waitForTimeout(150);
+await waitUntil((n) => window.__kp.store.design.items.length === n, kbSetup.n);
 const kbAfter = await page.evaluate((id) => {
   const st = window.__kp.store;
   return { n: st.design.items.length, origAlive: !!st.itemById(id) };
@@ -684,9 +792,9 @@ const doorId = await page.evaluate(() => {
   return o.id;
 });
 await page.keyboard.press('Control+z');
-await page.waitForTimeout(150);
+await waitUntil((id) => !window.__kp.store.openingById(id), doorId);
 await page.evaluate(() => window.__kp.store.redo());
-await page.waitForTimeout(150);
+await waitUntil((id) => !!window.__kp.store.openingById(id), doorId);
 const doorProps = await page.evaluate((id) => {
   const o = window.__kp.store.openingById(id);
   return !!o && o.hinge === 'right' && o.swing === 'out';
@@ -704,10 +812,10 @@ await page.evaluate(() => {
   window.__kp.store.commit();
 });
 await page.click('#btn-daynight');
-await page.waitForTimeout(120);
+await waitUntil(() => window.__kp.store.design.scene.night === true);
 const night1 = await page.evaluate(() => window.__kp.store.design.scene.night);
 await page.click('#btn-daynight');
-await page.waitForTimeout(120);
+await waitUntil(() => window.__kp.store.design.scene.night === false);
 const night2 = await page.evaluate(() => window.__kp.store.design.scene.night);
 results.push(['day/night toggle', night1 === true && night2 === false]);
 
@@ -721,8 +829,12 @@ await page.evaluate((ids) => {
   camera.position.set(it.x, 1.2, it.y + 1.8);
   controls.target.set(it.x, 0.45, it.y);
   controls.update();
+  // OrbitControls.update() only touches position/quaternion — matrixWorld(Inverse)
+  // stays stale until the next renderer.render() call. worldToScreen()'s
+  // Vector3.project() needs the fresh inverse NOW, not after a queued rAF frame,
+  // so force it here instead of guessing how long "a frame" takes under throttle.
+  camera.updateMatrixWorld();
 }, stackIds);
-await page.waitForTimeout(250); // let a frame render so projections are current
 const pick3d = await page.evaluate((ids) => {
   const it = window.__kp.store.itemById(ids.baseId);
   const p = window.__kp.view.worldToScreen(it.x, 0.4, it.y);
@@ -730,7 +842,7 @@ const pick3d = await page.evaluate((ids) => {
 }, stackIds);
 const bb3 = await page.locator('#canvas3d').boundingBox();
 await page.mouse.click(bb3.x + pick3d.x, bb3.y + pick3d.y);
-await page.waitForTimeout(200);
+await waitUntil((id) => window.__kp.store.selection.id === id, pick3d.id);
 const sel3d = await page.evaluate(() => window.__kp.store.selection);
 results.push(['3D click selects item', sel3d.kind === 'item' && sel3d.id === pick3d.id]);
 
@@ -756,7 +868,7 @@ const navMidDrag = async (shift) => {
   await page.mouse.move(bb3.x + bb3.width / 2 + 120, bb3.y + bb3.height / 2 + 60, { steps: 6 });
   await page.mouse.up({ button: 'middle' });
   if (shift) await page.keyboard.up('Shift');
-  await page.waitForTimeout(300);
+  await waitForCameraSettled(); // OrbitControls damping decays over real frames
   return cam3d();
 };
 const navMoved = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -781,8 +893,8 @@ const navSel = await page.evaluate(() => window.__kp.store.selection);
 results.push(['3D middle-drag keeps selection', navSel.kind === 'item' && navSel.id === pick3d.id]);
 
 // back to the corner preset so later 3D steps see the standard framing
+// (setPreset sets position/target directly, no damping to settle)
 await page.evaluate(() => window.__kp.view.setPreset('corner'));
-await page.waitForTimeout(200);
 
 // 17d. wheel = zoom, swipe = pan (KITCHENP-13). These dispatch synthetic wheel
 // events on purpose: Playwright's trusted mouse.wheel() emits a textbook
@@ -820,18 +932,22 @@ const swipe = { deltaX: 0.5, deltaY: 2.5 };
 const setNav = (mode) => page.evaluate((m) => window.__kp.setNavInput(m), mode);
 const plan2d = () => page.evaluate(() => window.__kp.plan.viewport());
 
+// sendWheel dispatches a synthetic WheelEvent via page.evaluate(), which
+// resolves only once the (synchronous) onWheel handler has returned, so the
+// zoom/pan/camera writes below are already applied — each poll still checks
+// the exact delta the assertion needs rather than trusting that blindly.
 // --- 2D plan ---
 await setNav('auto');
 const z0 = await plan2d();
 await sendWheel('#canvas2d', accel);
-await page.waitForTimeout(150);
+await waitUntil((z) => Math.abs(window.__kp.plan.viewport().zoom - z) > 0.5, z0.zoom);
 const z1 = await plan2d();
 results.push(['2D accelerated mouse notch zooms', Math.abs(z1.zoom - z0.zoom) > 0.5]);
 
 await setNav('auto');
 const p0 = await plan2d();
 await sendWheel('#canvas2d', swipe);
-await page.waitForTimeout(150);
+await waitUntil((y) => Math.abs(window.__kp.plan.viewport().panY - y) > 0.5, p0.panY);
 const p1 = await plan2d();
 results.push([
   '2D trackpad swipe still pans',
@@ -842,14 +958,20 @@ results.push([
 await setNav('auto');
 const c0 = await cam3d();
 await sendWheel('#canvas3d', accel);
-await page.waitForTimeout(150);
+await waitUntil((d) => {
+  const { camera, controls } = window.__kp.view;
+  return Math.abs(camera.position.distanceTo(controls.target) - d) > 1e-3;
+}, c0.dist);
 const c1 = await cam3d();
 results.push(['3D accelerated mouse notch zooms', Math.abs(c1.dist - c0.dist) > 1e-3]);
 
 await setNav('auto');
 const c2 = await cam3d();
 await sendWheel('#canvas3d', swipe);
-await page.waitForTimeout(150);
+await waitUntil((tgt) => {
+  const { target } = window.__kp.view.controls;
+  return Math.hypot(target.x - tgt[0], target.y - tgt[1], target.z - tgt[2]) > 1e-4;
+}, c2.tgt);
 const c3 = await cam3d();
 results.push([
   '3D trackpad swipe still pans',
@@ -861,7 +983,7 @@ results.push([
 await setNav('mouse');
 const m0 = await plan2d();
 await sendWheel('#canvas2d', swipe); // trackpad-shaped, but forced to mouse
-await page.waitForTimeout(150);
+await waitUntil((z) => Math.abs(window.__kp.plan.viewport().zoom - z) > 1e-6, m0.zoom);
 const m1 = await plan2d();
 // A 2.5px delta is a small dolly, so assert only that zoom moved — the pan
 // path is the one that provably never touches zoom.
@@ -870,7 +992,7 @@ results.push(['Nav: Mouse forces zoom on swipe-shaped deltas', Math.abs(m1.zoom 
 await setNav('trackpad');
 const t0 = await plan2d();
 await sendWheel('#canvas2d', accel); // mouse-shaped, but forced to trackpad
-await page.waitForTimeout(150);
+await waitUntil((y) => Math.abs(window.__kp.plan.viewport().panY - y) > 0.5, t0.panY);
 const t1 = await plan2d();
 results.push([
   'Nav: Trackpad forces pan on notch-shaped deltas',
@@ -895,7 +1017,7 @@ const worktopChip = await page.evaluate(() => {
   chip.click();
   return true;
 });
-await page.waitForTimeout(250);
+await waitUntil((id) => window.__kp.store.itemById(id)?.counterMaterial === 'marble-dark', stackIds.baseId);
 const counterState = await page.evaluate((id) => {
   const it = window.__kp.store.itemById(id);
   let textured = false;
@@ -918,7 +1040,7 @@ await page.evaluate(() => {
   );
   sec?.querySelector('.toggle-row input')?.click();
 });
-await page.waitForTimeout(250);
+await waitUntil((id) => window.__kp.store.itemById(id)?.counterMaterialRot === true, stackIds.baseId);
 const rotState = await page.evaluate((id) => {
   const it = window.__kp.store.itemById(id);
   let rot = 0;
@@ -963,7 +1085,7 @@ results.push(['item material rotation applies', frontRot]);
 // 17e. KITCHENP-12: picking a front COLOUR must drop a texture so the colour
 // shows (else the surface is stuck on textures). Drive the real props UI.
 await page.evaluate((id) => window.__kp.store.select({ kind: 'item', id }), stackIds.baseId);
-await page.waitForTimeout(120);
+await waitUntil((id) => window.__kp.store.selection.kind === 'item' && window.__kp.store.selection.id === id, stackIds.baseId);
 const colourSection = () =>
   page.evaluate(() =>
     [...document.querySelectorAll('.prop-section')].findIndex(
@@ -984,13 +1106,13 @@ const clickInColourSection = (sel) =>
   );
 // apply Oak texture, then pick a plain colour swatch in the same section
 const appliedTex = await clickInColourSection('.swatch[title="Oak"]');
-await page.waitForTimeout(200);
+await waitUntil((id) => window.__kp.store.itemById(id)?.material === 'oak', stackIds.baseId);
 const texturedBefore = await page.evaluate(
   (id) => window.__kp.store.itemById(id).material,
   stackIds.baseId
 );
 const pickedColour = await clickInColourSection('.swatch[title^="#"]');
-await page.waitForTimeout(250);
+await waitUntil((id) => window.__kp.store.itemById(id)?.material === undefined, stackIds.baseId);
 const revert = await page.evaluate((id) => {
   const it = window.__kp.store.itemById(id);
   let mappedFronts = 0;
@@ -1015,9 +1137,15 @@ results.push(['reverted front renders untextured', revert.mappedFronts === 0]);
 
 // 17f. tintable plastic keeps tinting on a colour pick (must NOT be dropped)
 await clickInColourSection('.swatch[title="Matte plastic"]');
-await page.waitForTimeout(180);
+await waitUntil((id) => window.__kp.store.itemById(id)?.material === 'plastic-matte', stackIds.baseId);
 await clickInColourSection('.swatch[title^="#"]');
-await page.waitForTimeout(180);
+await waitUntil(
+  (id) => {
+    const c = window.__kp.store.itemById(id)?.color;
+    return typeof c === 'string' && c[0] === '#';
+  },
+  stackIds.baseId
+);
 const plasticKept = await page.evaluate(
   (id) => window.__kp.store.itemById(id).material,
   stackIds.baseId
@@ -1071,7 +1199,7 @@ results.push(['glb export magic', buf.length > 2000 && buf.toString('ascii', 0, 
 // base cabinet was placed for the stacking test (13) and is still alive.
 const openExportMenu = async () => {
   await page.click('#btn-export');
-  await page.waitForTimeout(150);
+  await waitUntil(() => document.getElementById('export-menu')?.classList.contains('open'));
 };
 await openExportMenu();
 const [cutDownload] = await Promise.all([
@@ -1196,7 +1324,17 @@ results.push(['v5 autosave migrates to a single v6 room', migrated]);
 // 22. per-wall visibility override forces wall groups shown/hidden in 3D
 const wallVis = async (mode) => {
   await page.evaluate((m) => window.__kp.store.setAllWallVisibility(m), mode);
-  await page.waitForTimeout(120); // let the render loop apply it
+  // setAllWallVisibility is non-structural: the .visible flip is only applied
+  // inside View3D.animate()'s per-frame updateWallVisibility(), so this must
+  // poll for the actual mesh state (a real render-loop wait), not a rebuild.
+  const want = mode === 'show';
+  await waitUntil((w) => {
+    let ok = true;
+    window.__kp.view['scene'].traverse((o) => {
+      if (typeof o.name === 'string' && o.name.startsWith('Wall_') && o.visible !== w) ok = false;
+    });
+    return ok;
+  }, want);
   return page.evaluate(() => {
     const groups = [];
     window.__kp.view['scene'].traverse((o) => {
@@ -1217,7 +1355,15 @@ await page.evaluate(() => window.__kp.store.setAllWallVisibility('auto'));
 // 23. ceiling visibility override forces the ceiling shown/hidden in 3D
 const ceilVis = async (mode) => {
   await page.evaluate((m) => window.__kp.store.setCeilingVisibility(m), mode);
-  await page.waitForTimeout(120); // let the render loop apply it
+  // same per-frame updateWallVisibility() application as scenario 22
+  const want = mode === 'show';
+  await waitUntil((w) => {
+    let ok = true;
+    window.__kp.view['scene'].traverse((o) => {
+      if (o.name === 'Ceiling' && o.visible !== w) ok = false;
+    });
+    return ok;
+  }, want);
   return page.evaluate(() => {
     let v = null;
     window.__kp.view['scene'].traverse((o) => {
@@ -1234,7 +1380,7 @@ await page.evaluate(() => window.__kp.store.setCeilingVisibility('auto'));
 // 24. wall elevation view: front view of one wall shows only wall-attached items
 await page.keyboard.press('Escape');
 await page.click('#btn-new');
-await page.waitForTimeout(400);
+await resetReady();
 const elevIds = await page.evaluate(() => {
   const st = window.__kp.store;
   // top wall of the empty 4x3 room (horizontal, y ~ 0)
@@ -1249,7 +1395,10 @@ const elevIds = await page.evaluate(() => {
   return { wallId: g.id, cab: cab.id, table: table.id };
 });
 await page.click('#mode2d-toggle button[data-2dmode="elev"]');
-await page.waitForTimeout(200);
+// the class toggle + elev.setActive() are synchronous; getComputedStyle
+// below forces a synchronous style recalc, so this just confirms the class
+// landed rather than trusting mouse.click()'s own synchronicity blindly
+await waitUntil(() => document.getElementById('pane2d')?.classList.contains('elev-mode'));
 const elevView = await page.evaluate((ids) => {
   window.__kp.elev.setWall(ids.wallId);
   const d = window.__kp.elev.data();
@@ -1273,7 +1422,10 @@ const elevPos = await page.evaluate((ids) => {
 }, elevIds);
 const bbElev = await page.locator('#canvas-elev').boundingBox();
 await page.mouse.click(bbElev.x + elevPos.x, bbElev.y + elevPos.y);
-await page.waitForTimeout(150);
+await waitUntil(
+  (id) => window.__kp.store.selection.kind === 'item' && window.__kp.store.selection.id === id,
+  elevIds.cab
+);
 const elevSel = await page.evaluate(() => {
   const s = window.__kp.store.selection;
   return s.kind === 'item' ? s.id : null;
@@ -1352,11 +1504,15 @@ const customizeScenario = await page.evaluate(() => {
   st.select({ kind: 'item', id: item.id });
   return { itemId: item.id, partsBefore: st.design.customParts.length };
 });
-await page.waitForTimeout(300);
+await waitUntil(() =>
+  [...document.querySelectorAll('#props-inner button')].some((b) =>
+    b.textContent.includes('Customize part')
+  )
+);
 const custBtn = page.locator('#props-inner button', { hasText: 'Customize part…' });
 const custVisible = await custBtn.count();
 await custBtn.click();
-await page.waitForTimeout(400);
+await studioReady('editor'); // "Customize part…" forks straight into the editor
 const studioOpen = await page.locator('.studio-save').count();
 await page.click('.studio-save');
 await studioClosed();
@@ -1459,17 +1615,20 @@ await studioReady('editor');
   const zc = await page.locator('.zone-canvas').boundingBox();
   // default new cabinet = 2-drawer stack zone; split first so we get a door zone
   await page.mouse.click(zc.x + zc.width / 2, zc.y + zc.height / 2);
-  await page.waitForTimeout(200);
+  // page.click() below already auto-waits for the toolbar's "Door" button
   await page.click('.zone-toolbar button:has-text("Door")');
-  await page.waitForTimeout(200);
   await page.mouse.dblclick(zc.x + zc.width / 2, zc.y + zc.height / 2);
-  await page.waitForTimeout(300);
+  // dblclick above drills into the leaf and re-renders the toolbar
+  // synchronously, but positional mouse.dblclick() has no built-in wait —
+  // .count() below doesn't retry, so poll for the "← Done" button ourselves
+  await waitUntil(() =>
+    [...document.querySelectorAll('.zone-toolbar button')].some((b) => b.textContent.includes('← Done'))
+  );
 }
 const interiorToolbar = await page.locator('.zone-toolbar button', { hasText: '← Done' }).count();
 await page.click('.zone-toolbar button:has-text("＋ Drawer")');
-await page.waitForTimeout(200);
+// page.click() below already auto-waits for the "← Done" button
 await page.click('.zone-toolbar button:has-text("← Done")');
-await page.waitForTimeout(200);
 await page.click('.studio-save');
 await studioClosed();
 const interiorSaved = await page.evaluate(() => {
@@ -1603,7 +1762,7 @@ results.push(['oven slots into an appliance niche and rides the tower', zoneAppl
 // the Rooms group in the outline, and the elevation following the active room.
 await page.keyboard.press('Escape');
 await page.click('#btn-new'); // deterministic single 4x3 room, no items
-await page.waitForTimeout(600);
+await resetReady();
 // pin the viewport so both rooms are on-canvas whatever the pane size is
 await page.evaluate(() => {
   window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 });
@@ -1612,8 +1771,9 @@ const roomBb = await paneOffset();
 const clickWorld = async (x, y) => {
   const s = await worldToScreen(x, y);
   await page.mouse.move(roomBb.x + s.x, roomBb.y + s.y); // hover first, as a user would
+  const gc = await page.evaluate(() => window.__kp.plan.debug().gestureCount);
   await page.mouse.click(roomBb.x + s.x, roomBb.y + s.y);
-  await page.waitForTimeout(200);
+  await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gc);
 };
 
 // N1 — the tool arms, previews and drops a free-standing room clear of the first
@@ -1645,13 +1805,13 @@ results.push([
     !added.shared,
 ]);
 await page.keyboard.press('Control+z');
-await page.waitForTimeout(300);
+await waitUntil((n) => window.__kp.store.design.rooms.length < n, added.n);
 results.push([
   'undo removes the added room',
   (await page.evaluate(() => window.__kp.store.design.rooms.length)) === 1,
 ]);
 await page.evaluate(() => window.__kp.store.redo());
-await page.waitForTimeout(300);
+await waitUntil((n) => window.__kp.store.design.rooms.length === n, added.n);
 
 // N2 — clicking floor switches rooms; clicking the active one changes nothing;
 // a drag past the pan threshold pans instead of switching.
@@ -1682,7 +1842,7 @@ await page.mouse.move(roomBb.x + panFrom.x, roomBb.y + panFrom.y);
 await page.mouse.down();
 await page.mouse.move(roomBb.x + panFrom.x + 60, roomBb.y + panFrom.y, { steps: 6 });
 await page.mouse.up();
-await page.waitForTimeout(200);
+await waitUntil((x0) => Math.abs(window.__kp.plan.viewport().panX - x0) > 40, panBefore);
 const panned = await page.evaluate(() => ({
   panX: window.__kp.plan.viewport().panX,
   active: window.__kp.store.activeRoomId,
@@ -1694,7 +1854,7 @@ results.push([
 
 // N3 — the outline lists both rooms and switches between them
 await page.click('#sidebar-tabs button[data-tab="components"]');
-await page.waitForTimeout(120);
+await waitUntil(() => document.getElementById('tab-components')?.classList.contains('active'));
 const roomsGroup = await page.evaluate(() => {
   const g = [...document.querySelectorAll('#outline .ol-group')].find(
     (x) => x.querySelector('.ol-label')?.textContent === 'Rooms'
@@ -1715,7 +1875,7 @@ await page.evaluate(() => {
   );
   [...g.querySelectorAll('.ol-row')].find((r) => !r.classList.contains('active')).click();
 });
-await page.waitForTimeout(200);
+await waitUntil((id) => window.__kp.store.activeRoomId === id, roomIds[1]);
 const outlineSwitched = await page.evaluate(() => window.__kp.store.activeRoomId);
 results.push([
   'outline lists rooms and switches',
@@ -1729,7 +1889,7 @@ await page.click('#sidebar-tabs button[data-tab="library"]');
 
 // N12 — the elevation nav cycles only the active room's walls
 await page.click('#mode2d-toggle button[data-2dmode="elev"]');
-await page.waitForTimeout(300);
+await waitUntil(() => document.getElementById('pane2d')?.classList.contains('elev-mode'));
 const elevRoomOf = () =>
   page.evaluate(() => {
     const st = window.__kp.store;
@@ -1742,12 +1902,13 @@ const elevRoomOf = () =>
   });
 const elevWalk = [];
 for (let i = 0; i < 5; i++) {
+  const prevWallId = await page.evaluate(() => window.__kp.elev.wallId);
   await page.click('#btn-wall-next');
-  await page.waitForTimeout(120);
+  await waitUntil((w0) => window.__kp.elev.wallId !== w0, prevWallId);
   elevWalk.push(await elevRoomOf());
 }
 await page.evaluate((id) => window.__kp.store.setActiveRoom(id), roomIds[0]);
-await page.waitForTimeout(250);
+await waitUntil((id) => window.__kp.store.activeRoomId === id, roomIds[0]);
 const elevAfterSwitch = await elevRoomOf();
 results.push([
   'elevation follows the active room',
@@ -1761,7 +1922,7 @@ await page.click('#mode2d-toggle button[data-2dmode="plan"]');
 // N4 — per-room style isolation: styling one room must not bleed into the
 // other, and the two Floor meshes must carry distinct material colours.
 await page.click('#btn-new');
-await page.waitForTimeout(300);
+await resetReady();
 const n4 = await page.evaluate(() => {
   const st = window.__kp.store;
   const before = st.design.rooms[0].style.floorColor;
@@ -1774,7 +1935,7 @@ const n4 = await page.evaluate(() => {
     room2Color: st.design.rooms[1].style.floorColor,
   };
 });
-await page.waitForTimeout(300);
+await flushView(); // structural (room + style change): force the rebuild before a raw scene read
 const n4floors = await page.evaluate(() => {
   const colors = [];
   window.__kp.view['scene'].traverse((o) => {
@@ -1794,14 +1955,14 @@ results.push([
 
 // N5 — a shared partition is built exactly once, under its owner.
 await page.click('#btn-new');
-await page.waitForTimeout(300);
+await resetReady();
 await page.evaluate(() => {
   const st = window.__kp.store;
   const wall0 = st.allWalls()[0];
   st.addRoom({ against: { wallId: wall0.id }, d: 3 });
   st.commit();
 });
-await page.waitForTimeout(400);
+await flushView(); // structural (room added): force the rebuild before Wall_* group counts
 const n5 = await page.evaluate(() => {
   const st = window.__kp.store;
   const totalWalls = st.allWalls().length;
@@ -1821,7 +1982,7 @@ results.push([
 // N6 — placing a catalog item near the far wall of the second room snaps it
 // flush to that wall, facing into room 2, and stamps room 2 as its roomId.
 await page.click('#btn-new');
-await page.waitForTimeout(300);
+await resetReady();
 const n6fixture = await page.evaluate(() => {
   const st = window.__kp.store;
   const wall0 = st.allWalls()[0];
@@ -1843,15 +2004,15 @@ const n6fixture = await page.evaluate(() => {
     },
   };
 });
-await page.waitForTimeout(200);
 await page.click('.cat-item[data-def-id="base-cabinet"]');
 const bb6 = await paneOffset();
 const midX6 = (n6fixture.far.ax + n6fixture.far.bx) / 2;
 const midY6 = (n6fixture.far.ay + n6fixture.far.by) / 2;
 const clickPt6 = { x: midX6 + n6fixture.far.inx * 0.25, y: midY6 + n6fixture.far.iny * 0.25 };
 const screenPt6 = await worldToScreen(clickPt6.x, clickPt6.y);
+const n6n0 = await count();
 await page.mouse.click(bb6.x + screenPt6.x, bb6.y + screenPt6.y);
-await page.waitForTimeout(300);
+await waitUntil((n) => window.__kp.store.design.items.length > n, n6n0);
 const n6placed = await page.evaluate((fx) => {
   const st = window.__kp.store;
   const items = st.design.items;
@@ -1869,7 +2030,7 @@ results.push([
 
 // N7 — each room's ceiling sits at that room's own wallHeight.
 await page.click('#btn-new');
-await page.waitForTimeout(300);
+await resetReady();
 await page.evaluate(() => {
   const st = window.__kp.store;
   const wall0 = st.allWalls()[0];
@@ -1878,7 +2039,7 @@ await page.evaluate(() => {
   st.setRoomStyle({ wallHeight: 2.2 }, r2.id);
   st.commit();
 });
-await page.waitForTimeout(400);
+await flushView(); // structural (room + style change): force the rebuild before a raw scene read
 const n7ceilings = await page.evaluate(() => {
   const ys = [];
   window.__kp.view['scene'].traverse((o) => {
@@ -1895,7 +2056,7 @@ results.push([
 
 // N8 — wall-visibility overrides are scoped to the room they were set on.
 await page.click('#btn-new');
-await page.waitForTimeout(300);
+await resetReady();
 const n8 = await page.evaluate(() => {
   const st = window.__kp.store;
   const r1 = st.design.rooms[0];
@@ -1907,7 +2068,20 @@ const n8 = await page.evaluate(() => {
   st.commit();
   return { r1: r1.id, r2: r2.id };
 });
-await page.waitForTimeout(300);
+await flushView(); // structural (room added): room2's wall groups must exist first
+// setAllWallVisibility itself is non-structural — the .visible flip only
+// lands inside the next animate() frame's updateWallVisibility() (see 22/23)
+await waitUntil((ids) => {
+  const walls = window.__kp.view['walls'];
+  const r1 = walls.filter((w) => w.roomId === ids.r1);
+  const r2 = walls.filter((w) => w.roomId === ids.r2);
+  return (
+    r1.length > 0 &&
+    r2.length > 0 &&
+    r1.every((w) => w.group.visible === false) &&
+    r2.every((w) => w.group.visible === true)
+  );
+}, n8);
 const n8vis = await page.evaluate(() =>
   window.__kp.view['walls'].map((w) => ({ roomId: w.roomId, visible: w.group.visible }))
 );
@@ -1926,7 +2100,7 @@ results.push([
 // deleted room does NOT own would instead survive untouched on the owner —
 // this fixture exercises the re-home branch by deleting the owning room.
 await page.click('#btn-new');
-await page.waitForTimeout(300);
+await resetReady();
 const n9setup = await page.evaluate(() => {
   const st = window.__kp.store;
   const wall0 = st.allWalls()[0];
@@ -2009,12 +2183,12 @@ const leftMid10 = await page.evaluate(() => {
 });
 const leftScr10 = await worldToScreen(leftMid10.x, leftMid10.y);
 await page.mouse.click(bb10.x + leftScr10.x, bb10.y + leftScr10.y);
-await page.waitForTimeout(300);
+await waitUntil(() => window.__kp.store.selection.kind === 'wall');
 const wallTitle10 = await page.textContent('.props-title');
 const lenInput10 = page.locator('#props-inner input[type=number]').first();
 await lenInput10.fill('300');
 await lenInput10.press('Enter');
-await page.waitForTimeout(300);
+await waitUntil((w0) => Math.abs(window.__kp.store.floorArea() - w0 * 3.0) < 0.05, n10setup.rect.w);
 const area10 = await page.evaluate(() => window.__kp.store.floorArea());
 results.push([
   'wall length edit on a migrated design',
@@ -2022,11 +2196,14 @@ results.push([
 ]);
 
 await page.keyboard.press('Escape');
-await page.waitForTimeout(300);
+await waitUntil(() => window.__kp.store.selection.kind === 'none');
 const widthInput10 = page.locator('#props-inner input[type=number]').first();
 await widthInput10.fill('450');
 await widthInput10.press('Enter');
-await page.waitForTimeout(300);
+await waitUntil(() => {
+  const r = window.__kp.store.rectangleSize();
+  return !!r && Math.abs(r.w - 4.5) < 0.01;
+});
 const rect10 = await page.evaluate(() => window.__kp.store.rectangleSize());
 results.push([
   'rectangle resize on a migrated design',
@@ -2043,8 +2220,9 @@ const aimPt10 = {
   y: (bottomWall10.a.y + bottomWall10.b.y) / 2 + bottomWall10.inward.y * 0.25,
 };
 const aimScr10 = await worldToScreen(aimPt10.x, aimPt10.y);
+const n10n0 = await count();
 await page.mouse.click(bb10.x + aimScr10.x, bb10.y + aimScr10.y);
-await page.waitForTimeout(300);
+await waitUntil((n) => window.__kp.store.design.items.length > n, n10n0);
 const placed10 = await page.evaluate((bw) => {
   const items = window.__kp.store.design.items;
   const it = items[items.length - 1];
@@ -2059,7 +2237,7 @@ results.push(['wall-snap placement on a migrated design', placed10 < 0.05]);
 // N11 — measuring between a corner of room 1 and a corner of room 2 reports
 // the true cross-room distance and never touches the model.
 await page.click('#btn-new');
-await page.waitForTimeout(300);
+await resetReady();
 const n11fixture = await page.evaluate(() => {
   const st = window.__kp.store;
   const r2 = st.addRoom(); // freestanding, 1 m clear of room 1
@@ -2074,15 +2252,14 @@ const n11fixture = await page.evaluate(() => {
     dist: Math.hypot(c2.x - c1.x, c2.y - c1.y),
   };
 });
-await page.waitForTimeout(200);
 await page.click('#btn-measure');
 const bb11 = await paneOffset();
 const s1 = await worldToScreen(n11fixture.p1.x, n11fixture.p1.y);
 const s2 = await worldToScreen(n11fixture.p2.x, n11fixture.p2.y);
 await page.mouse.click(bb11.x + s1.x, bb11.y + s1.y);
-await page.waitForTimeout(100);
+await waitUntil(() => window.__kp.plan.overlayState().measure.measuring === true);
 await page.mouse.click(bb11.x + s2.x, bb11.y + s2.y);
-await page.waitForTimeout(150);
+await waitUntil(() => !!window.__kp.plan.overlayState().measure.b);
 const n11measured = await page.evaluate(() => {
   const m = window.__kp.plan.overlayState().measure;
   const d = m.a && m.b ? Math.hypot(m.b.x - m.a.x, m.b.y - m.a.y) : -1;
@@ -2097,15 +2274,15 @@ await page.keyboard.press('Escape');
 // N12 — bedroom set: a bed backs onto a wall like any wall-placed unit, and
 // the wardrobe preset carries its hanging rail all the way into the 3D scene.
 await page.click('#btn-new');
-await page.waitForTimeout(500);
+await resetReady();
 await page.evaluate(() => window.__kp.plan.zoomFit());
-await page.waitForTimeout(150);
 await page.click('.cat-item[data-def-id="bed-double"]');
 const bb12 = await paneOffset();
 // 2 m deep bed in the 4x3 room: its snapped centre IS (2.0, 2.0)
 const bedScr = await worldToScreen(2.0, 2.0);
+const bed12n0 = await count();
 await page.mouse.click(bb12.x + bedScr.x, bb12.y + bedScr.y);
-await page.waitForTimeout(300);
+await waitUntil((n) => window.__kp.store.design.items.length > n, bed12n0);
 const bed12 = await page.evaluate(() => {
   const items = window.__kp.store.design.items;
   const it = items[items.length - 1];
@@ -2124,7 +2301,7 @@ const wardrobe12 = await page.evaluate(() => {
   st.commit();
   return it.defId;
 });
-await page.waitForTimeout(400);
+await flushView(); // structural (item added): force the rebuild before a raw scene read
 const rails12 = await page.evaluate(() => {
   let n = 0;
   window.__kp.view['scene'].traverse((o) => {
@@ -2140,17 +2317,17 @@ results.push([
 // N13 — living-room set: a rug ignores wall snapping entirely, a TV refuses to
 // place away from a wall, and the sofa's seats stepper drives its width.
 await page.click('#btn-new');
-await page.waitForTimeout(500);
+await resetReady();
 await page.evaluate(() => window.__kp.plan.zoomFit());
-await page.waitForTimeout(150);
 const bb13 = await paneOffset();
 
 // (a) free placement: the rug stays on the 1 cm grid where it was clicked,
 // while a wall-placed item of the same depth would be pulled to y = 2.30
 await page.click('.cat-item[data-def-id="rug"]');
 const rugScr = await worldToScreen(2.0, 2.2);
+const rug13n0 = await count();
 await page.mouse.click(bb13.x + rugScr.x, bb13.y + rugScr.y);
-await page.waitForTimeout(250);
+await waitUntil((n) => window.__kp.store.design.items.length > n, rug13n0);
 const rug13 = await page.evaluate(() => {
   const items = window.__kp.store.design.items;
   const it = items[items.length - 1];
@@ -2167,12 +2344,15 @@ results.push([
 const before13 = await count();
 await page.click('.cat-item[data-def-id="tv"]');
 const midScr = await worldToScreen(2.0, 1.0);
+const gcTvMid = await page.evaluate(() => window.__kp.plan.debug().gestureCount);
 await page.mouse.click(bb13.x + midScr.x, bb13.y + midScr.y);
-await page.waitForTimeout(200);
+// this click is expected to place NOTHING (mid-room, no wall) — poll the
+// gesture itself finishing rather than an item count that must stay flat
+await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gcTvMid);
 const midCount13 = await count();
 const wallScr = await worldToScreen(2.0, 0.12);
 await page.mouse.click(bb13.x + wallScr.x, bb13.y + wallScr.y);
-await page.waitForTimeout(250);
+await waitUntil((n) => window.__kp.store.design.items.length > n, midCount13);
 const tv13 = await page.evaluate(() => {
   const items = window.__kp.store.design.items;
   const it = items[items.length - 1];
@@ -2199,9 +2379,10 @@ results.push([
 await page.click('.cat-item[data-def-id="sofa"]');
 const sofaScr = await worldToScreen(0.5, 1.0);
 await page.mouse.click(bb13.x + sofaScr.x, bb13.y + sofaScr.y);
-await page.waitForTimeout(300);
+// .stepper button click below already auto-waits for the Seats row (only
+// rendered once the sofa's selection/props re-render has landed)
 await page.locator('.prop-row', { hasText: 'Seats' }).locator('.stepper button').nth(1).click();
-await page.waitForTimeout(300);
+await waitUntil(() => window.__kp.store.design.items.find((i) => i.defId === 'sofa')?.params?.seats === 4);
 const sofa13 = await page.evaluate(() => {
   const it = window.__kp.store.design.items.find((i) => i.defId === 'sofa');
   return it ? { seats: it.params?.seats, w: it.w } : null;
@@ -2232,7 +2413,9 @@ const overlapIds = await page.evaluate(() => {
   st.commit();
   return { aId: a.id, bId: b.id };
 });
-await page.waitForTimeout(150);
+// store.warnings() is a pure, lazily-cached recompute invalidated by every
+// notify() (CLAUDE.md) — synchronous, so poll it directly rather than the DOM
+await waitUntil(() => window.__kp.store.warnings().some((w) => w.kind === 'overlap'));
 const overlapAfter = await page.evaluate((ids) => {
   const st = window.__kp.store;
   const w = st.warnings().find((x) => x.kind === 'overlap');
@@ -2247,7 +2430,7 @@ const overlapAfter = await page.evaluate((ids) => {
   };
 }, overlapIds);
 await page.keyboard.press('Control+z');
-await page.waitForTimeout(200);
+await waitUntil(() => !window.__kp.store.warnings().some((w) => w.kind === 'overlap'));
 const overlapUndone = await page.evaluate(() => ({
   kinds: window.__kp.store.warnings().map((w) => w.kind),
   status: document.getElementById('status-info').textContent,
@@ -2272,7 +2455,10 @@ const fridgeId = await page.evaluate(() => {
   st.commit();
   return fridge.id;
 });
-await page.waitForTimeout(200);
+await waitUntil(
+  (id) => window.__kp.store.warnings().some((w) => w.kind === 'throughWall' && w.itemIds[0] === id),
+  fridgeId
+);
 const throughWallAfter = await page.evaluate((id) => {
   const st = window.__kp.store;
   const w = st.warnings().find((x) => x.kind === 'throughWall' && x.itemIds[0] === id);
@@ -2284,7 +2470,7 @@ const throughWallAfter = await page.evaluate((id) => {
   return { ok: !!w && w.severity === 'error', tinted };
 }, fridgeId);
 await page.keyboard.press('Control+z');
-await page.waitForTimeout(200);
+await waitUntil(() => !window.__kp.store.warnings().some((w) => w.kind === 'throughWall'));
 const throughWallUndone = await page.evaluate(() =>
   window.__kp.store.warnings().map((w) => w.kind)
 );
@@ -2300,13 +2486,13 @@ results.push([
 // findings join the 2D overlay; errors are drawn regardless (canvas pixels are
 // brittle to assert — state + class only, per plan2d.ts drawChecks).
 await page.click('#btn-checks');
-await page.waitForTimeout(120);
+await waitUntil(() => window.__kp.plan.toolState().checks === true);
 const checksOnState = await page.evaluate(() => ({
   on: window.__kp.plan.toolState().checks,
   active: document.getElementById('btn-checks').classList.contains('active'),
 }));
 await page.click('#btn-checks');
-await page.waitForTimeout(120);
+await waitUntil(() => window.__kp.plan.toolState().checks === false);
 const checksOffState = await page.evaluate(() => ({
   on: window.__kp.plan.toolState().checks,
   active: document.getElementById('btn-checks').classList.contains('active'),
@@ -2387,7 +2573,7 @@ results.push([
 // with Esc, and close a real one on its first vertex.
 await page.keyboard.press('Escape');
 await page.click('#btn-new'); // deterministic single 4x3 room, no items
-await page.waitForTimeout(600);
+await resetReady();
 await page.evaluate(() => {
   window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 });
 });
@@ -2396,7 +2582,10 @@ const clickAt = async (x, y) => {
   const s = await worldToScreen(x, y);
   await page.mouse.move(drawBb.x + s.x, drawBb.y + s.y); // hover first, as a user would
   await page.mouse.click(drawBb.x + s.x, drawBb.y + s.y);
-  await page.waitForTimeout(120);
+  // successive ring-corner clicks land close together in real time; without a
+  // beat between them the browser can fold two of them into a native dblclick
+  // (closeDrawRoom()s the ring early) even though each targets a different point
+  await page.waitForTimeout(120); // pacing: guards against dblclick-folding between clicks
 };
 
 await page.click('#btn-draw-room');
@@ -2466,7 +2655,7 @@ results.push([
     drawn.toolOff,
 ]);
 await page.keyboard.press('Control+z');
-await page.waitForTimeout(300);
+await waitUntil((n) => window.__kp.store.design.rooms.length < n, drawn.n);
 results.push([
   'undo removes the drawn room',
   (await page.evaluate(() => window.__kp.store.design.rooms.length)) === 1,
@@ -2475,7 +2664,7 @@ results.push([
 // 37. auto-share (F1): a free-standing room dropped near an existing one snaps
 // flush and the contact becomes a partition — no "attach to wall" step.
 await page.click('#btn-new');
-await page.waitForTimeout(600);
+await resetReady();
 await page.evaluate(() => {
   window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 });
 });
@@ -2485,7 +2674,7 @@ await page.click('#btn-room');
 const flushGhost = await (async () => {
   const s = await worldToScreen(6.1, 1.5);
   await page.mouse.move(drawBb.x + s.x, drawBb.y + s.y);
-  await page.waitForTimeout(150);
+  await waitUntil(() => !!window.__kp.plan.overlayState().roomGhost);
   return page.evaluate(() => {
     const g = window.__kp.plan.overlayState().roomGhost;
     return { attached: g ? g.attached : null, flush: g ? g.flush : null, x: g ? g.poly[0].x : -1 };
