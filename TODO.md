@@ -35,9 +35,37 @@ typecheck && npm run test:unit && npm run build && node test/interact.mjs`
 - [ ] Verify CI green via `workflow_dispatch` on this branch (deploy workflow
   triggers on master push; the branch run proves the new spec step).
 
-Next: Phase B — React shell with behavior parity (B0 units.ts/prefs/
-EditorState v0/StoreBridge/bootstrap → B1 app frame → B2 topbar+status),
-re-evaluate before B4-B6. See the plan file for the full phase specs.
+# M9 — Phase B0-B2: React shell foundations — COMPLETE
+
+- [x] B0a `src/model/units.ts` — mm-default expression parser (no eval,
+  per-literal unit binding, dimensional discipline, caps) + `prefs.ts`
+  ({unit, decimals} outside the Design). 105 tests incl. seeded fuzz.
+- [x] B0b React 19 toolchain (matched @vitejs/plugin-react\@5, StrictMode on,
+  NO React Compiler), boundary lint rules (model/editor/plan2d/view3d stay
+  framework-free; innerHTML banned in src/ui/react), main.ts →
+  `src/app/bootstrap.ts` + inert React root; `EditorState` v0;
+  `StoreBridge` per-channel version counters (transient never bumps design).
+  React runtime rides its own chunk (+60.6 kB gz accepted; app chunk +0.5 kB).
+- [x] B1 React owns the DOM: index.html markup ported node-for-node into
+  Topbar/Sidebar/Workspace/PropsPanel/StatusBar; controllers construct
+  DETACHED (`new Plan2D(store, onHint)` etc.) and get canvases from mount
+  effects; legacy UI mounts once from an App effect. Parity: layout ±0px,
+  83-node DOM skeleton identical, screenshots byte-identical.
+  `e2e/layout.spec.ts` pins the geometry.
+- [x] B2 React owns topbar/status BEHAVIOR: view toggle, undo/redo,
+  day/night, open fronts, nav input, file ops, export menu, zoom, camera
+  presets, `#status-info` (pure `statusInfoText`), `#status-savefail`.
+  Legacy-mutated elements (4 plan tools, 2d/elev sub-toggle, wall nav,
+  catalog drawer, status hint) live in never-re-rendering memo fragments
+  marked "B5 EXPIRY". ui.ts 2024 → 1772 lines.
+- Gates at cycle end: lint · typecheck · **564 unit** · build · interact
+  **104/104** · **9/9 Playwright specs** (dom-contract, layout ×2,
+  lifecycle ×3, open-fronts ×3).
+
+Next (cycle 2): B3 sidebar/variables → B4 catalog/outline → B5 tool-state →
+EditorState + props inspector (selection-array-shaped fields on units.ts) →
+B6 dialogs/studio shell → delete ui.ts. Then Phase C editor core. See the
+plan file for full specs.
 
 # M7 — Editor core foundations (superseded by the plan above)
 
