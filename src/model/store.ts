@@ -128,6 +128,15 @@ export class Store {
     };
   }
 
+  /**
+   * Test seam: how many handlers `evt` currently has. A view that attaches and
+   * detaches must leave this back at its baseline — that is the leak assertion
+   * e2e/lifecycle.spec.ts makes. Cheap and read-only; nothing in the app uses it.
+   */
+  handlerCount(evt: keyof EventMap): number {
+    return this.handlers[evt].length;
+  }
+
   private emit<K extends keyof EventMap>(evt: K, payload: EventMap[K]): void {
     // snapshot the array so a handler that unsubscribes (itself or a sibling)
     // mid-dispatch can't skip or rerun another handler in this same emit

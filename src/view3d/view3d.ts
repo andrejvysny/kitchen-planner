@@ -100,10 +100,10 @@ function lightColor(warmth: number): THREE.Color {
 
 export class View3D {
   private store: Store;
-  private renderer: THREE.WebGLRenderer;
+  private renderer!: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
-  private controls: OrbitControls;
+  private controls!: OrbitControls;
   private gizmo!: TransformControls;
   private raycaster = new THREE.Raycaster();
 
@@ -124,6 +124,22 @@ export class View3D {
   private contextLost = false;
   /** rAF timestamp of the last rendered frame; 0 = the loop is (re)starting */
   private lastFrameMs = 0;
+
+  /* ---------------- lifecycle ---------------- */
+
+  /** Aborts every DOM listener registered by the CURRENT attach(); null while detached. */
+  private ac: AbortController | null = null;
+  private ro: ResizeObserver | null = null;
+  /** store.on() disposers of the current attach(), run and cleared by detach(). */
+  private subs: (() => void)[] = [];
+  private attached = false;
+  /** canvas the renderer/controls/gizmo are built on; they outlive detach() on it */
+  private boundCanvas: HTMLCanvasElement | null = null;
+  /** the animate() loop re-queues itself only while true — detach() stops it */
+  private running = false;
+  private animRaf = 0;
+  /** context-loss curtain of the bound canvas, removed with the renderer */
+  private lostOverlay: HTMLElement | null = null;
 
   private hemi: THREE.HemisphereLight;
   private sun: THREE.DirectionalLight;
@@ -148,29 +164,10 @@ export class View3D {
     this.getArmed = opts.getArmed;
     this.clearArmed = opts.clearArmed;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = EXPOSURE;
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-
     // area lights (LED strip) need their LTC lookup tables initialised once
     RectAreaLightUniformsLib.init();
-    this.initEnvironment();
 
     this.camera = new THREE.PerspectiveCamera(52, 1, 0.05, 120);
-    this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.12;
-    this.controls.maxPolarAngle = Math.PI / 2 + 0.35;
-    this.controls.minDistance = 0.6;
-    this.controls.maxDistance = 30;
-    // Middle-drag orbits, Shift+middle-drag pans. OrbitControls' ROTATE action
-    // already swaps to pan while Shift is held, so one mapping covers both; the
-    // default (MIDDLE = DOLLY) also did nothing on macOS, where enableZoom is
-    // off because onWheel() owns the dolly.
-    this.controls.mouseButtons.MIDDLE = THREE.MOUSE.ROTATE;
 
     this.hemi = new THREE.HemisphereLight('#ffffff', '#b9b4a8', 0.85);
     this.scene.add(this.hemi);
@@ -197,35 +194,147 @@ export class View3D {
     this.scene.add(this.roomGroup);
     this.scene.add(this.itemsGroup);
 
-    const parent = canvas.parentElement!;
-    new ResizeObserver(() => this.resize()).observe(parent);
+    this.attach(canvas); // renderer, controls, gizmo, listeners, subscriptions
+
+    this.rebuild();
+    this.setPreset('corner');
+  }
+
+  /* ---------------- lifecycle ---------------- */
+
+  /**
+   * Bind to `canvas`: DOM listeners, the parent ResizeObserver, the store
+   * subscriptions and the render loop. Re-attaching the canvas already held is
+   * a no-op, so a double-mount (React StrictMode) double-subscribes nothing.
+   * The GL side (renderer, controls, gizmo) is built once PER CANVAS and
+   * survives detach/attach cycles on it — only a different canvas rebuilds it.
+   */
+  attach(canvas: HTMLCanvasElement): void {
+    if (this.attached && canvas === this.boundCanvas) return;
+    if (this.attached) this.detach();
+    if (canvas !== this.boundCanvas) this.bindCanvas(canvas);
+
+    this.attached = true;
+    this.ac = new AbortController();
+    const { signal } = this.ac;
+
+    this.ro = new ResizeObserver(() => this.resize());
+    this.ro.observe(canvas.parentElement!);
     this.resize();
-    this.initContextLoss(canvas, parent);
 
-    store.on('change', (info) => {
-      if (info.structural) this.queueRebuild();
-      else this.softUpdate();
-    });
-    store.on('selection', () => this.applySelectionTint());
-    store.on('pose', () => this.applyFrontPoses());
+    this.subs.push(
+      this.store.on('change', (info) => {
+        if (info.structural) this.queueRebuild();
+        else this.softUpdate();
+      }),
+      this.store.on('selection', () => this.applySelectionTint()),
+      this.store.on('pose', () => this.applyFrontPoses())
+    );
 
-    canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
-    canvas.addEventListener('pointerup', (e) => this.onPointerUp(e));
-    canvas.addEventListener('dblclick', (e) => this.onDblClick(e));
+    canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e), { signal });
+    canvas.addEventListener('pointerup', (e) => this.onPointerUp(e), { signal });
+    canvas.addEventListener('dblclick', (e) => this.onDblClick(e), { signal });
 
     // MacBook trackpad navigation: take over the wheel so two-finger swipe pans,
     // +Shift orbits, and pinch zooms. Mouse (drag + wheel) keeps OrbitControls'
     // defaults, so this is macOS-only to avoid touching other platforms.
-    if (this.isMac) {
-      this.controls.enableZoom = false; // wheel dolly handled in onWheel()
-      canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
-    }
+    if (this.isMac)
+      canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false, signal });
+
+    this.initContextLoss(canvas, signal);
+
+    // edits made while detached were never heard: detach() left the scene dirty
+    if (this.active) this.flushRebuild();
+
+    this.running = true;
+    this.lastFrameMs = 0; // the pose clock restarts with the loop
+    if (!this.animRaf) this.animRaf = requestAnimationFrame(this.animate);
+  }
+
+  /**
+   * Release everything attach() wired: listeners, observer, subscriptions, the
+   * render loop and any queued rebuild. Idempotent. The scene, the camera pose
+   * and the renderer all survive — this view can be attached again.
+   */
+  detach(): void {
+    if (!this.attached) return;
+    this.attached = false;
+    this.running = false;
+    if (this.animRaf) cancelAnimationFrame(this.animRaf);
+    this.animRaf = 0;
+    if (this.rebuildRaf) cancelAnimationFrame(this.rebuildRaf);
+    this.rebuildRaf = 0;
+    // nothing is listening to the store from here on, so whatever it holds when
+    // attach() comes back is stale by definition
+    this.rebuildQueued = true;
+    this.ac?.abort();
+    this.ac = null;
+    this.ro?.disconnect();
+    this.ro = null;
+    for (const off of this.subs) off();
+    this.subs = [];
+  }
+
+  /** detach() + permanent GPU teardown; the view is unusable afterwards. */
+  dispose(): void {
+    this.detach();
+    this.releaseCanvas(true);
+  }
+
+  /** Build the GL side on `canvas`, replacing whatever the previous one owned. */
+  private bindCanvas(canvas: HTMLCanvasElement): void {
+    this.releaseCanvas();
+    this.boundCanvas = canvas;
+
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = EXPOSURE;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.initEnvironment(); // PMREM is baked by this renderer, so it is per-canvas
+
+    this.controls = new OrbitControls(this.camera, canvas);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.12;
+    this.controls.maxPolarAngle = Math.PI / 2 + 0.35;
+    this.controls.minDistance = 0.6;
+    this.controls.maxDistance = 30;
+    // Middle-drag orbits, Shift+middle-drag pans. OrbitControls' ROTATE action
+    // already swaps to pan while Shift is held, so one mapping covers both; the
+    // default (MIDDLE = DOLLY) also did nothing on macOS, where enableZoom is
+    // off because onWheel() owns the dolly.
+    this.controls.mouseButtons.MIDDLE = THREE.MOUSE.ROTATE;
+    if (this.isMac) this.controls.enableZoom = false; // wheel dolly handled in onWheel()
 
     this.initGizmo(canvas);
 
-    this.rebuild();
-    this.setPreset('corner');
-    this.animate();
+    const overlay = document.createElement('div');
+    overlay.className = 'gl-lost';
+    overlay.textContent = '3D view paused — restoring…';
+    overlay.hidden = true;
+    canvas.parentElement!.appendChild(overlay);
+    this.lostOverlay = overlay;
+  }
+
+  /**
+   * Drop the GL objects bound to the current canvas. `withScene` also frees the
+   * scene graph's buffers (dispose()); a canvas SWAP keeps them — three
+   * re-uploads geometry and materials to the new context on the next render.
+   */
+  private releaseCanvas(withScene = false): void {
+    if (!this.boundCanvas) return;
+    this.gizmo.detach();
+    this.scene.remove(this.gizmo);
+    this.gizmo.dispose();
+    this.controls.dispose();
+    if (withScene) this.disposeGroup(this.scene); // the gizmo has left the graph
+    this.lostOverlay?.remove();
+    this.lostOverlay = null;
+    this.scene.environment?.dispose();
+    this.scene.environment = null;
+    this.renderer.dispose(); // last: everything above lived in its GL context
+    this.boundCanvas = null;
   }
 
   /* ---------------- sizing / loop ---------------- */
@@ -241,7 +350,12 @@ export class View3D {
   }
 
   private animate = (nowMs?: number): void => {
-    requestAnimationFrame(this.animate);
+    // detached: the loop ends here and attach() starts a new one
+    if (!this.running) {
+      this.animRaf = 0;
+      return;
+    }
+    this.animRaf = requestAnimationFrame(this.animate);
     // hidden pane or a dead GL context: nothing on screen can change
     if (!this.active || this.contextLost) {
       this.lastFrameMs = 0; // the clock restarts when the loop does
@@ -863,25 +977,28 @@ export class View3D {
   /**
    * A lost GPU context (driver reset, tab backgrounded too long) leaves every
    * buffer dead. preventDefault asks the browser to hand a new context back;
-   * everything is rebuilt from the store on top of it.
+   * everything is rebuilt from the store on top of it. The curtain itself is
+   * per-canvas (bindCanvas); only the listeners follow the attach cycle.
    */
-  private initContextLoss(canvas: HTMLCanvasElement, parent: HTMLElement): void {
-    const overlay = document.createElement('div');
-    overlay.className = 'gl-lost';
-    overlay.textContent = '3D view paused — restoring…';
-    overlay.hidden = true;
-    parent.appendChild(overlay);
-
-    canvas.addEventListener('webglcontextlost', (e) => {
-      e.preventDefault();
-      this.contextLost = true;
-      overlay.hidden = false;
-    });
-    canvas.addEventListener('webglcontextrestored', () => {
-      this.contextLost = false;
-      overlay.hidden = true;
-      this.rebuild(); // relights as part of the rebuild
-    });
+  private initContextLoss(canvas: HTMLCanvasElement, signal: AbortSignal): void {
+    canvas.addEventListener(
+      'webglcontextlost',
+      (e) => {
+        e.preventDefault();
+        this.contextLost = true;
+        if (this.lostOverlay) this.lostOverlay.hidden = false;
+      },
+      { signal }
+    );
+    canvas.addEventListener(
+      'webglcontextrestored',
+      () => {
+        this.contextLost = false;
+        if (this.lostOverlay) this.lostOverlay.hidden = true;
+        this.rebuild(); // relights as part of the rebuild
+      },
+      { signal }
+    );
   }
 
   /** Writes (or clears, with `null`) an item's emissive tint. Bulbs keep their glow. */

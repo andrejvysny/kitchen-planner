@@ -60,8 +60,8 @@ type Drag =
   | { type: 'underlay'; ox: number; oy: number; sx: number; sy: number; moved: boolean };
 
 export class Plan2D {
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
+  private canvas!: HTMLCanvasElement;
+  private ctx!: CanvasRenderingContext2D;
   private store: Store;
   private onHint: (hint: string) => void;
 
@@ -119,48 +119,106 @@ export class Plan2D {
   private gestureCount = 0;
   private readonly isMac = isMac(navigator.platform, navigator.userAgent);
 
+  /* ---------------- lifecycle ---------------- */
+
+  /** Aborts every DOM listener registered by the CURRENT attach(); null while detached. */
+  private ac: AbortController | null = null;
+  private ro: ResizeObserver | null = null;
+  /** store.on() disposers of the current attach(), run and cleared by detach(). */
+  private subs: (() => void)[] = [];
+  private attached = false;
+
   constructor(canvas: HTMLCanvasElement, store: Store, onHint: (hint: string) => void) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d')!;
     this.store = store;
     this.onHint = onHint;
+    this.attach(canvas);
+  }
 
-    const parent = canvas.parentElement!;
-    new ResizeObserver(() => this.resize()).observe(parent);
+  /**
+   * Bind to `canvas`: DOM listeners, the parent ResizeObserver and the store
+   * subscriptions. Re-attaching the canvas already held is a no-op, so a
+   * double-mount (React StrictMode) costs nothing and double-subscribes
+   * nothing; a different canvas re-wires onto it.
+   */
+  attach(canvas: HTMLCanvasElement): void {
+    if (this.attached && canvas === this.canvas) return;
+    if (this.attached) this.detach();
+
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d')!;
+    this.attached = true;
+    this.ac = new AbortController();
+    const { signal } = this.ac;
+
+    this.ro = new ResizeObserver(() => this.resize());
+    this.ro.observe(canvas.parentElement!);
     this.resize();
 
-    store.on('change', () => this.requestDraw());
-    store.on('selection', () => {
-      this.updateHint();
-      this.requestDraw();
-    });
-    // the active room drives floor/wall shading and the handle set
-    store.on('activeRoom', () => {
-      this.updateHint();
-      this.requestDraw();
-    });
-
-    canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
-    canvas.addEventListener('pointermove', (e) => this.onPointerMove(e));
-    canvas.addEventListener('pointerup', (e) => this.onPointerUp(e));
-    canvas.addEventListener('pointercancel', (e) => {
-      this.pinch.up(e.pointerId);
-      this.endGesture();
-    });
-    canvas.addEventListener('pointerleave', () => {
-      if (this.drag.type === 'none') {
-        this.ghost = null;
-        this.ghostOpening = null;
-        this.roomGhost = null;
-        this.drawHover = null; // the ring stays; only its rubber band leaves
+    this.subs.push(
+      this.store.on('change', () => this.requestDraw()),
+      this.store.on('selection', () => {
+        this.updateHint();
         this.requestDraw();
-      }
-    });
-    canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
-    canvas.addEventListener('dblclick', (e) => this.onDblClick(e));
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+      }),
+      // the active room drives floor/wall shading and the handle set
+      this.store.on('activeRoom', () => {
+        this.updateHint();
+        this.requestDraw();
+      })
+    );
+
+    canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e), { signal });
+    canvas.addEventListener('pointermove', (e) => this.onPointerMove(e), { signal });
+    canvas.addEventListener('pointerup', (e) => this.onPointerUp(e), { signal });
+    canvas.addEventListener(
+      'pointercancel',
+      (e) => {
+        this.pinch.up(e.pointerId);
+        this.endGesture();
+      },
+      { signal }
+    );
+    canvas.addEventListener(
+      'pointerleave',
+      () => {
+        if (this.drag.type === 'none') {
+          this.ghost = null;
+          this.ghostOpening = null;
+          this.roomGhost = null;
+          this.drawHover = null; // the ring stays; only its rubber band leaves
+          this.requestDraw();
+        }
+      },
+      { signal }
+    );
+    canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false, signal });
+    canvas.addEventListener('dblclick', (e) => this.onDblClick(e), { signal });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault(), { signal });
 
     this.updateHint();
+  }
+
+  /**
+   * Release everything attach() wired: listeners, observer, subscriptions and
+   * any pending frame. A detached view paints nothing and hears nothing;
+   * calling it twice is a no-op. View state (pan/zoom, armed tool) survives.
+   */
+  detach(): void {
+    if (!this.attached) return;
+    this.attached = false;
+    this.ac?.abort();
+    this.ac = null;
+    this.ro?.disconnect();
+    this.ro = null;
+    for (const off of this.subs) off();
+    this.subs = [];
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
+  }
+
+  /** Permanent teardown. Nothing here is GPU-backed, so it is exactly detach(). */
+  dispose(): void {
+    this.detach();
   }
 
   /* ---------------- viewport ---------------- */
@@ -1297,7 +1355,7 @@ export class Plan2D {
   /* ---------------- drawing ---------------- */
 
   requestDraw(): void {
-    if (this.raf) return;
+    if (this.raf || !this.attached) return;
     this.raf = requestAnimationFrame(() => {
       this.raf = 0;
       this.draw();
