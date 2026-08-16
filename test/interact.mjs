@@ -13,7 +13,7 @@ page.on('dialog', (d) => d.accept());
 
 // KITCHENP-13: force mac-gated wheel/trackpad handling on every platform (the
 // checks below dispatch synthetic wheel events regardless of the real OS —
-// see window.__kpForceMac in main.ts / setMacOverride in
+// see window.__kpForceMac in src/app/bootstrap.ts / setMacOverride in
 // src/view3d/wheelInput.ts). addInitScript re-applies on every navigation
 // (including the page.reload() calls later in this file), so one call here
 // covers the whole run.

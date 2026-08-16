@@ -1,6 +1,7 @@
 import { defineConfig, globalIgnores } from 'eslint/config';
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
+import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 
 export default defineConfig([
@@ -8,7 +9,7 @@ export default defineConfig([
 
   {
     // App code: browser globals, no Node.
-    files: ['src/**/*.ts'],
+    files: ['src/**/*.{ts,tsx}'],
     extends: [tseslint.configs.recommended],
     languageOptions: {
       globals: globals.browser,
@@ -22,6 +23,59 @@ export default defineConfig([
       // Repo idiom: `const { drop: _drop, ...rest } = obj` to omit one key —
       // the rest-sibling variable is unused by design, not a mistake.
       '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
+    },
+  },
+  {
+    // React components only. Just the two hook rules — the React Compiler
+    // rules this plugin also ships stay OFF (no compiler in this build).
+    files: ['src/**/*.tsx'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+    },
+  },
+  {
+    // MIGRATION BOUNDARY: the model and the three view layers stay
+    // framework-free, so the strangler can keep swapping the shell without
+    // ever touching them. No React, and no import of the React shell either —
+    // dependencies point INTO these modules, never out of them.
+    files: ['src/model/**/*.ts', 'src/editor/**/*.ts', 'src/plan2d/**/*.ts', 'src/view3d/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['react', 'react-dom', 'react/**', 'react-dom/**'],
+              message: 'Model/editor/view code must stay framework-free — no React here.',
+            },
+            {
+              group: ['**/ui/react/**', '**/app/**'],
+              message:
+                'Model/editor/view code must not depend on the React shell or the app bootstrap.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The React shell renders through JSX, never by pasting markup: no
+    // innerHTML assignment, no dangerouslySetInnerHTML.
+    files: ['src/ui/react/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'AssignmentExpression[left.property.name="innerHTML"]',
+          message: 'Build DOM through JSX, not innerHTML.',
+        },
+        {
+          selector: 'JSXAttribute[name.name="dangerouslySetInnerHTML"]',
+          message: 'Build DOM through JSX, not dangerouslySetInnerHTML.',
+        },
+      ],
     },
   },
   {

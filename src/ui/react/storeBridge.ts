@@ -1,0 +1,90 @@
+import type { Store } from '../../model/store';
+import type { EditorState } from '../../editor/editorState';
+
+/**
+ * StoreBridge — the one adapter between the mutable app state (Store +
+ * EditorState) and React's `useSyncExternalStore`.
+ *
+ * THE RULE: a `getSnapshot` fed to useSyncExternalStore must return the NUMBER
+ * from `getVersion(channel)` — never an object, never a derived selector. The
+ * Design is mutated IN PLACE, so object identity is meaningless here: a
+ * selector would either compare equal after a real change (stale UI) or build a
+ * fresh object every call (infinite render loop). Read the version to decide
+ * WHETHER to re-render, then read `store.design` directly during render.
+ *
+ * Channels are split so a drag (which fires `change` at ~60 Hz with
+ * `transient: true`) only wakes the components that opted into 'transient',
+ * while the panels that cost real work stay on 'design'.
+ */
+
+export type Channel =
+  'design' | 'transient' | 'selection' | 'history' | 'pose' | 'activeRoom' | 'savefail' | 'editor';
+
+const CHANNELS: readonly Channel[] = [
+  'design',
+  'transient',
+  'selection',
+  'history',
+  'pose',
+  'activeRoom',
+  'savefail',
+  'editor',
+];
+
+export class StoreBridge {
+  private subs = new Map<Channel, Set<() => void>>();
+  private versions = new Map<Channel, number>();
+  private disposers: (() => void)[] = [];
+
+  constructor(store: Store, editor: EditorState) {
+    for (const ch of CHANNELS) {
+      this.subs.set(ch, new Set());
+      this.versions.set(ch, 0);
+    }
+
+    this.disposers.push(
+      store.on('change', (info) => {
+        // a mid-gesture change is transient-only; a settled one is both, so a
+        // component watching 'transient' never misses the final state
+        if (info.transient) this.bump('transient');
+        else {
+          this.bump('design');
+          this.bump('transient');
+        }
+      }),
+      store.on('selection', () => this.bump('selection')),
+      store.on('history', () => this.bump('history')),
+      store.on('pose', () => this.bump('pose')),
+      store.on('activeRoom', () => this.bump('activeRoom')),
+      store.on('savefail', () => this.bump('savefail')),
+      editor.subscribe(() => this.bump('editor'))
+    );
+  }
+
+  /** Returns a disposer that unsubscribes `fn` — same contract as `Store.on`. */
+  subscribe(ch: Channel, fn: () => void): () => void {
+    const set = this.subs.get(ch)!;
+    set.add(fn);
+    return () => {
+      set.delete(fn);
+    };
+  }
+
+  /** Monotonic per channel. This — and only this — is a valid getSnapshot. */
+  getVersion(ch: Channel): number {
+    return this.versions.get(ch)!;
+  }
+
+  /** Drop every upstream subscription. Subscribers are dropped too: a disposed bridge is inert. */
+  dispose(): void {
+    for (const off of this.disposers) off();
+    this.disposers = [];
+    for (const set of this.subs.values()) set.clear();
+  }
+
+  private bump(ch: Channel): void {
+    this.versions.set(ch, this.versions.get(ch)! + 1);
+    // snapshot: a subscriber that unsubscribes mid-dispatch must not skip a sibling
+    for (const fn of [...this.subs.get(ch)!]) fn();
+  }
+}
