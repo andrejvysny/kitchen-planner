@@ -34,17 +34,19 @@ npm run build && node test/interact.mjs` (104/104).
 - [x] `vitest.config.ts` scopes the unit run to `test/unit/**` so Playwright
   specs under `e2e/**` are not collected by Vitest's default `*.spec.ts` glob.
 
-- [ ] **@playwright/test NOT enabled — deliberate.** `playwright.config.ts` +
-  `e2e/{fixtures.ts,kp.d.ts,open-fronts.spec.ts}` are committed but inert: the
-  dependency is intentionally absent from package.json because `@playwright/test`
+- [x] **@playwright/test enabled — was deliberately inert.** `playwright.config.ts` +
+  `e2e/{fixtures.ts,kp.d.ts,open-fronts.spec.ts}` were committed but inert: the
+  dependency was intentionally absent from package.json because `@playwright/test`
   ships its own `playwright` bin, and side-by-side with the existing
   `playwright` dep CI's `npx playwright install chromium` fetches one browser
   revision while `test/interact.mjs` needs the other → red build → blocked
-  Pages deploy. Enable with ONE matched version:
-  `npm i -D playwright@X @playwright/test@X && npx playwright install chromium`,
-  then add the `npx playwright test` step to the deploy workflow.
-  (Local `node_modules` is currently in exactly that broken state after an
-  unmatched install — run the matched install to repair it.)
+  Pages deploy. Enabled with ONE matched version:
+  `npm i -D -E playwright@1.61.1 @playwright/test@1.61.1` (both exact, no
+  caret), added `npm run test:e2e`, and wired an `E2E (playwright specs)` step
+  into `.github/workflows/deploy.yml` after the `interact.mjs` step
+  (`KP_E2E_PORT=4174` so it doesn't collide with the interact preview still
+  holding 4173; the existing `npx playwright install --with-deps chromium`
+  step already covers the matched revision, so no second install step).
 - [ ] Port the remaining refactor-adjacent specs: `tools`, `selection`,
   `placement`, `room-editing`. `test/interact.mjs` stays the full net.
 - [ ] Verify CI green via `workflow_dispatch` on a branch before merging — the

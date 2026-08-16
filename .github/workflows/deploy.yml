@@ -41,6 +41,10 @@ jobs:
       - name: Build
         run: npm run build # tsc (noEmit typecheck) + vite build -> dist/
 
+      # playwright and @playwright/test are pinned to the same exact version
+      # (see playwright.config.ts header), so this one install covers the
+      # browser revision both the bespoke runner and @playwright/test need —
+      # no separate install step before the E2E (playwright specs) step below.
       - name: Install Playwright chromium
         run: npx playwright install --with-deps chromium
 
@@ -49,6 +53,11 @@ jobs:
           npm run preview -- --port 4173 --strictPort &
           for i in $(seq 1 60); do curl -sf http://localhost:4173/ >/dev/null && break; sleep 1; done
           node test/interact.mjs
+
+      - name: E2E (playwright specs)
+        env:
+          KP_E2E_PORT: '4174'
+        run: npx playwright test
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
