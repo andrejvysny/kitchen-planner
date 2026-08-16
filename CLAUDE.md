@@ -306,3 +306,56 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   hugs both walls correctly.
 - Date/format: all lengths meters internally; UI shows cm (ints) everywhere,
   including wall lengths and canvas dimension labels.
+
+## graphify (knowledge graph)
+
+`graphify-out/` holds a knowledge graph of this repo: every source symbol
+and its imports/calls from AST extraction, plus the concepts and design
+rationale extracted from CLAUDE.md, README.md, NEXT_STEPS.md, TODO.md,
+index.html and the deploy workflow. Use it to ORIENT — it tells you which
+files and communities a question touches — then read the real source for
+anything you are about to change. The graph is a map, never the territory.
+
+```bash
+graphify query "<question>"          # BFS subgraph around the question
+graphify query "<q>" --dfs           # trace one path instead of a neighbourhood
+graphify query "<q>" --budget 4000   # widen the default 2000-token cap
+graphify explain "worktopRuns"       # one node + its neighbours, in prose
+graphify path "Store" "partPanels"   # shortest path between two concepts
+graphify affected "Panel"            # reverse traversal: blast radius of a change
+graphify update .                    # re-extract changed CODE files (AST, free)
+graphify diagnose multigraph         # edge-collapse / dangling-edge health
+```
+
+Use it for: "where does X live", "what breaks if I change Y"
+(`affected`), "how do these two subsystems connect" (`path`), and getting a
+file shortlist before a refactor. Do NOT use it for line-level truth,
+control flow, or deciding whether an edge case is handled — grep and read
+the file for those. `query` starts from the graph's own vocabulary, so
+phrase questions with real symbol names (`partPanels`, `hostContexts`,
+`nextWeldSeam`) rather than prose descriptions.
+
+Keeping it current:
+
+- `graphify update .` after code edits — AST only, no LLM, no API key.
+- Doc edits (this file, README, TODO, NEXT_STEPS) are NOT picked up by
+  `update`; the concept layer only re-extracts on a full `/graphify .` run,
+  which costs LLM tokens. Re-run it after a real architecture change, not
+  after every doc tweak.
+- `graphify hook install` wires a post-commit AST rebuild if you want it
+  automatic (not installed by default).
+
+Known limits of the current graph (1280 nodes / 4044 edges / 51 communities,
+built from 85 files):
+
+- ~150 dangling edges point at `three` and other external symbols that were
+  never extracted as nodes. Expected, not corruption.
+- The graph is UNDIRECTED and collapses same-endpoint edges: ~71 pairs that
+  have both `imports_from` and `re_exports` (e.g. `meshKit → catalog`)
+  survive as one edge. Absence of an edge is NOT proof of no dependency.
+- `Point` and `Store` are the top bridge nodes by betweenness, so a BFS from
+  either fans out across most of the codebase — start from a narrower symbol
+  when you want a focused answer.
+- `graphify-out/` is regenerated output (~3 MB, includes `graph.html`). It is
+  untracked; keep it out of commits unless you deliberately want the graph
+  versioned.

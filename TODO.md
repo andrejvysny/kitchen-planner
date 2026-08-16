@@ -1,3 +1,91 @@
+# M7 — Editor core foundations (Cycle 1 of the migration + hardening program)
+
+Plan: ~/.claude/plans/act-as-senior-software-hashed-honey.md
+Program: Cycle 1 (M0 CI · M1 editor core · M2 multi-selection · M3 React shell),
+then precision → furniture v2 → project system → domain → manufacturing.
+Gate every step: `npm run lint && npm run typecheck && npm run test:unit &&
+npm run build && node test/interact.mjs` (104/104).
+
+## M0 — green, non-flaky CI
+
+- [x] Root cause found and fixed. The CI-only 102/104 (run 30851502876) was
+  never an open-fronts logic bug: `stepFrontPoses` advanced `openT` by a fixed
+  fraction PER RENDERED FRAME (`POSE_LERP` 0.18), so the pose needed 18-24
+  frames and the tests' fixed `waitForTimeout(1200)` silently demanded 15-20
+  fps sustained — which SwiftShader on a GPU-less runner cannot deliver.
+  Now time-based: `POSE_RATE` 12 /s exponential smoothing
+  (k = -60·ln(0.82) = 11.91, so 60 fps is visually byte-identical to before),
+  `POSE_DT_MAX` 0.25 s clamp so a stalled loop cannot teleport a door, and a
+  non-finite/zero dt advances nothing. `View3D.animate` threads the rAF
+  timestamp; the clock resets whenever the loop is gated off.
+- [x] `snapFrontPoses` + `setActive(true)` snap. Fronts toggled while the 3D
+  pane was hidden owed a catch-up animation on reveal; the user never saw them
+  closed, so they now appear already in their target pose.
+- [x] `test/unit/poses.test.ts` (+8, 434 total): 12 × 1/60 s == 1 × 12/60 s,
+  same TIME reaches the same pose at any frame budget, dt clamp, NaN/0 dt,
+  settle-and-stop, slide units, snap, and `withClosedPoses` restore.
+- [x] E2E: `waitUntil` / `waitForPose` / `bootReady` / `studioReady` /
+  `studioClosed` poll helpers replace 27 fixed sleeps (158 → 131), incl. all 5
+  `page.reload` boot waits and every Part Studio open/save wait.
+- [x] `KP_CPU_THROTTLE=<n>` reproduces CI locally via CDP
+  `Emulation.setCPUThrottlingRate`. Measured: at 20× only **8 frames** render
+  in the old 1200 ms budget (old code needed 18-24) and the pose still settles
+  to `openT` 1.0000. Suite verified **104/104 at 1× and at 6×**.
+- [x] `vitest.config.ts` scopes the unit run to `test/unit/**` so Playwright
+  specs under `e2e/**` are not collected by Vitest's default `*.spec.ts` glob.
+
+- [ ] **@playwright/test NOT enabled — deliberate.** `playwright.config.ts` +
+  `e2e/{fixtures.ts,kp.d.ts,open-fronts.spec.ts}` are committed but inert: the
+  dependency is intentionally absent from package.json because `@playwright/test`
+  ships its own `playwright` bin, and side-by-side with the existing
+  `playwright` dep CI's `npx playwright install chromium` fetches one browser
+  revision while `test/interact.mjs` needs the other → red build → blocked
+  Pages deploy. Enable with ONE matched version:
+  `npm i -D playwright@X @playwright/test@X && npx playwright install chromium`,
+  then add the `npx playwright test` step to the deploy workflow.
+  (Local `node_modules` is currently in exactly that broken state after an
+  unmatched install — run the matched install to repair it.)
+- [ ] Port the remaining refactor-adjacent specs: `tools`, `selection`,
+  `placement`, `room-editing`. `test/interact.mjs` stays the full net.
+- [ ] Verify CI green via `workflow_dispatch` on a branch before merging — the
+  deploy workflow only triggers on push to master, and a red E2E blocks Pages.
+- [ ] Sweep the remaining 131 sleeps opportunistically (input-pacing sleeps
+  after `mouse.move` are fine; render/rebuild/animation waits are not).
+
+## M1 — editor core (`src/editor/`), not started
+
+Scaffolding first, no behaviour change: `Store.on()` returns a disposer;
+`types.ts` (`Tool`/`ToolContext`/`PointerInput`/`KeyInput`, no DOM types);
+`ToolManager` (structural mutual exclusion — `closeOtherTools` disappears);
+`EditorState`; `CommandRegistry` (lift `wireKeyboard` + `wireTopbar` bodies);
+`InputRouter`. Free prep: `wallIdAt`/`wallIndexIn`, `SnapTolerances` options
+object, and the manufacturing contract fields on `Panel`
+(`sourcePath`/`grain`/`edgeBanding`) + a mm rounding policy.
+
+Then one tool per step, each with a Plan2D compatibility façade:
+Measure → Calibrate → DrawRoom → Room → Place → Select.
+
+**Hard rule:** `test/interact.mjs` reads and WRITES private Plan2D fields from
+page context (`p.zoom`/`panX`/`panY`, `plan.measure`, `plan.roomGhost`,
+`plan.drawRing()`). If a step needs to touch that file, the façade is wrong —
+fix the façade, not the test.
+
+## M2 — multi-selection, M3 — React shell (topbar + status bar only)
+
+See the plan. M2 keeps `store.selection` as a derived compatibility view so the
+~40 read sites migrate for free; M3 stays narrow because `#props-inner`,
+`#outline`, `#catalog-inner` and partstudio carry ~70 E2E selectors.
+
+STATUS: M0 root cause complete and verified (lint 0, typecheck clean,
+434/434 unit, build clean, 104/104 E2E at 1× and 6× CPU throttle). Playwright
+migration scaffolded but intentionally not wired.
+
+NOTE: `npm run format` reflows 44 unrelated files (`.prettierrc` printWidth
+100 vs code written at ~120). That repo-wide reformat is still the separate
+commit M5/W4 deferred — do not let it ride along in a feature diff.
+
+---
+
 # M6 — Room authoring (auto-share walls · draw tool · photo underlay)
 
 - [x] F1 auto-share adjacent rooms (Opus, diff reviewed): snapRoomRect ghost
