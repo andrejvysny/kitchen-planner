@@ -38,6 +38,19 @@ export default defineConfig([
     },
   },
   {
+    // Playwright specs: run under the @playwright/test Node runner, but
+    // page.evaluate() callbacks execute in the browser tab, so both globals.
+    files: ['e2e/**/*.ts'],
+    extends: [tseslint.configs.recommended],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
+    },
+    rules: {
+      '@typescript-eslint/no-non-null-assertion': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
+    },
+  },
+  {
     // Plain-JS Node scripts (Playwright E2E driver, screenshot tool). Also
     // browser globals: most of the interesting code here is a callback
     // passed to page.evaluate(), which runs inside the browser tab, not Node.
