@@ -41,9 +41,8 @@ const count = () => page.evaluate(() => window.__kp.store.design.items.length);
 const worldToScreen = async (x, y) => {
   return page.evaluate(
     ([wx, wy]) => {
-      const p = window.__kp.plan;
-      // access private fields via bracket (compiled JS keeps names)
-      return { x: wx * p.zoom + p.panX, y: wy * p.zoom + p.panY };
+      const v = window.__kp.plan.viewport();
+      return { x: wx * v.zoom + v.panX, y: wy * v.zoom + v.panY };
     },
     [x, y]
   );
@@ -127,7 +126,7 @@ const results = [];
 // points, read the distance back; it must not mutate the model.
 await page.click('#btn-measure');
 const measureState = await page.evaluate(() => ({
-  on: window.__kp.plan.measureOn,
+  on: window.__kp.plan.toolState().measure,
   active: document.getElementById('btn-measure').classList.contains('active'),
 }));
 const mbb = await paneOffset();
@@ -139,7 +138,7 @@ await page.mouse.move(mbb.x + mp2.x, mbb.y + mp2.y, { steps: 6 });
 await page.mouse.up();
 await page.waitForTimeout(120);
 const measured = await page.evaluate(() => {
-  const m = window.__kp.plan.measure;
+  const m = window.__kp.plan.overlayState().measure;
   const d = m.a && m.b ? Math.hypot(m.b.x - m.a.x, m.b.y - m.a.y) : -1;
   return { d, items: window.__kp.store.design.items.length };
 });
@@ -151,7 +150,7 @@ results.push([
     measured.items === n0,
 ]);
 await page.keyboard.press('Escape'); // exit measure mode for the steps below
-const measureOff = await page.evaluate(() => window.__kp.plan.measureOn);
+const measureOff = await page.evaluate(() => window.__kp.plan.toolState().measure);
 results.push(['measure tool: Esc exits', measureOff === false]);
 
 // 1. place a base cabinet near the bottom wall (should wall-snap + rotate)
@@ -819,8 +818,7 @@ const accel = { deltaX: 0, deltaY: 12 };
 const swipe = { deltaX: 0.5, deltaY: 2.5 };
 
 const setNav = (mode) => page.evaluate((m) => window.__kp.setNavInput(m), mode);
-const plan2d = () =>
-  page.evaluate(() => ({ zoom: window.__kp.plan.zoom, panY: window.__kp.plan.panY }));
+const plan2d = () => page.evaluate(() => window.__kp.plan.viewport());
 
 // --- 2D plan ---
 await setNav('auto');
@@ -1608,11 +1606,7 @@ await page.click('#btn-new'); // deterministic single 4x3 room, no items
 await page.waitForTimeout(600);
 // pin the viewport so both rooms are on-canvas whatever the pane size is
 await page.evaluate(() => {
-  const p = window.__kp.plan;
-  p.zoom = 30;
-  p.panX = 20;
-  p.panY = 40;
-  p.requestDraw();
+  window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 });
 });
 const roomBb = await paneOffset();
 const clickWorld = async (x, y) => {
@@ -1625,7 +1619,7 @@ const clickWorld = async (x, y) => {
 // N1 — the tool arms, previews and drops a free-standing room clear of the first
 await page.click('#btn-room');
 const roomToolArmed = await page.evaluate(() => ({
-  on: window.__kp.plan.roomToolOn,
+  on: window.__kp.plan.toolState().room,
   active: document.getElementById('btn-room').classList.contains('active'),
 }));
 await clickWorld(8.0, 1.5); // ~4 m clear of the 4x3 room's right wall
@@ -1636,7 +1630,7 @@ const added = await page.evaluate(() => {
     n: rooms.length,
     activeIsNew: st.activeRoomId === rooms[rooms.length - 1].id,
     sel: st.selection.kind,
-    toolOff: window.__kp.plan.roomToolOn === false,
+    toolOff: window.__kp.plan.toolState().room === false,
     shared: st.allWalls().some((w) => w.shared),
   };
 });
@@ -1683,14 +1677,14 @@ results.push([
     switchedBack === roomIds[0],
 ]);
 const panFrom = await worldToScreen(8.0, 1.5); // empty floor of the INACTIVE room
-const panBefore = await page.evaluate(() => window.__kp.plan.panX);
+const panBefore = await page.evaluate(() => window.__kp.plan.viewport().panX);
 await page.mouse.move(roomBb.x + panFrom.x, roomBb.y + panFrom.y);
 await page.mouse.down();
 await page.mouse.move(roomBb.x + panFrom.x + 60, roomBb.y + panFrom.y, { steps: 6 });
 await page.mouse.up();
 await page.waitForTimeout(200);
 const panned = await page.evaluate(() => ({
-  panX: window.__kp.plan.panX,
+  panX: window.__kp.plan.viewport().panX,
   active: window.__kp.store.activeRoomId,
 }));
 results.push([
@@ -2090,7 +2084,7 @@ await page.waitForTimeout(100);
 await page.mouse.click(bb11.x + s2.x, bb11.y + s2.y);
 await page.waitForTimeout(150);
 const n11measured = await page.evaluate(() => {
-  const m = window.__kp.plan.measure;
+  const m = window.__kp.plan.overlayState().measure;
   const d = m.a && m.b ? Math.hypot(m.b.x - m.a.x, m.b.y - m.a.y) : -1;
   return { d, items: window.__kp.store.design.items.length };
 });
@@ -2308,13 +2302,13 @@ results.push([
 await page.click('#btn-checks');
 await page.waitForTimeout(120);
 const checksOnState = await page.evaluate(() => ({
-  on: window.__kp.plan.checksOn,
+  on: window.__kp.plan.toolState().checks,
   active: document.getElementById('btn-checks').classList.contains('active'),
 }));
 await page.click('#btn-checks');
 await page.waitForTimeout(120);
 const checksOffState = await page.evaluate(() => ({
-  on: window.__kp.plan.checksOn,
+  on: window.__kp.plan.toolState().checks,
   active: document.getElementById('btn-checks').classList.contains('active'),
 }));
 results.push([
@@ -2395,11 +2389,7 @@ await page.keyboard.press('Escape');
 await page.click('#btn-new'); // deterministic single 4x3 room, no items
 await page.waitForTimeout(600);
 await page.evaluate(() => {
-  const p = window.__kp.plan;
-  p.zoom = 30;
-  p.panX = 20;
-  p.panY = 40;
-  p.requestDraw();
+  window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 });
 });
 const drawBb = await paneOffset();
 const clickAt = async (x, y) => {
@@ -2411,17 +2401,17 @@ const clickAt = async (x, y) => {
 
 await page.click('#btn-draw-room');
 const drawArmed = await page.evaluate(() => ({
-  on: window.__kp.plan.drawRoomOn,
+  on: window.__kp.plan.toolState().draw,
   active: document.getElementById('btn-draw-room').classList.contains('active'),
-  measureOff: window.__kp.plan.measureOn === false,
+  measureOff: window.__kp.plan.toolState().measure === false,
 }));
 // Esc drops the ring in progress first, and only then the tool itself
 await clickAt(7, 1);
 await clickAt(9, 1);
 await page.keyboard.press('Escape');
 const ringCancelled = await page.evaluate(() => ({
-  ring: window.__kp.plan.drawRing(),
-  on: window.__kp.plan.drawRoomOn,
+  ring: window.__kp.plan.overlayState().drawRing,
+  on: window.__kp.plan.toolState().draw,
   rooms: window.__kp.store.design.rooms.length,
 }));
 results.push([
@@ -2445,7 +2435,7 @@ for (const [x, y] of [
 ])
   await clickAt(x, y);
 const midRing = await page.evaluate(() => {
-  const r = window.__kp.plan.drawRing();
+  const r = window.__kp.plan.overlayState().drawRing;
   return { pts: r ? r.pts.length : 0, rooms: window.__kp.store.design.rooms.length };
 });
 await clickAt(7, 1);
@@ -2457,7 +2447,7 @@ const drawn = await page.evaluate(() => {
     corners: r.corners.length,
     area: st.floorArea(r.id),
     active: st.activeRoomId === r.id,
-    toolOff: window.__kp.plan.drawRoomOn === false,
+    toolOff: window.__kp.plan.toolState().draw === false,
     ortho: r.corners.every((c, i) => {
       const b = r.corners[(i + 1) % r.corners.length];
       return Math.abs(c.x - b.x) < 1e-6 || Math.abs(c.y - b.y) < 1e-6;
@@ -2487,11 +2477,7 @@ results.push([
 await page.click('#btn-new');
 await page.waitForTimeout(600);
 await page.evaluate(() => {
-  const p = window.__kp.plan;
-  p.zoom = 30;
-  p.panX = 20;
-  p.panY = 40;
-  p.requestDraw();
+  window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 });
 });
 await page.click('#btn-room');
 // 2.1 m clear of the right wall, so the tool takes the FREE branch, but the
@@ -2501,7 +2487,7 @@ const flushGhost = await (async () => {
   await page.mouse.move(drawBb.x + s.x, drawBb.y + s.y);
   await page.waitForTimeout(150);
   return page.evaluate(() => {
-    const g = window.__kp.plan.roomGhost;
+    const g = window.__kp.plan.overlayState().roomGhost;
     return { attached: g ? g.attached : null, flush: g ? g.flush : null, x: g ? g.poly[0].x : -1 };
   });
 })();

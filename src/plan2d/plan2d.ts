@@ -113,6 +113,10 @@ export class Plan2D {
   private guides: Guide[] = [];
   private raf = 0;
   private fitted = false;
+  /** Test/debug seam (`debug()`): counts full `draw()` executions. */
+  private drawCount = 0;
+  /** Test/debug seam (`debug()`): counts `endGesture()` calls. */
+  private gestureCount = 0;
   private readonly isMac = isMac(navigator.platform, navigator.userAgent);
 
   constructor(canvas: HTMLCanvasElement, store: Store, onHint: (hint: string) => void) {
@@ -206,6 +210,19 @@ export class Plan2D {
 
   private toScreen(p: Point): Point {
     return { x: p.x * this.zoom + this.panX, y: p.y * this.zoom + this.panY };
+  }
+
+  /** Snapshot of the current pan/zoom transform, for callers outside the render loop. */
+  viewport(): { zoom: number; panX: number; panY: number; cssW: number; cssH: number } {
+    return { zoom: this.zoom, panX: this.panX, panY: this.panY, cssW: this.cssW, cssH: this.cssH };
+  }
+
+  /** Assign the given viewport fields and redraw — the public way to move/zoom the camera. */
+  setViewport(v: Partial<{ zoom: number; panX: number; panY: number }>): void {
+    if (v.zoom !== undefined) this.zoom = v.zoom;
+    if (v.panX !== undefined) this.panX = v.panX;
+    if (v.panY !== undefined) this.panY = v.panY;
+    this.requestDraw();
   }
 
   /* ---------------- arming (placement from catalog) ---------------- */
@@ -636,6 +653,30 @@ export class Plan2D {
             : 'Drag corners to reshape the room · pick items from the left · scroll zooms, drag empty space pans'
         );
     }
+  }
+
+  /** Snapshot of which single-gesture tool (if any) is currently armed. */
+  toolState(): {
+    armedDefId: string | null;
+    measure: boolean;
+    calibrate: boolean;
+    room: boolean;
+    draw: boolean;
+    checks: boolean;
+  } {
+    return {
+      armedDefId: this.armedDef?.id ?? null,
+      measure: this.measureOn,
+      calibrate: this.calibrateOn,
+      room: this.roomToolOn,
+      draw: this.drawRoomOn,
+      checks: this.checksOn,
+    };
+  }
+
+  /** Snapshot of the in-flight overlay state — the measure span, room-tool ghost and draw ring. */
+  overlayState(): { measure: Measure; roomGhost: RoomGhost | null; drawRing: DrawRing | null } {
+    return { measure: this.measure, roomGhost: this.roomGhost, drawRing: this.drawRing() };
   }
 
   /* ---------------- pointer handling ---------------- */
@@ -1199,6 +1240,7 @@ export class Plan2D {
 
   /** Shared teardown for pointerup and pointercancel — commits any in-flight edit. */
   private endGesture(): void {
+    this.gestureCount++;
     const wasDrag = this.drag;
     this.drag = { type: 'none' };
     this.guides = [];
@@ -1272,6 +1314,7 @@ export class Plan2D {
   }
 
   private draw(): void {
+    this.drawCount++;
     const ctx = this.ctx;
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1302,5 +1345,10 @@ export class Plan2D {
         advisoryChecks: this.checksOn,
       }
     );
+  }
+
+  /** Test/debug seam: draw + gesture counters and the live drag kind — a no-sleep assertion hook. */
+  debug(): { drawCount: number; gestureCount: number; dragKind: string } {
+    return { drawCount: this.drawCount, gestureCount: this.gestureCount, dragKind: this.drag.type };
   }
 }
