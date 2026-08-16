@@ -117,12 +117,21 @@ export class Store {
 
   /* ---------------- events ---------------- */
 
-  on<K extends keyof EventMap>(evt: K, fn: Handler<EventMap[K]>): void {
-    this.handlers[evt].push(fn as Handler<EventMap[K]>);
+  /** Returns a disposer that unsubscribes `fn`; calling it twice is a no-op, and a
+   * handler registered while a dispatch is in progress only runs on the next emit. */
+  on<K extends keyof EventMap>(evt: K, fn: Handler<EventMap[K]>): () => void {
+    const list = this.handlers[evt] as Handler<EventMap[K]>[];
+    list.push(fn as Handler<EventMap[K]>);
+    return () => {
+      const i = list.indexOf(fn as Handler<EventMap[K]>);
+      if (i !== -1) list.splice(i, 1);
+    };
   }
 
   private emit<K extends keyof EventMap>(evt: K, payload: EventMap[K]): void {
-    for (const fn of this.handlers[evt]) fn(payload);
+    // snapshot the array so a handler that unsubscribes (itself or a sibling)
+    // mid-dispatch can't skip or rerun another handler in this same emit
+    for (const fn of [...this.handlers[evt]]) fn(payload);
   }
 
   notify(info: ChangeInfo): void {
