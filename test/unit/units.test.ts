@@ -55,9 +55,18 @@ describe('parseLength', () => {
 
     // -- dimensional discipline: / --
     ['1200/3', MM, 0.4], // scalar/scalar stays scalar, reinterpreted as prefs.unit at the end
-    ['1m/50cm', MM, 0.002], // length/length -> scalar ratio (2), reinterpreted as prefs.unit (documented edge case)
     ['600mm/2', MM, 0.3], // length/scalar -> length
     ['2/600mm', MM, null], // scalar/length: no sensible result unit
+
+    // -- a dimensioned expression may not come out dimensionless --
+    // length/length is a RATIO (1m/50cm = 2), and reading a ratio as prefs.unit
+    // would silently change dimension. Rejected, so the field restores instead.
+    ['1m/50cm', MM, null],
+    ['1m / 2m', MM, null],
+    ['1m / 2m', M, null], // not a display-unit artefact — rejected in every unit
+    ['(1m/2m)', MM, null], // parentheses do not launder it
+    ['1m/2m + 5', MM, null], // still dimensionless after adding a bare scalar
+    ['(1m/2m) * 3m', MM, 1.5], // …but re-dimensioned, it is a length again
 
     // -- dimensional discipline: +/- mixing --
     ['600mm+2', MM, 0.602], // bare 2 read as prefs.unit (mm) before combining

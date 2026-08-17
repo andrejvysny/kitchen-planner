@@ -33,11 +33,12 @@
 //     unit for the result, so rejected (asymmetric with length÷length on
 //     purpose: a ratio is meaningful, an inverse-length is not).
 //   - Whole-expression result: if it carries a unit, that IS the length, in
-//     meters, done. If it's still a bare scalar (e.g. '600-18*2', or the
-//     length÷length ratio case above), the number is interpreted as
-//     prefs.unit and converted to meters. This last rule is what makes a
-//     length÷length result re-enter as a length if it's the outermost node —
-//     an accepted, tested edge case, not an oversight.
+//     meters, done. If it's still a bare scalar (e.g. '600-18*2'), the number
+//     is interpreted as prefs.unit and converted to meters — but ONLY when the
+//     expression never mentioned a unit at all. An expression that DID name a
+//     unit and still came out dimensionless is a ratio, not a length ('1m / 2m'
+//     is 0.5, not 0.5 mm), so parseLength rejects it and the field restores the
+//     model's value. Dimensioned input never silently changes dimension.
 //   - Unary minus binds once per factor (grammar has no chained unary
 //     outside parentheses: '--5' is invalid, '-(-5)' is fine).
 //   - Division by zero / any non-finite intermediate → null. In practice the
@@ -276,6 +277,11 @@ export function parseLength(src: string, prefs: UnitPrefs): number | null {
   const scalarUnitFactor = UNIT_TO_M[prefs.unit] ?? UNIT_TO_M.mm;
   const v = new Parser(tokens, true, scalarUnitFactor).run();
   if (v === null) return null;
+  // A dimensionless RESULT out of a dimensioned expression is a ratio, not a
+  // length: '1m / 2m' is 0.5, and reading that as 0.5 prefs.unit would be a
+  // silent dimension change. Only a wholly bare expression ('600-18*2') gets
+  // the prefs.unit interpretation.
+  if (!v.hasUnit && tokens.some((t) => t.kind === 'unit')) return null;
   const meters = v.hasUnit ? v.n : v.n * scalarUnitFactor;
   return Number.isFinite(meters) ? dezero(meters) : null;
 }
