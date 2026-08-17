@@ -1,36 +1,19 @@
-import {
-  COUNTER_COLORS,
-  FLOOR_COLORS,
-  FRONT_COLORS,
-  LIGHT_COLORS,
-  WALL_COLORS,
-} from '../model/catalog';
-import { polygonBounds } from '../model/geometry';
-import {
-  initialUnderlay,
-  UNDERLAY_JPEG_Q,
-  UNDERLAY_MAX_PX,
-  underlayScaleFrom,
-} from '../model/underlay';
+import { COUNTER_COLORS, FRONT_COLORS, LIGHT_COLORS } from '../model/catalog';
 import { hasPreset } from '../model/presets';
 import {
   COUNTER_MATERIALS,
-  FLOOR_MATERIALS,
   hasPattern,
   ITEM_MATERIALS,
   overridesColor,
-  WALL_MATERIALS,
   type MaterialDef,
 } from '../model/materials';
 import type { Warning } from '../model/checks';
-import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../model/sky';
 import { demoDesign, Store } from '../model/store';
-import type { Item, Underlay, WallVisMode } from '../model/types';
+import type { Item, WallVisMode } from '../model/types';
 import { isVarRef, refId, resolveColor, toVarRef } from '../model/variables';
 import type { Plan2D } from '../plan2d/plan2d';
 import type { EditorState } from '../editor/editorState';
 import { materialSwatch } from '../view3d/textures';
-import { setHint } from './shellState';
 import { studio } from '../app/bootstrap';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T => document.querySelector(sel) as T;
@@ -48,27 +31,16 @@ export class UI {
   // The 3D view left this class in step B2 with the topbar buttons that drove
   // it (snapshot / GLB / camera presets / pane visibility); B3 took the tool
   // buttons, the 2D/elev toggle, the wall nav and the catalog drawer, T3 the
-  // sidebar tabs plus the whole Variables panel, and T4 the catalog and the
-  // components outline. What is left is the props panel and the keyboard map.
+  // sidebar tabs plus the whole Variables panel, T4 the catalog and the
+  // components outline, and T5a the room panel with the reference photo. What
+  // is left is four selection panels and the keyboard map.
   constructor(store: Store, plan: Plan2D, editor: EditorState) {
     this.store = store;
     this.plan = plan;
     this.editor = editor;
 
     this.renderProps();
-    this.wireUnderlay();
     this.wireKeyboard();
-
-    // TRANSITIONAL (dies with T5): one bit of legacy DOM still mirrors tool
-    // state by hand — the calibrate button inside the props panel. It becomes
-    // a component once the props panel is React's; until then this is the one
-    // subscription that keeps it honest, in place of an onCalibrateChange
-    // callback.
-    editor.subscribe(() => {
-      document
-        .querySelector('#props-inner .underlay-calibrate')
-        ?.classList.toggle('active', editor.isTool('calibrate'));
-    });
 
     store.on('selection', () => this.renderProps());
     store.on('history', () => {
@@ -80,16 +52,19 @@ export class UI {
     store.on('change', (info) => {
       if (info.transient) this.refreshTransientInputs();
     });
-    // ephemeral, but it retargets every room-scoped panel and the elevation
-    store.on('activeRoom', () => {
-      if (!this.isEditingRoomName(document.activeElement)) this.renderProps();
-    });
   }
 
   /* ================= properties panel ================= */
 
+  /**
+   * The panels React has not taken yet, drawn into `#props-legacy` — the div
+   * <PropsPanel/> renders for exactly this purpose and never gives children of
+   * its own (see the two-writer note there). The no-selection room panel, and
+   * any selection whose id no longer resolves, are React's: this method leaves
+   * the container empty and <PropsBody/> renders over it.
+   */
   private renderProps(): void {
-    const root = $('#props-inner');
+    const root = $('#props-legacy');
     root.innerHTML = '';
     const sel = this.store.selection;
 
@@ -106,7 +81,6 @@ export class UI {
       const c = this.store.cornerById(sel.id);
       if (c) return this.renderCornerProps(root, sel.id);
     }
-    this.renderRoomProps(root);
   }
 
   private el(html: string): HTMLElement {
@@ -243,17 +217,6 @@ export class UI {
     parent.appendChild(row);
   }
 
-  /** True while the caret sits in the room-name field — re-rendering then would
-   * drop the user's edit, so the activeRoom handler skips the rebuild. */
-  private isEditingRoomName(active: Element | null): boolean {
-    return (
-      !!active &&
-      active instanceof HTMLInputElement &&
-      active.classList.contains('room-name') &&
-      $('#props').contains(active)
-    );
-  }
-
   /** Built-in PBR material chips (textured previews) + a "plain colour" chip. */
   private materialRow(
     parent: HTMLElement,
@@ -355,460 +318,6 @@ export class UI {
     });
     r.addEventListener('change', () => this.store.commit());
     parent.appendChild(row);
-  }
-
-  /* ---------- room ---------- */
-
-  /** Room rows (panel + outline) switch rooms and drop back to the room panel. */
-  private activateRoom(id: string): void {
-    this.store.setActiveRoom(id);
-    this.store.select({ kind: 'none' });
-  }
-
-  private renderRoomProps(root: HTMLElement): void {
-    const room = this.store.activeRoom();
-    const style = this.store.activeStyle();
-    const rooms = this.store.design.rooms;
-
-    // the title IS the room name — renaming is the most common room-level edit
-    const name = this.el(
-      '<input class="room-name" type="text" spellcheck="false">'
-    ) as HTMLInputElement;
-    name.value = room.name;
-    name.title = 'Rename this room';
-    name.addEventListener('change', () => {
-      this.store.renameRoom(room.id, name.value);
-      this.store.commit();
-      const applied = this.store.roomById(room.id)?.name ?? room.name; // renameRoom rejects blanks
-      name.value = applied;
-      // the panel is deliberately not rebuilt while the caret is in this field,
-      // so the room list right below it has to be corrected by hand
-      const row = $('#props-inner').querySelector<HTMLElement>('.room-row.active .room-row-name');
-      if (row) row.textContent = applied;
-    });
-    root.appendChild(name);
-    root.appendChild(
-      this.el(
-        `<p class="props-sub">${this.store.floorArea().toFixed(1)} m² · ${room.corners.length} corners</p>`
-      )
-    );
-
-    const list = this.section(root, 'Rooms');
-    for (const r of rooms) {
-      const row = this.el(
-        `<div class="ol-row room-row${r.id === room.id ? ' active' : ''}"><span class="room-row-name"></span><span class="room-row-area"></span></div>`
-      );
-      row.role = 'button';
-      row.tabIndex = 0;
-      (row.querySelector('.room-row-name') as HTMLElement).textContent = r.name;
-      (row.querySelector('.room-row-area') as HTMLElement).textContent =
-        `${this.store.floorArea(r.id).toFixed(1)} m²`;
-      const pick = () => this.activateRoom(r.id);
-      row.addEventListener('click', pick);
-      row.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          pick();
-        }
-      });
-      list.appendChild(row);
-    }
-    const addRow = this.el(
-      '<div class="btn-row"><button class="btn">＋ Add room</button><button class="btn">✎ Draw room</button></div>'
-    );
-    const addBtns = addRow.querySelectorAll('button');
-    addBtns[0].addEventListener('click', () => this.plan.setRoomTool(true));
-    addBtns[1].addEventListener('click', () => this.plan.setDrawRoom(true));
-    list.appendChild(addRow);
-
-    this.underlaySection(root);
-    this.checksSection(root, this.store.warnings(), { cap: 12 });
-
-    const rect = this.store.rectangleSize();
-    const size = this.section(root, 'Size');
-    if (rect) {
-      this.numberRow(
-        size,
-        'Width',
-        Math.round(rect.w * 100),
-        'cm',
-        (v) => this.store.setRectangleSize(v / 100, rect.d),
-        { min: 100, max: 2000 }
-      );
-      this.numberRow(
-        size,
-        'Depth',
-        Math.round(rect.d * 100),
-        'cm',
-        (v) => this.store.setRectangleSize(rect.w, v / 100),
-        { min: 100, max: 2000 }
-      );
-    } else {
-      size.appendChild(
-        this.el(
-          `<p class="props-sub">Select a wall to edit its length, or drag corners in the plan.</p>`
-        )
-      );
-    }
-    this.numberRow(
-      size,
-      'Ceiling',
-      Math.round(style.wallHeight * 100),
-      'cm',
-      (v) => this.store.setRoomStyle({ wallHeight: Math.min(4, Math.max(2, v / 100)) }),
-      { min: 200, max: 400 }
-    );
-
-    const shape = this.section(root, 'Room shape');
-    const btns = this.el(
-      `<div class="btn-row"><button class="btn">Rectangle</button><button class="btn">L-shape</button></div>`
-    );
-    const [rectBtn, lBtn] = Array.from(btns.querySelectorAll('button'));
-    const applyPreset = (preset: 'rect' | 'lshape') => {
-      this.store.setShapePreset(preset);
-      this.store.commit();
-    };
-    rectBtn.addEventListener('click', () => applyPreset('rect'));
-    lBtn.addEventListener('click', () => applyPreset('lshape'));
-    // a preset rewrites the whole corner ring, which would orphan a partition
-    if (this.store.wallsOf(room.id).some((w) => w.shared)) {
-      for (const b of [rectBtn, lBtn]) {
-        b.disabled = true;
-        b.title = 'This room shares a wall with another — reshaping it would break the partition';
-      }
-    }
-    shape.appendChild(btns);
-    shape.appendChild(
-      this.el(
-        `<p class="props-sub" style="margin-top:8px">Drag ■ corners to reshape · drag ◆ to bend a wall</p>`
-      )
-    );
-
-    const ceiling = this.section(root, 'Ceiling');
-    this.choiceRow(
-      ceiling,
-      [
-        ['auto', 'Auto'],
-        ['show', 'Show'],
-        ['hide', 'Hide'],
-      ],
-      this.store.ceilingVisibility(),
-      (v) => this.store.setCeilingVisibility(v as WallVisMode)
-    );
-    ceiling.appendChild(
-      this.el(
-        `<p class="props-sub" style="margin-top:8px">Auto shows the ceiling only when the camera is below it</p>`
-      )
-    );
-
-    const design = this.store.design;
-    const colors = this.section(root, 'Walls');
-    this.varChips(colors, style.wallColor, (ref) => this.store.setRoomStyle({ wallColor: ref }));
-    this.swatchRow(colors, WALL_COLORS, resolveColor(design, style.wallColor), (c) =>
-      this.store.setRoomStyle(
-        overridesColor(style.wallMaterial)
-          ? { wallColor: c, wallMaterial: undefined, wallMaterialRot: undefined }
-          : { wallColor: c }
-      )
-    );
-    this.materialRow(colors, WALL_MATERIALS, style.wallMaterial, (id) =>
-      this.store.setRoomStyle({ wallMaterial: id })
-    );
-    this.rotToggle(colors, style.wallMaterial, style.wallMaterialRot === true, (v) =>
-      this.store.setRoomStyle({ wallMaterialRot: v || undefined })
-    );
-    const visRow = this.el(`<div class="btn-row">
-      <button class="btn" data-m="auto">Auto all</button>
-      <button class="btn" data-m="show">Show all</button>
-      <button class="btn" data-m="hide">Hide all</button></div>`);
-    visRow.querySelectorAll('button').forEach((b) =>
-      b.addEventListener('click', () => {
-        this.store.setAllWallVisibility(b.getAttribute('data-m') as WallVisMode);
-        this.store.commit();
-      })
-    );
-    colors.appendChild(visRow);
-    colors.appendChild(
-      this.el(
-        `<p class="props-sub" style="margin-top:8px">Or select a single wall to override it</p>`
-      )
-    );
-    const floor = this.section(root, 'Floor');
-    this.varChips(floor, style.floorColor, (ref) => this.store.setRoomStyle({ floorColor: ref }));
-    this.swatchRow(floor, FLOOR_COLORS, resolveColor(design, style.floorColor), (c) =>
-      this.store.setRoomStyle(
-        overridesColor(style.floorMaterial)
-          ? { floorColor: c, floorMaterial: undefined, floorMaterialRot: undefined }
-          : { floorColor: c }
-      )
-    );
-    this.materialRow(floor, FLOOR_MATERIALS, style.floorMaterial, (id) =>
-      this.store.setRoomStyle({ floorMaterial: id })
-    );
-    this.rotToggle(floor, style.floorMaterial, style.floorMaterialRot === true, (v) =>
-      this.store.setRoomStyle({ floorMaterialRot: v || undefined })
-    );
-    const counter = this.section(root, 'Worktops');
-    this.varChips(counter, style.counterColor, (ref) =>
-      this.store.setRoomStyle({ counterColor: ref })
-    );
-    this.swatchRow(counter, COUNTER_COLORS, resolveColor(design, style.counterColor), (c) =>
-      this.store.setRoomStyle(
-        overridesColor(style.counterMaterial)
-          ? { counterColor: c, counterMaterial: undefined, counterMaterialRot: undefined }
-          : { counterColor: c }
-      )
-    );
-    this.materialRow(counter, COUNTER_MATERIALS, style.counterMaterial, (id) =>
-      this.store.setRoomStyle({ counterMaterial: id })
-    );
-    this.rotToggle(counter, style.counterMaterial, style.counterMaterialRot === true, (v) =>
-      this.store.setRoomStyle({ counterMaterialRot: v || undefined })
-    );
-
-    this.renderLightingProps(root);
-
-    const actions = this.section(root, 'Actions');
-    const delRow = this.el(
-      '<div class="btn-row"><button class="btn danger">Delete room</button></div>'
-    );
-    const delBtn = delRow.querySelector('button') as HTMLButtonElement;
-    if (rooms.length === 1) {
-      delBtn.disabled = true;
-      delBtn.title = 'A design always has at least one room';
-    }
-    delBtn.addEventListener('click', () => {
-      if (!confirm(`Delete "${room.name}" and everything in it?`)) return;
-      this.store.deleteRoom(room.id);
-      this.store.commit();
-    });
-    actions.appendChild(delRow);
-
-    root.appendChild(
-      this.el(`<div class="props-empty-tip">
-        <b>How to design your space</b><br>
-        1 · Sketch rooms — size, corners, and <b>＋ Add room</b> for more<br>
-        2 · Place doors, windows & utilities on the walls<br>
-        3 · Furnish along the walls — cabinets and furniture snap into place<br>
-        4 · Place lights, then set the mood in <b>Lighting</b> (sun direction & height, brightness)<br>
-        Create your own parametric furniture with <b>＋ New part</b></div>`)
-    );
-  }
-
-  /* ---------- reference underlay ---------- */
-
-  /**
-   * Tracing-photo controls. The photo itself lives outside the design (see
-   * types.ts `Underlay`), so this section keys off `underlayRef()` — both
-   * halves present — not off the transform alone.
-   */
-  private underlaySection(root: HTMLElement): void {
-    const sec = this.section(root, 'Reference photo');
-    const ref = this.store.underlayRef();
-    if (!ref) {
-      const row = this.el('<div class="btn-row"><button class="btn">Import photo…</button></div>');
-      (row.querySelector('button') as HTMLButtonElement).addEventListener('click', () =>
-        this.pickUnderlay()
-      );
-      sec.appendChild(row);
-      sec.appendChild(
-        this.el(
-          `<p class="props-sub" style="margin-top:8px">Trace an existing floor plan: import it, drag it under the room, then calibrate its scale.</p>`
-        )
-      );
-      return;
-    }
-
-    const u = ref.u;
-    this.sliderRow(
-      sec,
-      'Opacity',
-      Math.round(u.opacity * 100),
-      (v) => this.store.updateUnderlay({ opacity: v / 100 }),
-      { min: 0, max: 100, step: 1, fmt: (v) => `${Math.round(v)}%` }
-    );
-
-    const calRow = this.el(
-      '<div class="btn-row"><button class="btn underlay-calibrate">Calibrate scale</button></div>'
-    );
-    const calBtn = calRow.querySelector('button') as HTMLButtonElement;
-    calBtn.classList.toggle('active', this.editor.isTool('calibrate'));
-    calBtn.addEventListener('click', () =>
-      this.plan.setCalibrate(!this.editor.isTool('calibrate'))
-    );
-    sec.appendChild(calRow);
-
-    this.underlayToggles(sec, u);
-
-    const manage = this.el(
-      '<div class="btn-row"><button class="btn">Replace…</button><button class="btn danger">Remove</button></div>'
-    );
-    const [replaceBtn, removeBtn] = Array.from(manage.querySelectorAll('button'));
-    replaceBtn.addEventListener('click', () => this.pickUnderlay());
-    removeBtn.addEventListener('click', () => {
-      this.store.setUnderlay(null);
-      this.store.commit();
-      this.renderProps();
-    });
-    sec.appendChild(manage);
-    sec.appendChild(
-      this.el(
-        `<p class="props-sub" style="margin-top:8px">1 photo pixel = ${(u.scale * 100).toFixed(2)} cm · drag the photo in the plan to move it</p>`
-      )
-    );
-  }
-
-  /** Show/hide + lock, relabelling in place so neither needs a panel rebuild. */
-  private underlayToggles(sec: HTMLElement, u: Underlay): void {
-    const row = this.el(
-      '<div class="btn-row"><button class="btn"></button><button class="btn"></button></div>'
-    );
-    const [visBtn, lockBtn] = Array.from(row.querySelectorAll('button'));
-    const relabel = () => {
-      visBtn.textContent = u.visible ? 'Hide' : 'Show';
-      lockBtn.textContent = u.locked ? '🔒 Locked' : '🔓 Unlocked';
-      lockBtn.classList.toggle('active', u.locked);
-    };
-    const flip = (patch: Partial<Underlay>) => {
-      this.store.updateUnderlay(patch);
-      this.store.commit();
-      relabel();
-    };
-    visBtn.addEventListener('click', () => flip({ visible: !u.visible }));
-    lockBtn.addEventListener('click', () => flip({ locked: !u.locked }));
-    relabel();
-    sec.appendChild(row);
-  }
-
-  private pickUnderlay(): void {
-    ($('#underlay-input') as HTMLInputElement).click();
-  }
-
-  /**
-   * Import + calibration wiring; the file input itself is React's markup. The
-   * calibrate button's `.active` class rides the editor subscription in the
-   * constructor — only the completed span still comes back through Plan2D,
-   * because answering it needs a blocking prompt this class owns.
-   */
-  private wireUnderlay(): void {
-    const input = $('#underlay-input') as HTMLInputElement;
-    input.addEventListener('change', async () => {
-      const f = input.files?.[0];
-      input.value = '';
-      if (f) await this.importUnderlay(f);
-    });
-    this.plan.onCalibrateDone = (d) => this.applyCalibration(d);
-  }
-
-  private async importUnderlay(f: File): Promise<void> {
-    let img: { src: string; w: number; h: number };
-    try {
-      img = await this.downscaleImage(f);
-    } catch {
-      setHint('Could not read that image — try a JPEG or PNG');
-      return;
-    }
-    const b = polygonBounds(this.store.activeRoom().corners);
-    const center = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
-    if (!this.store.setUnderlay(img.src, initialUnderlay(img.w, img.h, center))) {
-      setHint('Could not store the reference photo — browser storage is full or blocked');
-      return;
-    }
-    this.store.commit();
-    this.renderProps();
-    setHint('Reference photo placed — drag it into position, then Calibrate scale');
-  }
-
-  /**
-   * Decode, cap the long edge and re-encode as JPEG. Photos go into a
-   * localStorage key, so the raw megapixels of a phone shot are both useless
-   * for tracing and a quota hazard.
-   */
-  private async downscaleImage(f: File): Promise<{ src: string; w: number; h: number }> {
-    const dataUrl = await new Promise<string>((res, rej) => {
-      const r = new FileReader();
-      r.onload = () => res(r.result as string);
-      r.onerror = () => rej(new Error('read'));
-      r.readAsDataURL(f);
-    });
-    const img = await new Promise<HTMLImageElement>((res, rej) => {
-      const i = new Image();
-      i.onload = () => res(i);
-      i.onerror = () => rej(new Error('decode'));
-      i.src = dataUrl;
-    });
-    const long = Math.max(img.naturalWidth, img.naturalHeight);
-    if (!long) throw new Error('empty');
-    const k = Math.min(1, UNDERLAY_MAX_PX / long);
-    const cnv = document.createElement('canvas');
-    cnv.width = Math.max(1, Math.round(img.naturalWidth * k));
-    cnv.height = Math.max(1, Math.round(img.naturalHeight * k));
-    cnv.getContext('2d')!.drawImage(img, 0, 0, cnv.width, cnv.height);
-    return { src: cnv.toDataURL('image/jpeg', UNDERLAY_JPEG_Q), w: cnv.width, h: cnv.height };
-  }
-
-  /** The two calibration clicks spanned `dWorld` m — ask what that really is. */
-  private applyCalibration(dWorld: number): void {
-    const u = this.store.design.underlay;
-    if (!u) return;
-    const answer = prompt('How long is that distance in reality? (cm)');
-    const cm = Number(answer);
-    if (answer === null || !Number.isFinite(cm) || cm <= 0) {
-      setHint('Scale calibration cancelled');
-      return;
-    }
-    const scale = underlayScaleFrom(dWorld, u.scale, cm / 100);
-    this.store.updateUnderlay({ scale });
-    this.store.commit();
-    this.renderProps();
-    setHint(
-      `Reference scaled: that span is ${Math.round(cm)} cm · 1 photo pixel = ${(scale * 100).toFixed(2)} cm`
-    );
-  }
-
-  /** Global lighting controls (shown in the no-selection panel). */
-  private renderLightingProps(root: HTMLElement): void {
-    const scene = this.store.design.scene;
-    const deg = (v: number) => `${Math.round(v)}°`;
-    const pct = (v: number) => `${Math.round(v * 100)}%`;
-
-    const light = this.section(root, 'Lighting');
-    this.sliderRow(
-      light,
-      'Sun direction',
-      scene.sunAzimuth,
-      (v) => this.store.setScene({ sunAzimuth: v }),
-      {
-        min: 0,
-        max: 360,
-        step: 5,
-        fmt: deg,
-      }
-    );
-    this.sliderRow(
-      light,
-      'Sun height',
-      scene.sunElevation,
-      (v) => this.store.setScene({ sunElevation: v }),
-      {
-        min: SUN_ELEV_MIN,
-        max: SUN_ELEV_MAX,
-        step: 1,
-        fmt: deg,
-      }
-    );
-    this.sliderRow(
-      light,
-      'Brightness',
-      scene.brightness,
-      (v) => this.store.setScene({ brightness: v }),
-      {
-        min: 0,
-        max: 2,
-        step: 0.05,
-        fmt: pct,
-      }
-    );
   }
 
   /* ---------- item ---------- */

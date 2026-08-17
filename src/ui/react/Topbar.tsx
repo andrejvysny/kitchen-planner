@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { editor, plan, store, view } from '../../app/bootstrap';
 import { buildBom } from '../../model/export';
 import { bomHtml, cutListCsv, shoppingListCsv } from '../../model/exportFormats';
@@ -7,6 +7,7 @@ import { emptyDesign, sanitizeDesign } from '../../model/store';
 import { openPrintSheet } from '../../print/sheet';
 import { isMac, NAV_INPUTS, type NavInput } from '../../view3d/wheelInput';
 import { catalogOpen, setCatalogOpen, setHint } from '../shellState';
+import { applyCalibration, importUnderlay } from '../underlayImport';
 import { useChannel } from './hooks/useStore';
 
 /**
@@ -20,8 +21,8 @@ import { useChannel } from './hooks/useStore';
  * <Topbar/> itself stays stateless and never re-renders. That matters: the DOM
  * ui.ts still writes to must never be reconciled out from under it.
  *
- * One control stays legacy-wired: the reference-photo input, which ui.ts's
- * wireUnderlay clicks, reads and resets.
+ * Nothing in the top bar is legacy-wired any more: T5 took the last of it, the
+ * reference-photo input, off ui.ts's wireUnderlay.
  */
 export function Topbar(): ReactElement {
   return (
@@ -106,15 +107,46 @@ function CatalogButton(): ReactElement {
   );
 }
 
-/* ================= legacy-wired shell ================= */
+/* ================= reference photo ================= */
 
 /**
- * B5 EXPIRY: the reference-photo picker belongs to ui.ts wireUnderlay, which
- * clicks it, reads its files and resets its value.
+ * The tracing-photo picker. Hidden markup in the topbar, clicked from the
+ * props panel's Reference-photo section (src/ui/react/props/UnderlaySection.tsx)
+ * — it lives here because that section unmounts with the room panel and the
+ * calibration callback below has to outlive it.
+ *
+ * Plan2D reports a finished calibration through `onCalibrateDone`, not through
+ * the editor state, because answering it needs a blocking prompt no view
+ * should own. Both halves are in src/ui/underlayImport.ts.
  */
-const LegacyUnderlayInput = memo(function LegacyUnderlayInput(): ReactElement {
-  return <input type="file" id="underlay-input" accept="image/*" hidden />;
-});
+function UnderlayInput(): ReactElement {
+  const input = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    plan.onCalibrateDone = (d) => applyCalibration(store, d);
+    return () => {
+      plan.onCalibrateDone = null;
+    };
+  }, []);
+
+  const onPick = async (): Promise<void> => {
+    const el = input.current!;
+    const f = el.files?.[0];
+    el.value = ''; // same file twice in a row must still fire a change
+    if (f) await importUnderlay(store, f);
+  };
+
+  return (
+    <input
+      type="file"
+      id="underlay-input"
+      accept="image/*"
+      hidden
+      ref={input}
+      onChange={() => void onPick()}
+    />
+  );
+}
 
 /* ================= view toggle ================= */
 
@@ -366,7 +398,7 @@ function FileGroup(): ReactElement {
         ref={fileInput}
         onChange={() => void onFile()}
       />
-      <LegacyUnderlayInput />
+      <UnderlayInput />
     </div>
   );
 }
