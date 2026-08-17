@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 import type { MaterialDef } from '../../../model/materials';
 import { materialSwatch } from '../../../view3d/textures';
 
@@ -58,6 +58,7 @@ function Chip({
   title: string;
   onPick: () => void;
 }): ReactElement {
+  const store = useStore();
   const ref = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {

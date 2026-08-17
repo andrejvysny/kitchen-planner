@@ -1,5 +1,5 @@
 import { useRef, type KeyboardEvent, type ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 import { useLiveValue, useSyncedValue } from './useLiveValue';
 import { mixedValue, useMixedValue } from './useMixedValue';
 import { useNativeChange } from './useNativeChange';
@@ -91,6 +91,7 @@ export function NumericRow<T>({
   format,
   parse,
 }: NumericRowProps<T>): ReactElement {
+  const store = useStore();
   const input = useRef<HTMLInputElement>(null);
   const { value, mixed } = useMixedValue(items, read);
   const shown = value === null ? '' : format(value);

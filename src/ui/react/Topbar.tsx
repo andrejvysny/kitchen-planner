@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { editor, plan, store, view } from '../../app/bootstrap';
+import { useAppServices, useEditor, useStore } from './services';
 import { buildBom } from '../../model/export';
 import { bomHtml, cutListCsv, shoppingListCsv } from '../../model/exportFormats';
 import { navInput, setNavInput } from '../../model/navPref';
@@ -69,6 +69,7 @@ function downloadText(text: string, name: string, type: string): void {
  * for.
  */
 function CatalogButton(): ReactElement {
+  const editor = useEditor();
   useChannel('shell');
   useChannel('editor');
   const btn = useRef<HTMLButtonElement>(null);
@@ -120,6 +121,7 @@ function CatalogButton(): ReactElement {
  * should own. Both halves are in src/ui/underlayImport.ts.
  */
 function UnderlayInput(): ReactElement {
+  const { store, plan } = useAppServices();
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -127,7 +129,7 @@ function UnderlayInput(): ReactElement {
     return () => {
       plan.onCalibrateDone = null;
     };
-  }, []);
+  }, [plan, store]);
 
   const onPick = async (): Promise<void> => {
     const el = input.current!;
@@ -159,12 +161,13 @@ type ViewMode = '2d' | 'split' | '3d';
  * minus the part React now renders.
  */
 function ViewToggle(): ReactElement {
+  const { view3d } = useAppServices();
   const [mode, setMode] = useState<ViewMode>('split');
 
   const pick = (next: ViewMode): void => {
     document.getElementById('pane2d')!.classList.toggle('hidden', next === '3d');
     document.getElementById('pane3d')!.classList.toggle('hidden', next === '2d');
-    view.setActive(next !== '2d'); // a hidden 3D pane renders nothing
+    view3d.setActive(next !== '2d'); // a hidden 3D pane renders nothing
     setMode(next);
   };
 
@@ -199,6 +202,7 @@ function ViewToggle(): ReactElement {
 
 /** Enablement tracks the undo stacks, which only ever move on 'history'. */
 function HistoryButtons(): ReactElement {
+  const store = useStore();
   useChannel('history');
   return (
     <div className="topbar-group">
@@ -230,6 +234,7 @@ function HistoryButtons(): ReactElement {
  * channel — never in the Design, never in an undo step.
  */
 function SceneToggles(): ReactElement {
+  const store = useStore();
   useChannel('history');
   useChannel('pose');
 
@@ -303,6 +308,7 @@ function NavInputControl(): ReactElement {
 /* ================= file operations ================= */
 
 function FileGroup(): ReactElement {
+  const { store, plan, view3d } = useAppServices();
   const fileInput = useRef<HTMLInputElement>(null);
   const [glbBusy, setGlbBusy] = useState(false);
 
@@ -349,7 +355,7 @@ function FileGroup(): ReactElement {
   const onGlb = async (): Promise<void> => {
     setGlbBusy(true);
     try {
-      const blob = await view.exportGLB();
+      const blob = await view3d.exportGLB();
       download(URL.createObjectURL(blob), 'interior.glb');
       setHint('interior.glb exported — in Blender: File → Import → glTF 2.0');
     } catch {
@@ -377,7 +383,7 @@ function FileGroup(): ReactElement {
       <button
         id="btn-png"
         title="Export 3D snapshot as PNG"
-        onClick={() => download(view.snapshotPNG(), 'interior-3d.png')}
+        onClick={() => download(view3d.snapshotPNG(), 'interior-3d.png')}
       >
         Snapshot
       </button>
@@ -407,6 +413,7 @@ function FileGroup(): ReactElement {
 
 /** Cut list / shopping list CSVs, the BOM sheet, the plan sheet. */
 function ExportMenu(): ReactElement {
+  const store = useStore();
   const [open, setOpen] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);

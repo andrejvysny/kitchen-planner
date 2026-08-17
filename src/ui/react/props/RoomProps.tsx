@@ -1,5 +1,5 @@
 import { useRef, type KeyboardEvent, type ReactElement } from 'react';
-import { plan, store } from '../../../app/bootstrap';
+import { useAppServices, useStore } from '../services';
 import { COUNTER_COLORS, FLOOR_COLORS, WALL_COLORS } from '../../../model/catalog';
 import {
   COUNTER_MATERIALS,
@@ -47,6 +47,7 @@ const VIS_CHOICES: readonly (readonly [string, string])[] = [
  * caret — the guard has nothing left to protect and is gone.
  */
 export function RoomProps(): ReactElement {
+  const { store, plan } = useAppServices();
   const room = store.activeRoom();
   const style = store.activeStyle();
   const rooms = store.design.rooms;
@@ -170,6 +171,7 @@ export function RoomProps(): ReactElement {
  * focused field on purpose, and Enter does not blur).
  */
 function RoomName({ room }: { room: Room }): ReactElement {
+  const store = useStore();
   const input = useRef<HTMLInputElement>(null);
 
   useSyncedValue(input, room.name);
@@ -193,6 +195,7 @@ function RoomName({ room }: { room: Room }): ReactElement {
 
 /** A row in the room switcher: picking one activates it and drops the selection. */
 function RoomRow({ room, active }: { room: Room; active: boolean }): ReactElement {
+  const store = useStore();
   const pick = (): void => {
     store.setActiveRoom(room.id);
     store.select({ kind: 'none' });
@@ -221,6 +224,7 @@ function RoomRow({ room, active }: { room: Room; active: boolean }): ReactElemen
 
 /** A preset rewrites the whole corner ring, which would orphan a partition. */
 function ShapeSection({ room }: { room: Room }): ReactElement {
+  const store = useStore();
   const shared = store.wallsOf(room.id).some((w) => w.shared);
   const title = shared
     ? 'This room shares a wall with another — reshaping it would break the partition'
@@ -250,6 +254,7 @@ function ShapeSection({ room }: { room: Room }): ReactElement {
 }
 
 function WallsSection({ style }: { style: RoomStyle }): ReactElement {
+  const store = useStore();
   return (
     <div className="prop-section">
       <div className="prop-section-title">Walls</div>
@@ -302,6 +307,7 @@ function WallsSection({ style }: { style: RoomStyle }): ReactElement {
 }
 
 function FloorSection({ style }: { style: RoomStyle }): ReactElement {
+  const store = useStore();
   return (
     <div className="prop-section">
       <div className="prop-section-title">Floor</div>
@@ -335,6 +341,7 @@ function FloorSection({ style }: { style: RoomStyle }): ReactElement {
 }
 
 function WorktopsSection({ style }: { style: RoomStyle }): ReactElement {
+  const store = useStore();
   return (
     <div className="prop-section">
       <div className="prop-section-title">Worktops</div>

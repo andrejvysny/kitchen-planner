@@ -1,5 +1,5 @@
 import { useRef, type ReactElement } from 'react';
-import { store } from '../../app/bootstrap';
+import { useStore } from './services';
 import { FRONT_COLORS } from '../../model/catalog';
 import { ITEM_MATERIALS, overridesColor } from '../../model/materials';
 import type { DesignVar } from '../../model/types';
@@ -27,6 +27,7 @@ import { useChannel } from './hooks/useStore';
  * the helper had it: variables are design data, so each edit is one undo step.
  */
 export function VariablesPanel(): ReactElement {
+  const store = useStore();
   useChannel('history');
   const design = store.design;
 
@@ -60,6 +61,7 @@ export function VariablesPanel(): ReactElement {
 
 /** One variable: name, colour, material, texture rotation, bulk-apply, delete. */
 function VarCard({ v }: { v: DesignVar }): ReactElement {
+  const store = useStore();
   const name = useRef<HTMLInputElement>(null);
 
   useSyncedValue(name, v.name);
@@ -120,6 +122,7 @@ function VarCard({ v }: { v: DesignVar }): ReactElement {
 
 /** Which variable a newly placed item's front binds to. Only shown once one exists. */
 function DefaultVarRow(): ReactElement {
+  const store = useStore();
   const select = useRef<HTMLSelectElement>(null);
   const design = store.design;
   const current = design.defaultFrontVar ?? '';

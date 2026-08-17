@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 import type { WallVisMode } from '../../../model/types';
 import { ChoiceRow } from '../fields/ChoiceRow';
 import { LengthField } from '../fields/LengthField';
@@ -23,6 +23,7 @@ const VIS_CHOICES: readonly (readonly [string, string])[] = [
  * partition selected from the other side still edits the room that owns it.
  */
 export function WallProps({ wallId }: { wallId: string }): ReactElement | null {
+  const store = useStore();
   const wall = store.wallById(wallId);
   if (!wall) return null;
 

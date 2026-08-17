@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 import type { Warning } from '../../../model/checks';
 
 export interface ChecksSectionProps {
@@ -40,6 +40,7 @@ export function ChecksSection({ list, exceptId, cap }: ChecksSectionProps): Reac
 
 /** One finding. Only rows whose target still exists are focusable buttons. */
 function CheckRow({ w, exceptId }: { w: Warning; exceptId?: string }): ReactElement {
+  const store = useStore();
   const target = w.itemIds.find((id) => id !== exceptId) ?? w.itemIds[0];
   const pickable = !!target && !!store.itemById(target);
   const pick = (): void => store.select({ kind: 'item', id: target });

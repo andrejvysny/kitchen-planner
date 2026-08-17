@@ -6,7 +6,7 @@ import {
   type MouseEvent,
   type ReactElement,
 } from 'react';
-import { editor, plan, store, studio } from '../../app/bootstrap';
+import { useAppServices } from './services';
 import type { CatalogDef } from '../../model/catalog';
 import { footprintPolygon } from '../../model/parts';
 import { renderThumbnail } from '../../plan2d/symbols';
@@ -33,6 +33,7 @@ export const CatalogTile = memo(function CatalogTile({
   editable,
   armed,
 }: CatalogTileProps): ReactElement {
+  const { store, editor, plan, studio } = useAppServices();
   const canvas = useRef<HTMLCanvasElement>(null);
 
   // The thumbnail is canvas pixels, not markup, so it is drawn imperatively.
@@ -50,7 +51,7 @@ export const CatalogTile = memo(function CatalogTile({
       def.color,
       part ? (footprintPolygon(part, def.w, def.d) ?? undefined) : undefined
     );
-  }, [def]);
+  }, [def, store]);
 
   const arm = (): void => {
     plan.setArmed(editor.armedDefId === def.id ? null : def);

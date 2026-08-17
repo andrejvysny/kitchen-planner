@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { editor, plan, store } from '../../../app/bootstrap';
+import { useAppServices } from '../services';
 import { pixelSize } from '../../underlayImport';
 import { SliderRow } from '../fields/SliderRow';
 import { useChannel } from '../hooks/useStore';
@@ -18,6 +18,7 @@ import { useChannel } from '../hooks/useStore';
  * `useChannel('editor')` replaces it.
  */
 export function UnderlaySection(): ReactElement {
+  const { store, editor, plan } = useAppServices();
   useChannel('editor');
   useChannel('units'); // the pixel-size readout is a length like any other
   const ref = store.underlayRef();

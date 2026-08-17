@@ -1,5 +1,5 @@
 import { useMemo, type KeyboardEvent, type ReactElement } from 'react';
-import { editor, plan, store, studio } from '../../app/bootstrap';
+import { useAppServices } from './services';
 import { CATALOG, type CatalogDef } from '../../model/catalog';
 import { toCatalogDef } from '../../model/parts';
 import { PRESETS } from '../../model/presets';
@@ -21,6 +21,7 @@ import { useChannel } from './hooks/useStore';
  * on the 'editor' ticks that arming causes.
  */
 export function CatalogPanel(): ReactElement {
+  const { store, editor } = useAppServices();
   useChannel('history'); // the parts library is design data
   useChannel('editor'); // which tile wears `.armed`
 
@@ -93,6 +94,7 @@ function buildSections(parts: readonly CustomPartDef[]): SectionView[] {
 
 /** The one tile that places nothing: it opens the Part Studio on a blank part. */
 function NewPartTile(): ReactElement {
+  const { plan, studio } = useAppServices();
   const open = (): void => {
     // a live place tool would keep ghosting under the modal
     plan.setArmed(null);

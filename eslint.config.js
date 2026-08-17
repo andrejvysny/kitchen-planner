@@ -61,6 +61,30 @@ export default defineConfig([
     },
   },
   {
+    // COMPOSITION BOUNDARY: components take the app's object graph off the
+    // AppServices context (src/ui/react/services.tsx), never by importing the
+    // singletons out of the bootstrap. src/ui/react/App.tsx is the ONE
+    // exception — it is the component that installs the provider — and is
+    // excluded below rather than granted an inline disable, so the exception
+    // stays visible here.
+    files: ['src/ui/react/**/*.{ts,tsx}'],
+    ignores: ['src/ui/react/App.tsx'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/app/bootstrap'],
+              message:
+                'Take services from useAppServices() (src/ui/react/services.tsx), not from the bootstrap module.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // The React shell renders through JSX, never by pasting markup: no
     // innerHTML assignment, no dangerouslySetInnerHTML.
     files: ['src/ui/react/**/*.{ts,tsx}'],

@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 import { useNativeChange } from './useNativeChange';
 
 export interface ToggleRowProps {
@@ -18,6 +18,7 @@ export interface ToggleRowProps {
  * place to read it, and the eslint rule stays free of per-type exceptions.
  */
 export function ToggleRow({ label, value, onChange }: ToggleRowProps): ReactElement {
+  const store = useStore();
   const box = useRef<HTMLInputElement>(null);
 
   // `defaultChecked` is a mount-only prop, so mirror later model changes (undo,
