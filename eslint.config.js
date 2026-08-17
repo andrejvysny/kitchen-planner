@@ -79,6 +79,36 @@ export default defineConfig([
     },
   },
   {
+    // THE COMMIT RULE (src/ui/react/fields/useNativeChange.ts): a field commits
+    // through the DOM's own `change` event and nothing else. React's onChange
+    // on an input is the per-keystroke `input` event, so committing there would
+    // push one undo step per character typed.
+    //
+    // `no-restricted-syntax` is re-stated in full: flat config REPLACES a rule's
+    // options rather than merging them, and these files are also matched by the
+    // src/ui/react/** block above.
+    files: ['src/ui/react/fields/**/*.{ts,tsx}', 'src/ui/react/props/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'AssignmentExpression[left.property.name="innerHTML"]',
+          message: 'Build DOM through JSX, not innerHTML.',
+        },
+        {
+          selector: 'JSXAttribute[name.name="dangerouslySetInnerHTML"]',
+          message: 'Build DOM through JSX, not dangerouslySetInnerHTML.',
+        },
+        {
+          selector:
+            'JSXOpeningElement[name.name=/^(input|select)$/] > JSXAttribute[name.name="onChange"]',
+          message:
+            'Fields commit through the native change event — use useNativeChange(). SliderRow is the one sanctioned exception (live input while dragging) and disables this rule inline.',
+        },
+      ],
+    },
+  },
+  {
     // Unit tests: same TS rules, but they run under vitest in plain Node
     // (no jsdom — see test/unit/storageKeys.test.ts), so Node globals.
     files: ['test/unit/**/*.ts'],

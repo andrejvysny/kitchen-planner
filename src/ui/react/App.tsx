@@ -12,11 +12,12 @@ import { Workspace } from './Workspace';
  * keeps e2e/dom-contract.spec.ts, e2e/layout.spec.ts and test/interact.mjs
  * honest regression gates for the move itself.
  *
- * src/ui/ui.ts still owns everything INSIDE those containers (catalog, outline,
- * variables, props panel) — B2 took the topbar and status bar into the
+ * src/ui/ui.ts still owns everything INSIDE the remaining containers (catalog,
+ * outline, props panel) — B2 took the topbar and status bar into the
  * components, B3 the tool buttons, the 2D/elev toggle, the wall nav and the
- * catalog drawer. This component holds no state and never re-renders, so React
- * never reconciles over the DOM ui.ts writes.
+ * catalog drawer, T3 the sidebar tabs and the Variables panel. This component
+ * holds no state and never re-renders, so React never reconciles over the DOM
+ * ui.ts writes.
  *
  * The effect below is the handover: it runs after the Workspace's canvas
  * effects (children first), so every view is attached before ui.ts queries the

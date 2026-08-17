@@ -275,11 +275,30 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   node-for-node (Topbar / Sidebar / Workspace / PropsPanel / StatusBar are
   organizational splits — the rendered tree is identical, and
   e2e/layout.spec.ts pins the boot geometry). The shell holds NO state and
-  never re-renders, so src/ui/ui.ts keeps filling #catalog-inner, #outline,
-  #variables-panel and #props-inner exactly as before. `UI` itself has no
+  never re-renders, so src/ui/ui.ts keeps filling #catalog-inner, #outline and
+  #props-inner exactly as before. `UI` itself has no
   dispose(), so `mountLegacyUI()` (src/app/bootstrap.ts) constructs it once
   behind a module guard, from an App-level effect that runs after the canvas
   effects; the guard goes away when ui.ts is dissolved into components.
+- The sidebar tabs and the Variables panel are React's (src/ui/react/Sidebar.tsx
+  + VariablesPanel.tsx): which tab is open is component state, and the panels
+  carry BOTH `.active` and `hidden` because style.css hides on `[hidden]` while
+  test/interact.mjs asserts the class.
+- **Fields commit on the DOM's native `change` event, never React's onChange**
+  — src/ui/react/fields/ is the shared set (SwatchRow, MaterialRow, VarChips,
+  ChoiceRow, ToggleRow, SliderRow, StepperRow, RotToggle, Number/Length/Angle
+  fields) every panel builds from, and `useNativeChange` is how each one takes
+  its undo step. React's onChange on an input is the per-keystroke `input`
+  event, so committing there would push one undo step per character;
+  eslint.config.js enforces this with a `no-restricted-syntax` rule over
+  fields/** and props/**, and SliderRow — which genuinely wants the live input
+  while dragging — is the one inline-disabled exception. The inputs stay
+  UNCONTROLLED: `useSyncedValue` mirrors the model into them after each render
+  and `useLiveValue` during a drag ('transient' channel), both refusing to write
+  into `document.activeElement` — that check is what replaced ui.ts's
+  isEditingVariableName guard around its innerHTML rebuilds. Display-unit
+  arithmetic (`convert.ts`) and the multi-selection rule (`useMixedValue`) are
+  pure and pinned by test/unit/fields.test.ts.
 - **`EditorState` (src/editor/editorState.ts) is the single source of tool
   truth**: `tool` (`select | place | measure | calibrate | room | drawRoom`),
   `armedDefId` (only meaningful under `place`, and `setTool` nulls it on every

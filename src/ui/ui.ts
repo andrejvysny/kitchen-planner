@@ -60,8 +60,9 @@ export class UI {
 
   // The 3D view left this class in step B2 with the topbar buttons that drove
   // it (snapshot / GLB / camera presets / pane visibility); B3 took the tool
-  // buttons, the 2D/elev toggle, the wall nav and the catalog drawer. What is
-  // left is panel DOM plus the keyboard map.
+  // buttons, the 2D/elev toggle, the wall nav and the catalog drawer, and T3
+  // the sidebar tabs plus the whole Variables panel. What is left is the
+  // catalog, the outline, the props panel and the keyboard map.
   constructor(store: Store, plan: Plan2D, editor: EditorState) {
     this.store = store;
     this.plan = plan;
@@ -70,9 +71,7 @@ export class UI {
 
     this.renderCatalog();
     this.renderOutline();
-    this.renderVariables();
     this.renderProps();
-    this.wireTabs();
     this.wireUnderlay();
     this.wireKeyboard();
 
@@ -97,9 +96,6 @@ export class UI {
       // steppers, choice rows and inputs keep themselves current
       const active = document.activeElement;
       if (!active || !$('#props').contains(active)) this.renderProps();
-      // Variables tab lives in the left sidebar; rebuild it too, but don't yank
-      // a variable's name field out from under the user mid-edit.
-      if (!this.isEditingVariableName(active)) this.renderVariables();
       this.renderCatalogIfPartsChanged();
       this.renderOutline();
     });
@@ -110,38 +106,6 @@ export class UI {
     store.on('activeRoom', () => {
       if (!this.isEditingRoomName(document.activeElement)) this.renderProps();
       this.renderOutline();
-    });
-  }
-
-  /* ================= sidebar tabs ================= */
-
-  /** Left sidebar has two tabs: "library" (catalog) and "components" (outline). */
-  private wireTabs(): void {
-    const buttons = document.querySelectorAll<HTMLButtonElement>('#sidebar-tabs button');
-    buttons.forEach((btn) => {
-      btn.addEventListener('click', () => this.selectTab(btn.dataset.tab as string));
-      btn.addEventListener('keydown', (e) => {
-        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-        e.preventDefault();
-        const list = [...buttons];
-        const i = list.indexOf(btn);
-        const next = list[(i + (e.key === 'ArrowRight' ? 1 : list.length - 1)) % list.length];
-        this.selectTab(next.dataset.tab as string);
-        next.focus();
-      });
-    });
-  }
-
-  private selectTab(tab: string): void {
-    document.querySelectorAll<HTMLButtonElement>('#sidebar-tabs button').forEach((btn) => {
-      const on = btn.dataset.tab === tab;
-      btn.classList.toggle('active', on);
-      btn.setAttribute('aria-selected', String(on));
-    });
-    document.querySelectorAll<HTMLElement>('#catalog .tab-panel').forEach((panel) => {
-      const on = panel.id === `tab-${tab}`;
-      panel.classList.toggle('active', on);
-      panel.hidden = !on;
     });
   }
 
@@ -524,18 +488,8 @@ export class UI {
     parent.appendChild(row);
   }
 
-  /** True while the caret sits in a variable's name field — re-rendering then
-   * would drop the user's edit, so the history handler skips the rebuild. */
-  private isEditingVariableName(active: Element | null): boolean {
-    return (
-      !!active &&
-      active instanceof HTMLInputElement &&
-      active.classList.contains('var-name') &&
-      $('#variables-panel').contains(active)
-    );
-  }
-
-  /** Same guard as isEditingVariableName, for the room-name field in #props. */
+  /** True while the caret sits in the room-name field — re-rendering then would
+   * drop the user's edit, so the activeRoom handler skips the rebuild. */
   private isEditingRoomName(active: Element | null): boolean {
     return (
       !!active &&
@@ -543,90 +497,6 @@ export class UI {
       active.classList.contains('room-name') &&
       $('#props').contains(active)
     );
-  }
-
-  /** Rebuild the left-sidebar Variables tab (self-contained; not part of #props). */
-  private renderVariables(): void {
-    const root = $('#variables-panel');
-    root.innerHTML = '';
-    this.renderVariablesSection(root);
-  }
-
-  /** The Variables manager: create / edit / delete design tokens + defaults. */
-  private renderVariablesSection(root: HTMLElement): void {
-    const design = this.store.design;
-    const sec = this.section(root, 'Variables');
-    sec.appendChild(
-      this.el(
-        `<p class="props-sub">Named colours &amp; textures — bind cabinets, walls, floor or worktops to one so a single edit re-themes them all.</p>`
-      )
-    );
-
-    for (const v of design.variables) {
-      const card = this.el('<div class="var-item"></div>');
-      const name = this.el(
-        '<input class="var-name" type="text" spellcheck="false">'
-      ) as HTMLInputElement;
-      name.value = v.name;
-      name.addEventListener('change', () => {
-        this.store.updateVariable(v.id, { name: name.value.trim() || 'Variable' });
-        this.store.commit();
-      });
-      card.appendChild(name);
-      this.swatchRow(card, FRONT_COLORS, v.color, (c) =>
-        this.store.updateVariable(
-          v.id,
-          overridesColor(v.material)
-            ? { color: c, material: undefined, materialRot: undefined }
-            : { color: c }
-        )
-      );
-      this.materialRow(card, ITEM_MATERIALS, v.material, (id) =>
-        this.store.updateVariable(v.id, { material: id })
-      );
-      this.rotToggle(card, v.material, v.materialRot === true, (r) =>
-        this.store.updateVariable(v.id, { materialRot: r || undefined })
-      );
-      const actions = this.el('<div class="btn-row"></div>');
-      const apply = this.el('<button class="btn">Apply to all fronts</button>');
-      apply.addEventListener('click', () => {
-        const n = this.store.applyVarToItems(v.id, 'front');
-        this.store.commit();
-        setHint(`Bound ${n} item${n === 1 ? '' : 's'} to "${v.name}"`);
-      });
-      const del = this.el('<button class="btn danger">Delete</button>');
-      del.addEventListener('click', () => {
-        this.store.deleteVariable(v.id);
-        this.store.commit();
-      });
-      actions.append(apply, del);
-      card.appendChild(actions);
-      sec.appendChild(card);
-    }
-
-    const add = this.el('<div class="btn-row"><button class="btn">＋ Add variable</button></div>');
-    add.querySelector('button')!.addEventListener('click', () => {
-      this.store.addVariable();
-      this.store.commit();
-    });
-    sec.appendChild(add);
-
-    if (design.variables.length) {
-      const row = this.el('<div class="prop-row"><label>New items use</label></div>');
-      const select = document.createElement('select');
-      select.appendChild(new Option('None', ''));
-      for (const v of design.variables) {
-        const opt = new Option(v.name, v.id);
-        opt.selected = design.defaultFrontVar === v.id;
-        select.appendChild(opt);
-      }
-      select.addEventListener('change', () => {
-        this.store.setDefaultVar('front', select.value || undefined);
-        this.store.commit();
-      });
-      row.appendChild(select);
-      sec.appendChild(row);
-    }
   }
 
   /** Built-in PBR material chips (textured previews) + a "plain colour" chip. */
