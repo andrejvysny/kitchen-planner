@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { store } from '../../../app/bootstrap';
 import { useChannel } from '../hooks/useStore';
+import { ItemProps } from './ItemProps';
 import { RoomProps } from './RoomProps';
 
 /**
@@ -29,7 +30,10 @@ export function PropsBody(): ReactElement | null {
   const sel = store.selection;
   // An id that resolves nowhere falls through to the room panel, exactly as
   // ui.ts's renderProps did — a stale selection shows the room, not an error.
-  if (sel.kind === 'item' && store.itemById(sel.id)) return null;
+  if (sel.kind === 'item') {
+    const item = store.itemById(sel.id);
+    if (item) return <ItemProps item={item} />;
+  }
   if (sel.kind === 'wall' && store.wallById(sel.id)) return null;
   if (sel.kind === 'opening' && store.openingById(sel.id)) return null;
   if (sel.kind === 'corner' && store.cornerById(sel.id)) return null;

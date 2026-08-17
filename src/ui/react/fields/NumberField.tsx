@@ -24,6 +24,20 @@ export interface FieldProps<T> {
   step?: number;
   /** Follow the value mid-drag (the 'transient' channel). */
   live?: boolean;
+  /** Flank the box with two buttons, inside a `.stepper` — the rotate row. */
+  stepper?: StepperButtons;
+}
+
+/**
+ * The two buttons of a stepper field. They act on the MODEL, not on the number
+ * in the box (item rotation steps by a quarter turn from wherever it is), so
+ * each side is a glyph, a tooltip and a handler that commits for itself.
+ */
+export interface StepperButtons {
+  down: readonly [glyph: string, title: string];
+  up: readonly [glyph: string, title: string];
+  onDown: () => void;
+  onUp: () => void;
 }
 
 interface NumericRowProps<T> extends FieldProps<T> {
@@ -55,6 +69,7 @@ export function NumericRow<T>({
   max,
   step,
   live,
+  stepper,
   toDisplay,
   fromDisplay,
 }: NumericRowProps<T>): ReactElement {
@@ -80,19 +95,35 @@ export function NumericRow<T>({
     store.commit();
   });
 
+  const box = (
+    <input
+      type="number"
+      defaultValue={shown}
+      placeholder={mixed ? '—' : undefined}
+      min={min}
+      max={max}
+      step={step ?? 1}
+      data-cls={cls}
+      ref={input}
+    />
+  );
+
   return (
     <div className="prop-row">
       <label>{label}</label>
-      <input
-        type="number"
-        defaultValue={shown}
-        placeholder={mixed ? '—' : undefined}
-        min={min}
-        max={max}
-        step={step ?? 1}
-        data-cls={cls}
-        ref={input}
-      />
+      {stepper ? (
+        <div className="stepper">
+          <button title={stepper.down[1]} onClick={stepper.onDown}>
+            {stepper.down[0]}
+          </button>
+          {box}
+          <button title={stepper.up[1]} onClick={stepper.onUp}>
+            {stepper.up[0]}
+          </button>
+        </div>
+      ) : (
+        box
+      )}
       <span className="unit">{unit}</span>
     </div>
   );
