@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 import { isVarRef, refId, toVarRef } from '../../../model/variables';
 
 export interface VarChipsProps {
@@ -17,6 +17,7 @@ export interface VarChipsProps {
  * store like the helper did, so a caller only passes the slot it edits.
  */
 export function VarChips({ current, onBind }: VarChipsProps): ReactElement | null {
+  const store = useStore();
   const vars = store.design.variables;
   if (!vars.length) return null;
 

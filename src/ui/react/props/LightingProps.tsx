@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../../../model/sky';
 import { SliderRow } from '../fields/SliderRow';
 
@@ -18,6 +18,7 @@ const pct = (v: number): string => `${Math.round(v * 100)}%`;
  * end of the drag.
  */
 export function LightingProps(): ReactElement {
+  const store = useStore();
   const scene = store.design.scene;
 
   return (

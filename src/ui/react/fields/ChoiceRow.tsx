@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 
 export interface ChoiceRowProps {
   /** [value, label] pairs, in display order. */
@@ -19,6 +19,8 @@ export interface ChoiceRowProps {
  * follows the model instead of guessing at it.
  */
 export function ChoiceRow({ options, current, onPick }: ChoiceRowProps): ReactElement {
+  const store = useStore();
+
   return (
     <div className="btn-row">
       {options.map(([value, label]) => (

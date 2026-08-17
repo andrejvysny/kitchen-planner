@@ -1,5 +1,5 @@
 import { useRef, type ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 import { useNativeChange } from './useNativeChange';
 import { useSyncedValue } from './useLiveValue';
 
@@ -19,6 +19,7 @@ export interface SwatchRowProps {
  * swatches on click; both then `store.commit()`, exactly as the helper did.
  */
 export function SwatchRow({ colors, current, onPick }: SwatchRowProps): ReactElement {
+  const store = useStore();
   const picker = useRef<HTMLInputElement>(null);
 
   useSyncedValue(picker, current);

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 import { ChoiceRow } from '../fields/ChoiceRow';
 import { LengthField } from '../fields/LengthField';
 
@@ -23,6 +23,7 @@ const SWING: readonly (readonly [string, string])[] = [
  * renders once that wall resolves.
  */
 export function OpeningProps({ id }: { id: string }): ReactElement | null {
+  const store = useStore();
   const o = store.openingById(id);
   if (!o) return null;
   const wall = store.wallById(o.wallId);

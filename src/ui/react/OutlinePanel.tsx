@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type ReactElement } from 'react';
-import { store } from '../../app/bootstrap';
+import { useStore } from './services';
 import { outlineGroups, type OutlineRoomRow, type OutlineRow } from '../outlineModel';
 import { useChannel } from './hooks/useStore';
 
@@ -13,6 +13,7 @@ import { useChannel } from './hooks/useStore';
  * 'change' never reaches it, so a room area still only moves on commit.
  */
 export function OutlinePanel(): ReactElement {
+  const store = useStore();
   useChannel('selection');
   useChannel('history');
   useChannel('activeRoom');
@@ -63,6 +64,7 @@ function activateOnKey(e: KeyboardEvent, fn: () => void): void {
 }
 
 function RoomRow({ row }: { row: OutlineRoomRow }): ReactElement {
+  const store = useStore();
   // ui.ts activateRoom, inlined: switching rooms drops back to the room panel.
   // The props panel still owns its own copy until it becomes a component too.
   const pick = (): void => {
@@ -85,6 +87,7 @@ function RoomRow({ row }: { row: OutlineRoomRow }): ReactElement {
 }
 
 function ObjectRow({ row }: { row: OutlineRow }): ReactElement {
+  const store = useStore();
   const pick = (): void => store.select(row.sel);
 
   return (

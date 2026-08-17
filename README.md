@@ -179,14 +179,21 @@ src/
     meshKit.ts        shared mesh vocabulary (slabs, plinths, prisms…)
     partMeshes.ts     panel list → meshes + openable-front pivot groups
   ui/
-    ui.ts             catalog, properties panel, toolbar, shortcuts
+    shellState.ts     chrome state: status hint, catalog drawer, wall label
+    outlineModel.ts   pure grouping for the Components outline
     partstudio/       Part Studio: type picker, zone canvas, polygon canvas,
                       freeform board editor, live 3D preview
-    react/            React shell (App root + StoreBridge adapter)
-  editor/
+    react/            the whole UI: topbar, sidebar, workspace, inspector,
+                      shared field set, AppServices context
+  editor/             framework-free editor core (no React, no three, no DOM
+                      outside the input adapters)
     editorState.ts    ephemeral tool / armed def / checks layer
+    commands/         named editor behaviours + the registry that runs them
+    keyboard/         the key map as data + its DOM adapter
+    tools/, input/    Phase C contracts (types only, no runtime yet)
   app/
-    bootstrap.ts      singleton construction (store, views, UI, window.__kp)
+    services.ts       createServices(): the whole object graph, in one place
+    bootstrap.ts      builds it once, installs window.__kp
     main.tsx          entry point: bootstrap, then mount the React root
 ```
 
@@ -217,8 +224,16 @@ headless; end-to-end tests run against the production build with Playwright:
 npm run test:unit           # geometry / store / snapping + builder smoke tests
 npm run build
 npx vite preview &          # serves dist on :4173
-node test/interact.mjs      # 99 interaction checks (place, snap, drag, undo,
+node test/interact.mjs      # 104 interaction checks (place, snap, drag, undo,
                             # wall edits, doors, multi-room, part studio,
                             # keyboard, 3D picking, exports, spatial checks)
+npx playwright test         # isolated specs: DOM contract, layout, lifecycle,
+                            # tools, inspector, sidebar, recovery, perf
 node test/screenshot.mjs    # renders UI screenshots for visual review
 ```
+
+## Where things are going
+
+`ROADMAP.md` has the forward plan, `TODO.md` the milestone in flight,
+`HISTORY.md` the completed ones, and `CLAUDE.md` the architecture and the
+invariants worth knowing before changing anything.

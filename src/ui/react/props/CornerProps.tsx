@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 import { LengthField } from '../fields/LengthField';
 
 /**
@@ -12,6 +12,7 @@ import { LengthField } from '../fields/LengthField';
  * since.
  */
 export function CornerProps({ id }: { id: string }): ReactElement | null {
+  const store = useStore();
   const corner = store.cornerById(id);
   if (!corner) return null;
 

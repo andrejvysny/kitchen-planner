@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 import { useNativeChange } from './useNativeChange';
 import { useSyncedValue } from './useLiveValue';
 
@@ -33,6 +33,7 @@ export function SliderRow({
   step = 0.01,
   fmt,
 }: SliderRowProps): ReactElement {
+  const store = useStore();
   const range = useRef<HTMLInputElement>(null);
   const [shown, setShown] = useState(value);
 

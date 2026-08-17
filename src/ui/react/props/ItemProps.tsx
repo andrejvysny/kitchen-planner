@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { store, studio } from '../../../app/bootstrap';
+import { useAppServices, useStore } from '../services';
 import { COUNTER_COLORS, FRONT_COLORS, LIGHT_COLORS } from '../../../model/catalog';
 import { ITEM_MATERIALS, COUNTER_MATERIALS, overridesColor } from '../../../model/materials';
 import { hasPreset } from '../../../model/presets';
@@ -35,6 +35,7 @@ const MIN_DIM = 0.01;
  * useLiveValue.ts).
  */
 export function ItemProps({ item }: { item: Item }): ReactElement {
+  const { store, studio } = useAppServices();
   const def = store.defOf(item.defId);
   const part = store.partOf(item.defId);
   // presets are parts too, but read as built-ins to the user
@@ -175,6 +176,7 @@ export function ItemProps({ item }: { item: Item }): ReactElement {
 
 /** A mounted appliance's pose is derived from its host — say so, and offer Detach. */
 function MountingSection({ item }: { item: Item }): ReactElement {
+  const store = useStore();
   const attach = item.attach!;
   const host = store.itemById(attach.hostId);
   const hostLabel = host ? store.defOf(host.defId).label : '?';
@@ -202,6 +204,7 @@ function MountingSection({ item }: { item: Item }): ReactElement {
 
 /** X / Y / rotation. All three follow a plan drag without a re-render. */
 function PositionSection({ item }: { item: Item }): ReactElement {
+  const store = useStore();
   const one = [item];
   // a quarter turn from wherever the item currently is — never from the box
   const rotate = (rad: number): void => {
@@ -249,6 +252,7 @@ function PositionSection({ item }: { item: Item }): ReactElement {
 
 /** The front slot: a variable binding, a literal colour, and a texture on top. */
 function ColourSection({ item }: { item: Item }): ReactElement {
+  const store = useStore();
   const bound = isVarRef(item.color);
 
   return (
@@ -299,6 +303,7 @@ function AccentSection({
   item: Item;
   accentDefault: string;
 }): ReactElement {
+  const store = useStore();
   return (
     <div className="prop-section">
       <div className="prop-section-title">Accent</div>
@@ -317,6 +322,7 @@ function AccentSection({
 
 /** Per-item worktop finish; the first chip falls back to the room's setting. */
 function WorktopSection({ item }: { item: Item }): ReactElement {
+  const store = useStore();
   return (
     <div className="prop-section">
       <div className="prop-section-title">Worktop</div>
@@ -346,6 +352,7 @@ function LightSection({
   item: Item;
   light: NonNullable<Item['light']>;
 }): ReactElement {
+  const store = useStore();
   return (
     <div className="prop-section">
       <div className="prop-section-title">Light</div>

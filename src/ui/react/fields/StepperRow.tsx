@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 
 export interface StepperRowProps {
   label: string;
@@ -19,6 +19,8 @@ export interface StepperRowProps {
  * caller never has to re-state a param's own limits.
  */
 export function StepperRow({ label, value, min, max, onChange }: StepperRowProps): ReactElement {
+  const store = useStore();
+
   const step = (d: number): void => {
     onChange(Math.min(max, Math.max(min, value + d)));
     store.commit();

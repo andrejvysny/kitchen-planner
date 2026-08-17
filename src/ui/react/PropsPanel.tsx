@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { store } from '../../app/bootstrap';
+import { useStore } from './services';
 import { useChannel } from './hooks/useStore';
 import { PropsBody } from './props/PropsBody';
 
@@ -17,6 +17,7 @@ import { PropsBody } from './props/PropsBody';
  * is gone with the last of them.
  */
 export function PropsPanel(): ReactElement {
+  const store = useStore();
   useChannel('selection');
   useChannel('activeRoom');
 

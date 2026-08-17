@@ -1,5 +1,7 @@
 import { useEffect, type ReactElement } from 'react';
-import { mountLegacyUI } from '../../app/bootstrap';
+import { services } from '../../app/bootstrap';
+import { RecoveryBanner } from './RecoveryBanner';
+import { AppServicesProvider } from './services';
 import { StatusBar } from './StatusBar';
 import { Topbar } from './Topbar';
 import { Workspace } from './Workspace';
@@ -12,27 +14,32 @@ import { Workspace } from './Workspace';
  * keeps e2e/dom-contract.spec.ts, e2e/layout.spec.ts and test/interact.mjs
  * honest regression gates for the move itself.
  *
- * src/ui/ui.ts still owns everything INSIDE the remaining containers (catalog,
- * outline, props panel) — B2 took the topbar and status bar into the
- * components, B3 the tool buttons, the 2D/elev toggle, the wall nav and the
- * catalog drawer, T3 the sidebar tabs and the Variables panel. This component
- * holds no state and never re-renders, so React never reconciles over the DOM
- * ui.ts writes.
+ * With src/ui/ui.ts gone, React owns every element in the application shell.
+ * What is left of the old controller is the global key map, which is now a
+ * binding table plus a command registry under src/editor — genuinely global,
+ * belonging to no component, so <App/> only owns its LIFECYCLE. The effect runs
+ * after the Workspace's canvas effects (children first), so every view is
+ * attached before a key can reach a command; `attach`/`dispose` are both
+ * idempotent, so StrictMode's double mount changes nothing.
  *
- * The effect below is the handover: it runs after the Workspace's canvas
- * effects (children first), so every view is attached before ui.ts queries the
- * document. Later B steps dissolve ui.ts into components and this goes away.
+ * This is also the ONE component that imports the bootstrap: everything below
+ * takes the app's services off the context instead. It holds no state and never
+ * re-renders.
  */
 export function App(): ReactElement {
   useEffect(() => {
-    mountLegacyUI();
+    services.keyboard.attach(window);
+    return () => services.keyboard.dispose();
   }, []);
 
   return (
-    <div id="app">
-      <Topbar />
-      <Workspace />
-      <StatusBar />
-    </div>
+    <AppServicesProvider services={services}>
+      <div id="app">
+        {services.needsRecoveryBanner && <RecoveryBanner />}
+        <Topbar />
+        <Workspace />
+        <StatusBar />
+      </div>
+    </AppServicesProvider>
   );
 }

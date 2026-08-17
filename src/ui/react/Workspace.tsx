@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { editor, elev, plan, view } from '../../app/bootstrap';
+import { useAppServices, useEditor } from './services';
 import type { ToolId } from '../../editor/editorState';
 import type { CamPreset } from '../../view3d/view3d';
+import { wallLabel } from '../shellState';
 import { useChannel } from './hooks/useStore';
 import { PropsPanel } from './PropsPanel';
 import { Sidebar } from './Sidebar';
@@ -18,8 +19,8 @@ import { Sidebar } from './Sidebar';
  * double mount runs attach → detach → attach on the SAME element, which every
  * view treats as a no-op (see e2e/lifecycle.spec.ts).
  *
- * These effects run BEFORE the App-level one that constructs the legacy UI, so
- * ui.ts always finds three attached views.
+ * These effects run BEFORE the App-level one that attaches the global keyboard
+ * map, so a command can never reach a detached view.
  *
  * <Workspace/> must stay STATELESS. #pane2d and #pane3d carry classes written
  * by hand — `.hidden` from the topbar's view toggle, `.elev-mode` from the
@@ -27,6 +28,7 @@ import { Sidebar } from './Sidebar';
  * back to the literal below. State belongs in the leaf controls.
  */
 export function Workspace(): ReactElement {
+  const { plan, elevation, view3d } = useAppServices();
   const planCanvas = useRef<HTMLCanvasElement>(null);
   const elevCanvas = useRef<HTMLCanvasElement>(null);
   const viewCanvas = useRef<HTMLCanvasElement>(null);
@@ -34,17 +36,17 @@ export function Workspace(): ReactElement {
   useEffect(() => {
     plan.attach(planCanvas.current!);
     return () => plan.detach();
-  }, []);
+  }, [plan]);
 
   useEffect(() => {
-    elev.attach(elevCanvas.current!);
-    return () => elev.detach();
-  }, []);
+    elevation.attach(elevCanvas.current!);
+    return () => elevation.detach();
+  }, [elevation]);
 
   useEffect(() => {
-    view.attach(viewCanvas.current!);
-    return () => view.detach();
-  }, []);
+    view3d.attach(viewCanvas.current!);
+    return () => view3d.detach();
+  }, [view3d]);
 
   return (
     <main id="workspace">
@@ -86,11 +88,12 @@ type Mode2d = 'plan' | 'elev';
  * as ui.ts's setMode2d wrote it — the rest of that function is unchanged.
  */
 function Mode2dToggle(): ReactElement {
+  const { plan, elevation } = useAppServices();
   const [mode, setMode] = useState<Mode2d>('plan');
 
   const pick = (next: Mode2d): void => {
     document.getElementById('pane2d')!.classList.toggle('elev-mode', next === 'elev');
-    elev.setActive(next === 'elev');
+    elevation.setActive(next === 'elev');
     if (next === 'plan') plan.requestDraw();
     setMode(next);
   };
@@ -126,6 +129,7 @@ function Mode2dToggle(): ReactElement {
  * `.active` classes are a projection of it, never a second copy.
  */
 function ToolButtons(): ReactElement {
+  const editor = useEditor();
   useChannel('editor');
 
   const toggle = (t: ToolId) => (): void => editor.setTool(editor.isTool(t) ? 'select' : t);
@@ -170,19 +174,22 @@ function ToolButtons(): ReactElement {
 }
 
 /**
- * Wall stepping for the elevation sub-mode. Stateless on purpose: #wall-label's
- * text is written by ElevationView's onWallChange callback (bootstrap.ts), so
- * this must render exactly once — the literal below is only the initial text
- * index.html shipped, never re-rendered over the callback's.
+ * Wall stepping for the elevation sub-mode. The caption comes off shellState —
+ * ElevationView's onWallChange callback writes it there (bootstrap.ts) exactly
+ * as the status hint works, which is what got the last `document.getElementById`
+ * out of the bootstrap.
  */
 function WallNav(): ReactElement {
+  const { elevation } = useAppServices();
+  useChannel('shell');
+
   return (
     <div id="wall-nav">
-      <button id="btn-wall-prev" title="Previous wall" onClick={() => elev.stepWall(-1)}>
+      <button id="btn-wall-prev" title="Previous wall" onClick={() => elevation.stepWall(-1)}>
         ‹
       </button>
-      <span id="wall-label">Wall</span>
-      <button id="btn-wall-next" title="Next wall" onClick={() => elev.stepWall(1)}>
+      <span id="wall-label">{wallLabel()}</span>
+      <button id="btn-wall-next" title="Next wall" onClick={() => elevation.stepWall(1)}>
         ›
       </button>
     </div>
@@ -191,6 +198,7 @@ function WallNav(): ReactElement {
 
 /** Plan zoom. Pure commands on Plan2D — no state, so this renders once. */
 function ZoomControls(): ReactElement {
+  const { plan } = useAppServices();
   return (
     <div id="zoom-controls">
       <button id="btn-zoom-in" title="Zoom in" onClick={() => plan.zoomBy(1.25)}>
@@ -212,10 +220,11 @@ function ZoomControls(): ReactElement {
  * imperative version behaved.
  */
 function CamControls(): ReactElement {
+  const { view3d } = useAppServices();
   const [preset, setPreset] = useState<CamPreset>('corner');
 
   const pick = (p: CamPreset): void => {
-    view.setPreset(p);
+    view3d.setPreset(p);
     setPreset(p);
   };
 

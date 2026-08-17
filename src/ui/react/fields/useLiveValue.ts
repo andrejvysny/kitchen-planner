@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
-import { bridge } from '../../../app/bootstrap';
+import { useAppServices } from '../services';
 
 type Field = HTMLInputElement | HTMLSelectElement;
 
@@ -28,6 +28,7 @@ function write(el: Field | null, value: string): void {
  * Consumed by the numeric fields in T4.
  */
 export function useLiveValue(ref: RefObject<Field | null>, read: (() => string) | null): void {
+  const { bridge } = useAppServices();
   const latest = useRef(read);
   useEffect(() => {
     latest.current = read;
@@ -38,7 +39,7 @@ export function useLiveValue(ref: RefObject<Field | null>, read: (() => string) 
       const fn = latest.current;
       if (fn) write(ref.current, fn());
     });
-  }, [ref]);
+  }, [bridge, ref]);
 }
 
 /**

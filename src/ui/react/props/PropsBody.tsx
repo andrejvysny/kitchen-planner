@@ -1,5 +1,5 @@
 import { useEffect, type ReactElement } from 'react';
-import { store } from '../../../app/bootstrap';
+import { useStore } from '../services';
 import { countRender } from '../debugCounters';
 import { useChannel } from '../hooks/useStore';
 import { CornerProps } from './CornerProps';
@@ -27,6 +27,7 @@ import { WallProps } from './WallProps';
  * instead of inferring it from what the boxes happen to show.
  */
 export function PropsBody(): ReactElement {
+  const store = useStore();
   useChannel('selection');
   useChannel('history');
   useChannel('activeRoom');

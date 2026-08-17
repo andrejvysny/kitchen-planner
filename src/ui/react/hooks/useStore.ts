@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react';
-import { bridge } from '../../../app/bootstrap';
+import { useAppServices } from '../services';
 import type { Channel } from '../storeBridge';
 
 /**
@@ -10,11 +10,11 @@ import type { Channel } from '../storeBridge';
  * `store`/`view` directly in the render body. A component that depends on two
  * channels calls the hook twice.
  *
- * The bridge comes straight from the bootstrap module, like the views in
- * src/ui/react/Workspace.tsx — there is exactly one app, so a provider would
- * only add ceremony.
+ * The bridge comes off the AppServices context, like everything else in this
+ * directory — see src/ui/react/services.tsx.
  */
 export function useChannel(ch: Channel): number {
-  const subscribe = useCallback((fn: () => void) => bridge.subscribe(ch, fn), [ch]);
+  const { bridge } = useAppServices();
+  const subscribe = useCallback((fn: () => void) => bridge.subscribe(ch, fn), [bridge, ch]);
   return useSyncExternalStore(subscribe, () => bridge.getVersion(ch));
 }

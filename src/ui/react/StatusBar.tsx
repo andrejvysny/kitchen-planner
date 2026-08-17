@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { store } from '../../app/bootstrap';
+import { useStore } from './services';
 import { hint } from '../shellState';
 import { statusInfoText } from '../statusText';
 import { useChannel } from './hooks/useStore';
@@ -38,6 +38,7 @@ function StatusHint(): ReactElement {
  * emits 'savefail' only on an ok↔fail transition.
  */
 function SaveFailWarning(): ReactElement {
+  const store = useStore();
   useChannel('savefail');
   return (
     <span id="status-savefail" className="statusbar-warn" hidden={!store.savingFailed()}>
@@ -53,6 +54,7 @@ function SaveFailWarning(): ReactElement {
  * both halves of that (a settled change bumps it too, see storeBridge.ts).
  */
 function StatusInfo(): ReactElement {
+  const store = useStore();
   useChannel('transient');
   useChannel('history');
   useChannel('activeRoom');
