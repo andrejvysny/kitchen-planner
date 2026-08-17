@@ -141,7 +141,7 @@ older or unknown (callers fall back to a fresh/demo design).
   rail always comes from a hand-authored `elements` list (a preset or the
   zone canvas' ＋Rail button).
 - **Manufacturing export** (src/model/export.ts + exportFormats.ts, wired via
-  the topbar `Export ▾` menu in src/ui/ui.ts): `buildBom(design)` iterates
+  the topbar `Export ▾` menu in src/ui/react/Topbar.tsx): `buildBom(design)` iterates
   `design.items`, resolves each to `partPanels(part, itemDims,
   hostContexts(design).get(item.id))` and dedupes into `CutRow`s (cut
   list) plus bought products/openings/hardware into `BuyRow`s (shopping
@@ -218,7 +218,7 @@ blow up both. `store.setUnderlay(src, transform?)` writes the side key first
 or null, `updateUnderlay(patch)` moves/scales it. Consequence, by design: the
 transform is undoable, swapping/removing the photo is not. `exportJson` carries
 the photo as an extra top-level `underlaySrc` field and sanitizeDesign strips it
-(the load handler in ui.ts re-installs it after `replaceDesign`). renderPlan
+(Topbar.tsx's load handler re-installs it after `replaceDesign`). renderPlan
 draws it first, under the grid, behind `opts.underlay` (off in `PRINT_OPTS`);
 the decoded `HTMLImageElement` is cached in renderPlan.ts keyed by src, and a
 miss clears the map so exactly one photo is ever held. All underlay maths
@@ -275,11 +275,23 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   node-for-node (Topbar / Sidebar / Workspace / PropsPanel / StatusBar are
   organizational splits — the rendered tree is identical, and
   e2e/layout.spec.ts pins the boot geometry). The shell holds NO state and
-  never re-renders. **src/ui/ui.ts is down to the global keyboard map** — one
-  `keydown` listener on `window`, released by `dispose()` through an
-  AbortController — and subscribes to no store event at all; `mountLegacyUI()`
-  (src/app/bootstrap.ts) still constructs it once behind a module guard, from
-  an App-level effect that runs after the canvas effects.
+  never re-renders. **src/ui/ui.ts and `mountLegacyUI()` are GONE** — React owns
+  every element in the shell, including the recovery banner
+  (src/ui/react/RecoveryBanner.tsx, rendered as the first child of `#app`), and
+  src/app/bootstrap.ts creates no DOM at all. What was global about the old
+  controller — the key map — is `src/editor/keyboard/`, attached to `window`
+  from an App-level effect that runs after the canvas effects.
+- **Components take the app's object graph from a context, never from the
+  bootstrap.** `src/app/services.ts` `createServices()` builds the one
+  `AppServices` ({store, editor, plan, elevation, view3d, studio, commands,
+  keyboard, bridge, needsRecoveryBanner}); `src/ui/react/services.tsx` provides
+  it and `useAppServices()` / `useStore()` / `useEditor()` / `useCommands()`
+  read it. **src/ui/react/App.tsx is the ONLY module allowed to import
+  src/app/bootstrap** — it installs the provider — and an eslint
+  `no-restricted-imports` rule over `src/ui/react/**` (with App.tsx as the one
+  listed exception) keeps it that way. The point is not multi-tenancy: it is
+  that a new editor service must not become one more bootstrap export plus 28
+  new imports.
 - The whole left sidebar is React's (src/ui/react/Sidebar.tsx + CatalogPanel /
   OutlinePanel / VariablesPanel): which tab is open is component state, and the
   panels carry BOTH `.active` and `hidden` because style.css hides on
@@ -290,8 +302,9 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   keeps the old renderCatalogIfPartsChanged signature (JSON of
   `design.customParts`) as a `useMemo` key, so tile defs keep their identity and
   memoized <CatalogTile/>s skip the thumbnail redraw on arming ticks. The Part
-  Studio is a bootstrap singleton (`studio`) with a no-op close callback: save
-  and delete both `store.commit()`, so the 'history' channel is the refresh.
+  Studio is an AppServices singleton (`studio`) with a no-op close callback: save
+  and delete both `store.commit()`, so the 'history' channel is the refresh. It
+  is the last imperative DOM in the app, deliberately out of scope.
 - **Fields commit on the DOM's native `change` event, never React's onChange**
   — src/ui/react/fields/ is the shared set (SwatchRow, MaterialRow, VarChips,
   ChoiceRow, ToggleRow, SliderRow, StepperRow, RotToggle, Number/Length/Angle
@@ -352,12 +365,39 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   `setX()` methods are delegates that keep their ENTRY reset (re-arming the
   live tool is a no-op upstream, so that reset is the only effect) and then
   call `editor.setTool`. React's tool buttons call the editor directly.
+- **Named editor behaviours live in `src/editor/commands/`, not in a listener.**
+  `CommandRegistry` runs a `CommandDefinition` by id against one
+  `EditorContext`; an unknown id is a no-op returning `false`, never a throw.
+  The 16 seed commands (history.undo/redo, selection.delete/duplicate,
+  transform.rotate90/15 + eight nudges, tool.cancel/finish) came verbatim out
+  of the old keyboard map, and each mutating one still ends in `store.commit()`
+  — **snapshot undo is untouched, commands are not history steps**. Because
+  src/editor may not import src/ui or src/app, and src/plan2d already imports
+  `editorState`, Plan2D and PartStudio arrive as the STRUCTURAL `PlanToolPort`
+  / `ModalPort` declared in commands/types.ts, wired in `createServices()` —
+  that inversion is what killed the old bootstrap↔ui.ts cycle. `canExecute`
+  carries what used to be part of the key match (`Ctrl+D` needs an item), which
+  is what lets the keyboard swallow a key only when the command actually ran.
+- **The key map is DATA**: `src/editor/keyboard/bindings.ts` is a pure,
+  DOM-free `KeyBinding[]` + `matchBinding`, and `KeyboardController` is the
+  `attach(target)`/`dispose()` adapter around it. Three behaviours are pinned by
+  test/unit/editor/keyboard.test.ts because they are easy to lose: Escape runs
+  even while TYPING (`allowWhileTyping`) and never calls `preventDefault`; every
+  other binding is suppressed while typing or while the modal is open; and
+  `preventDefault` fires only on a command that ran. First match wins, so table
+  ORDER is load-bearing (Shift+Ctrl+Z above Ctrl+Z).
+- `src/editor/input/types.ts` and `src/editor/tools/Tool.ts` are **type
+  declarations with no runtime** — the Phase C contracts. No `ToolManager`
+  yet, on purpose; it lands with the first tool that exercises it. See
+  src/editor/README.md for the extraction order (Measure first, **Select
+  last**).
 - Chrome state that is neither design nor tool lives in
-  src/ui/shellState.ts — the status-bar hint text and the catalog drawer's
-  open flag, a module singleton shaped like src/model/prefs.ts. Everything
-  that used to write `#status-hint` calls `setHint()`; `<StatusHint/>` renders
-  it. StoreBridge carries all three upstreams as channels: Store, `'editor'`
-  and `'shell'`.
+  src/ui/shellState.ts — the status-bar hint text, the catalog drawer's open
+  flag and the elevation view's wall label, a module singleton shaped like
+  src/model/prefs.ts. Everything that used to write `#status-hint` calls
+  `setHint()`; `<StatusHint/>` renders it, and `<WallNav/>` renders
+  `wallLabel()` the same way. StoreBridge carries all three upstreams as
+  channels: Store, `'editor'` and `'shell'`.
 - Tests drive Plan2D ONLY through its façade: `viewport()/setViewport()/
   toolState()/overlayState()/debug()`. `debug().drawCount/gestureCount` are
   monotonic counters — the no-sleep assertion seam. If a test needs a private
@@ -377,6 +417,9 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   e2e/catalog-outline.spec.ts does the same for the sidebar's two ported
   panels (arm/disarm marker, place, ＋/✎ into the studio, group order and
   counts, row + room-row activation by click and by Enter).
+  e2e/recovery.spec.ts owns the recovery banner: it is the one spec that does
+  NOT use the `app` fixture, because its subject is the state of localStorage
+  BEFORE boot and the fixture clears storage as part of setup.
 
 ## Gotchas
 
@@ -440,7 +483,10 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   take EXPRESSIONS — '600-18*2', '1.2m', '90+45' — and a rejected one restores
   the model's value instead of committing. `min`/`max` on those fields are
   MODEL units and the field clamps to them, since a text box has no browser
-  range to lean on. The plan and elevation CANVASES still label in cm (wall
+  range to lean on. **A dimensioned expression may not come out dimensionless**:
+  `1m / 2m` is a ratio (0.5), so `parseLength` rejects it rather than read it as
+  0.5 mm — only a wholly bare expression ('600-18*2') gets the prefs.unit
+  interpretation. The plan and elevation CANVASES still label in cm (wall
   lengths, dimension lines): they draw their own text and were deliberately
   left alone.
 
@@ -448,7 +494,7 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
 
 `graphify-out/` holds a knowledge graph of this repo: every source symbol
 and its imports/calls from AST extraction, plus the concepts and design
-rationale extracted from CLAUDE.md, README.md, NEXT_STEPS.md, TODO.md,
+rationale extracted from CLAUDE.md, README.md, ROADMAP.md, TODO.md,
 index.html and the deploy workflow. Use it to ORIENT — it tells you which
 files and communities a question touches — then read the real source for
 anything you are about to change. The graph is a map, never the territory.
@@ -475,7 +521,7 @@ phrase questions with real symbol names (`partPanels`, `hostContexts`,
 Keeping it current:
 
 - `graphify update .` after code edits — AST only, no LLM, no API key.
-- Doc edits (this file, README, TODO, NEXT_STEPS) are NOT picked up by
+- Doc edits (this file, README, TODO, ROADMAP, HISTORY) are NOT picked up by
   `update`; the concept layer only re-extracts on a full `/graphify .` run,
   which costs LLM tokens. Re-run it after a real architecture change, not
   after every doc tweak.
