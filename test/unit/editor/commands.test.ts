@@ -1,0 +1,254 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { APP_COMMANDS } from '../../../src/editor/commands/appCommands';
+import { CommandRegistry } from '../../../src/editor/commands/registry';
+import type {
+  CommandDefinition,
+  EditorContext,
+  ModalPort,
+  PlanToolPort,
+} from '../../../src/editor/commands/types';
+import { EditorState } from '../../../src/editor/editorState';
+import { demoDesign, Store } from '../../../src/model/store';
+
+// src/editor/commands/* — the named editor behaviours the global keyboard map
+// used to hold as `if` branches. These tests are the parity gate for that
+// lift: same mutations, same guards, same `store.commit()` discipline.
+
+/** Records every port call so a command's tool-cancelling path is observable. */
+function fakePlan(): PlanToolPort & { calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    setArmed: () => calls.push('setArmed'),
+    setCalibrate: (on) => calls.push(`setCalibrate:${on}`),
+    setMeasure: (on) => calls.push(`setMeasure:${on}`),
+    setRoomTool: (on) => calls.push(`setRoomTool:${on}`),
+    cancelDrawRoom: () => calls.push('cancelDrawRoom'),
+    closeDrawRoom: () => calls.push('closeDrawRoom'),
+  };
+}
+
+function fakeModal(): ModalPort & { calls: string[]; open: boolean } {
+  const state = {
+    calls: [] as string[],
+    open: false,
+    isOpen: () => state.open,
+    handleEscape: () => state.calls.push('handleEscape'),
+  };
+  return state;
+}
+
+describe('CommandRegistry', () => {
+  const ctx = (): EditorContext => ({
+    store: new Store(demoDesign()),
+    editor: new EditorState(),
+    plan: fakePlan(),
+    modal: fakeModal(),
+  });
+
+  it('an unknown id is a no-op that reports false, never a throw', () => {
+    const reg = new CommandRegistry(ctx());
+    expect(reg.get('nope.nope')).toBeUndefined();
+    expect(reg.canExecute('nope.nope')).toBe(false);
+    expect(reg.execute('nope.nope')).toBe(false);
+  });
+
+  it('a command with no canExecute is always available', () => {
+    const reg = new CommandRegistry(ctx());
+    let ran = 0;
+    reg.register({ id: 'test.always', label: 'x', execute: () => ran++ });
+    expect(reg.canExecute('test.always')).toBe(true);
+    expect(reg.execute('test.always')).toBe(true);
+    expect(ran).toBe(1);
+  });
+
+  it('a blocked command does not run and reports false', () => {
+    const reg = new CommandRegistry(ctx());
+    let ran = 0;
+    reg.register({
+      id: 'test.blocked',
+      label: 'x',
+      canExecute: () => false,
+      execute: () => ran++,
+    });
+    expect(reg.canExecute('test.blocked')).toBe(false);
+    expect(reg.execute('test.blocked')).toBe(false);
+    expect(ran).toBe(0);
+  });
+
+  it('re-registering an id replaces it; list() keeps registration order', () => {
+    const reg = new CommandRegistry(ctx());
+    const mk = (id: string, label: string): CommandDefinition => ({
+      id,
+      label,
+      execute: () => {},
+    });
+    reg.registerAll([mk('a', 'first'), mk('b', 'second')]);
+    reg.register(mk('a', 'replaced'));
+    expect(reg.get('a')!.label).toBe('replaced');
+    expect(reg.list().map((d) => d.id)).toEqual(['a', 'b']);
+  });
+
+  it('every seed command has a unique id and a label', () => {
+    const ids = APP_COMMANDS.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const c of APP_COMMANDS) expect(c.label.length).toBeGreaterThan(0);
+  });
+});
+
+describe('app commands', () => {
+  let store: Store;
+  let editor: EditorState;
+  let plan: ReturnType<typeof fakePlan>;
+  let modal: ReturnType<typeof fakeModal>;
+  let reg: CommandRegistry;
+
+  beforeEach(() => {
+    store = new Store(demoDesign());
+    editor = new EditorState();
+    plan = fakePlan();
+    modal = fakeModal();
+    reg = new CommandRegistry({ store, editor, plan, modal });
+    reg.registerAll(APP_COMMANDS);
+  });
+
+  /** Place a fresh item and select it — the precondition most commands want. */
+  function selectNewItem(): string {
+    // defOf, never catalogDef: 'base-cabinet' is a preset part, not a catalog entry
+    const it = store.addItem(store.defOf('base-cabinet'), 1, 1);
+    store.select({ kind: 'item', id: it.id });
+    store.commit();
+    return it.id;
+  }
+
+  it('transform commands are blocked unless an ITEM is selected', () => {
+    const blocked = [
+      'selection.duplicate',
+      'transform.rotate90',
+      'transform.rotate15',
+      'transform.nudgeLeft',
+      'transform.nudgeRightCoarse',
+    ];
+    for (const id of blocked) expect(reg.canExecute(id)).toBe(false);
+
+    selectNewItem();
+    for (const id of blocked) expect(reg.canExecute(id)).toBe(true);
+  });
+
+  it('rotate steps are 90° plain and 15° fine, and each is one undo step', () => {
+    const id = selectNewItem();
+    const before = store.itemById(id)!.rotation;
+
+    expect(reg.execute('transform.rotate90')).toBe(true);
+    expect(store.itemById(id)!.rotation).toBeCloseTo(before + Math.PI / 2, 12);
+
+    expect(reg.execute('transform.rotate15')).toBe(true);
+    expect(store.itemById(id)!.rotation).toBeCloseTo(before + Math.PI / 2 + Math.PI / 12, 12);
+
+    store.undo();
+    expect(store.itemById(id)!.rotation).toBeCloseTo(before + Math.PI / 2, 12);
+  });
+
+  it('nudge is 10 mm fine and 100 mm coarse, in plan-space directions', () => {
+    const id = selectNewItem();
+    const { x, y } = store.itemById(id)!;
+
+    reg.execute('transform.nudgeRight');
+    reg.execute('transform.nudgeDown');
+    expect(store.itemById(id)!.x).toBeCloseTo(x + 0.01, 12);
+    expect(store.itemById(id)!.y).toBeCloseTo(y + 0.01, 12);
+
+    reg.execute('transform.nudgeLeftCoarse');
+    reg.execute('transform.nudgeUpCoarse');
+    expect(store.itemById(id)!.x).toBeCloseTo(x + 0.01 - 0.1, 12);
+    expect(store.itemById(id)!.y).toBeCloseTo(y + 0.01 - 0.1, 12);
+  });
+
+  it('duplicate selects the copy and leaves one undo step behind', () => {
+    const id = selectNewItem();
+    const n = store.design.items.length;
+
+    expect(reg.execute('selection.duplicate')).toBe(true);
+    expect(store.design.items.length).toBe(n + 1);
+    expect(store.selection.kind).toBe('item');
+    expect(store.selection.kind === 'item' && store.selection.id).not.toBe(id);
+
+    store.undo();
+    expect(store.design.items.length).toBe(n);
+  });
+
+  it('delete removes the selected item and is blocked on an empty selection', () => {
+    expect(reg.canExecute('selection.delete')).toBe(false);
+
+    const id = selectNewItem();
+    const n = store.design.items.length;
+    expect(reg.execute('selection.delete')).toBe(true);
+    expect(store.itemById(id)).toBeUndefined();
+    expect(store.design.items.length).toBe(n - 1);
+  });
+
+  it('delete on a WALL selection is allowed but changes nothing — no undo step', () => {
+    // parity with the old keyboard map: the guard was `kind !== 'none'` and the
+    // body had no wall branch, so commit() saw an unchanged design
+    const wallId = store.allWalls()[0].id;
+    store.select({ kind: 'wall', id: wallId });
+    const depth = store.canUndo();
+
+    expect(reg.canExecute('selection.delete')).toBe(true);
+    expect(reg.execute('selection.delete')).toBe(true);
+    expect(store.allWalls().some((w) => w.id === wallId)).toBe(true);
+    expect(store.canUndo()).toBe(depth);
+  });
+
+  it('undo/redo are always available and round-trip a command', () => {
+    const id = selectNewItem();
+    const before = store.itemById(id)!.x;
+
+    reg.execute('transform.nudgeRight');
+    expect(reg.execute('history.undo')).toBe(true);
+    expect(store.itemById(id)!.x).toBeCloseTo(before, 12);
+
+    expect(reg.execute('history.redo')).toBe(true);
+    expect(store.itemById(id)!.x).toBeCloseTo(before + 0.01, 12);
+  });
+
+  describe('tool.cancel priority order', () => {
+    it('the modal outranks every tool', () => {
+      modal.open = true;
+      editor.setTool('measure');
+      reg.execute('tool.cancel');
+      expect(modal.calls).toEqual(['handleEscape']);
+      expect(plan.calls).toEqual([]);
+    });
+
+    it.each([
+      ['place', 'setArmed'],
+      ['calibrate', 'setCalibrate:false'],
+      ['measure', 'setMeasure:false'],
+      ['room', 'setRoomTool:false'],
+      ['drawRoom', 'cancelDrawRoom'],
+    ] as const)('%s cancels through the plan port (%s)', (tool, call) => {
+      editor.setTool(tool);
+      reg.execute('tool.cancel');
+      expect(plan.calls).toEqual([call]);
+      expect(modal.calls).toEqual([]);
+    });
+
+    it('under select it drops the selection', () => {
+      selectNewItem();
+      reg.execute('tool.cancel');
+      expect(store.selection).toEqual({ kind: 'none' });
+      expect(plan.calls).toEqual([]);
+    });
+  });
+
+  it('tool.finish only applies to the draw-room tool', () => {
+    expect(reg.canExecute('tool.finish')).toBe(false);
+    expect(reg.execute('tool.finish')).toBe(false);
+    expect(plan.calls).toEqual([]);
+
+    editor.setTool('drawRoom');
+    expect(reg.execute('tool.finish')).toBe(true);
+    expect(plan.calls).toEqual(['closeDrawRoom']);
+  });
+});
