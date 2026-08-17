@@ -1,3 +1,41 @@
+# M10 — Cycle 2: B3+B4+B5 as T1-T4 — COMPLETE
+
+Reordered (tool state first) so every later port reads clean editor state.
+
+- [x] T1 EditorState owns tool truth: Plan2D setters are delegates with entry
+  resets + immediate repaint; one `syncFromEditor()` replaced
+  `closeOtherTools` (mutual exclusion structural); `toolState()` shape
+  unchanged; the 5 `onXChange` callbacks died; shellState unified the three
+  `#status-hint` writers; ToolButtons/Mode2dToggle/WallNav/CatalogButton/
+  StatusHint went React. `e2e/tools.spec.ts` + `test/unit/planTools.test.ts`.
+- [x] T2 Sidebar owns tab state (active class AND hidden flip); VariablesPanel
+  React with uncontrolled inputs committing via native `change` only — a lint
+  rule bans React `onChange` on inputs under fields/ and props/. The shared
+  field set (src/ui/react/fields/) born. `e2e/sidebar.spec.ts`.
+- [x] T3 CatalogPanel/CatalogTile (memo per def, thumbnails in ref effects,
+  arming via `plan.setArmed` for ghost reset + def identity) + OutlinePanel on
+  pure `outlineModel.ts` (Rooms-first invariant unit-tested). PartStudio
+  construction moved to bootstrap. Six screenshots byte-identical.
+  `e2e/catalog-outline.spec.ts`.
+- [x] T4 The whole inspector went React in five gated commits: room+photo+
+  lighting → item (+`e2e/inspector.spec.ts` pinning every panel's shape) →
+  wall/opening/corner + transient wiring (`useLiveValue`, ZERO inspector
+  React renders mid-drag — `e2e/transient-perf.spec.ts`) → **the sanctioned
+  mm-units commit** (fields are `type=text` expression inputs through
+  units.ts; Part Studio dim rows flipped too; exactly 9 interact.mjs lines
+  updated) → cleanup. `ui.ts` 1772 → **130 lines** (the keyboard map, now
+  with `dispose()`). Zero length `*100`//100` under src/ui.
+- Cycle-end gates: lint · typecheck · **592 unit** · build · interact
+  **104/104** at 1× (and 6× on T1/T4) · **40/40 Playwright specs** ·
+  screenshot diffs confined to the props panel's numeric column (cm→mm).
+- Known split (documented in CLAUDE.md): canvas-drawn labels (plan, elevation,
+  studio zone/polygon canvases) still render cm — they flip with the
+  renderPlan units plumbing in Phase E.
+
+Next: B6 (export dialogs polish + Part Studio rail panels + delete the
+mountLegacyUI guard) is small and optional before Phase C (editor core:
+ToolManager, CommandRegistry, InputRouter). See the plan file.
+
 # M8 — Phase A: baseline lock — COMPLETE
 
 Plan: ~/.claude/plans/act-as-senior-software-polished-blanket.md (supersedes
