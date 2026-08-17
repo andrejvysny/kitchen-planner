@@ -85,8 +85,10 @@ export function createServices(): AppServices {
   });
 
   /**
-   * One Part Studio for the whole app, reached by the catalog's ＋/✎ tiles, the
-   * props panel's "Edit part template…" and Escape. Its constructor is DOM-free
+   * One Part Studio for the whole app. Every route in — the catalog's ＋/✎
+   * tiles, the Workshop sidebar's rows, the props panel's "Edit part template…"
+   * / "Customize part…" — goes through `openInWorkshop`, and <WorkshopPane/> is
+   * what actually hands it a host to build into. Its constructor is DOM-free
    * (only `open()` touches the document), so it belongs with the singletons.
    *
    * Its close callback is a no-op: the only paths that change the parts library
@@ -101,11 +103,11 @@ export function createServices(): AppServices {
    * topbar tabs, the panes, the `workspace.*` commands behind keys 1-4 — comes
    * through here, so the guard and the resets are written once.
    *
-   * The guard is the Part Studio's own dirty-confirm: today the Workshop IS
-   * that modal, so leaving it with unsaved edits has to ask, and a refused
-   * close must abort the switch rather than leave the shell showing a
-   * workspace the modal is still covering. When WP 1.6 hosts the studio inside
-   * the Workshop pane instead, the guard moves but this helper does not.
+   * The guard is the Part Studio's own dirty-confirm. The studio lives INSIDE
+   * the Workshop pane (WS-SPEC WP 1.6) and has no exit of its own any more, so
+   * this is the only place that asks: leaving the Workshop with unsaved edits
+   * has to confirm, and a refused close aborts the switch rather than tearing
+   * the editor out from under the user.
    *
    * The two resets exist because a workspace is a different TASK, not a
    * different view of the same one: an armed catalog def or a live measure

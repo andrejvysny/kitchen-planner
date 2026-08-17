@@ -4,7 +4,7 @@ import { CATALOG, type CatalogDef } from '../../model/catalog';
 import { toCatalogDef } from '../../model/parts';
 import { PRESETS } from '../../model/presets';
 import type { CustomPartDef } from '../../model/types';
-import { workspace } from '../workspaceState';
+import { openInWorkshop, workspace } from '../workspaceState';
 import { CatalogTile } from './CatalogTile';
 import { useChannel } from './hooks/useStore';
 
@@ -130,13 +130,13 @@ function buildSections(parts: readonly CustomPartDef[]): SectionView[] {
   return out;
 }
 
-/** The one tile that places nothing: it opens the Part Studio on a blank part. */
+/** The one tile that places nothing: it opens the Workshop on a blank part. */
 function NewPartTile(): ReactElement {
-  const { plan, studio } = useAppServices();
+  const { plan } = useAppServices();
   const open = (): void => {
-    // a live place tool would keep ghosting under the modal
+    // a live place tool would keep ghosting under the pane we are switching to
     plan.setArmed(null);
-    studio.open();
+    openInWorkshop(null);
   };
 
   const onKeyDown = (e: KeyboardEvent): void => {

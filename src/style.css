@@ -534,6 +534,44 @@ body {
   min-width: 0;
   gap: 1px;
   background: var(--panel-border);
+  /* the containing block for .workspace-pane, which covers both panes rather
+     than replacing them — the canvases underneath keep their contexts */
+  position: relative;
+}
+
+/* A workspace that owns the canvas area instead of drawing in it (WS-SPEC
+   §0.3): the Workshop's part editor today. Above the panes' badges and button
+   clusters, which are all z-index:auto. */
+.workspace-pane {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+}
+
+.workspace-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--panel-border);
+  flex: none;
+}
+
+.workspace-pane-caption {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.workshop-host {
+  flex: 1;
+  min-height: 0;
+  position: relative;
 }
 
 .pane {
@@ -1094,24 +1132,20 @@ body {
   color: var(--ink);
 }
 
-/* ---------- Part Studio modal ---------- */
+/* ---------- Part Studio ---------- */
 
-.studio-overlay {
-  position: fixed;
+/* The studio fills the Workshop pane's host, edge to edge: it is the whole
+   workspace now, not a card floating over one. */
+.studio-hosted {
+  position: absolute;
   inset: 0;
-  background: rgba(30, 28, 24, 0.45);
   display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 40;
 }
 
 .studio {
-  width: min(1240px, 96vw);
-  height: min(840px, 94vh);
+  width: 100%;
+  height: 100%;
   background: var(--panel);
-  border-radius: 14px;
-  box-shadow: 0 18px 60px rgba(20, 18, 14, 0.35);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1291,21 +1325,6 @@ body {
   background: var(--ink);
   color: #fff;
   border-color: var(--ink);
-}
-
-.studio-x {
-  margin-left: auto;
-  border: none;
-  background: transparent;
-  font-size: 15px;
-  cursor: pointer;
-  color: var(--ink-soft);
-  padding: 6px 8px;
-  border-radius: 6px;
-}
-
-.studio-x:hover {
-  background: #f0efec;
 }
 
 .studio-body {

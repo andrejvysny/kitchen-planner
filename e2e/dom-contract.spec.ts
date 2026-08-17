@@ -221,12 +221,22 @@ const CORNER_SELECTED: readonly ContractEntry[] = [
   vis('#props-inner .btn-row'), // Remove corner
 ];
 
+/**
+ * src/ui/react/WorkshopPane.tsx — the pane that hosts the Part Studio over the
+ * canvases (WS-SPEC WP 1.6). `#wsp-back` replaced the studio's own `.studio-x`:
+ * leaving is the workspace's job now, not the editor's.
+ */
+const WORKSHOP_PANE: readonly ContractEntry[] = [
+  vis('#pane-workshop'),
+  vis('#pane-workshop .workshop-host'),
+  vis('#wsp-back'),
+];
+
 /** src/ui/partstudio/index.ts + typePicker.ts — the type-picker stage. */
 const STUDIO_PICKER: readonly ContractEntry[] = [
-  vis('.studio-overlay'),
+  vis('#pane-workshop .studio-hosted'),
   vis('.studio'),
   vis('.studio-head'),
-  vis('.studio-x'),
   vis('.studio-body'),
   vis('.studio-cards'),
   vis('.studio-card[data-type="cabinet"]'),
@@ -236,7 +246,7 @@ const STUDIO_PICKER: readonly ContractEntry[] = [
 
 /** src/ui/partstudio/index.ts + cabinetPanel.ts — the cabinet editor stage. */
 const STUDIO_EDITOR: readonly ContractEntry[] = [
-  vis('.studio-overlay'),
+  vis('#pane-workshop .studio-hosted'),
   vis('.studio-name'),
   vis('.studio-type-badge'),
   vis('.studio-form'),
@@ -407,9 +417,14 @@ test('DOM contract: selector table stays present across every pinned app state',
     await expect(app.locator('#props-inner .props-title')).toHaveText('Corner');
   });
 
-  // ---- Part Studio: picker -> cabinet editor -> cancel (no design mutation) ----
+  // ---- Part Studio: picker -> cabinet editor -> leave (no design mutation) ----
+  // ＋ New part is a NAVIGATION now (WS-SPEC WP 1.6): it switches to the
+  // Workshop workspace and the studio is built into that pane, not into a
+  // document.body modal.
   await test.step('open Part Studio (picker)', async () => {
     await app.click('.cat-new');
+    await expect(app.locator('#ws-tab-workshop')).toHaveClass(/active/);
+    await assertContract(app, WORKSHOP_PANE);
     await assertContract(app, STUDIO_PICKER);
   });
 
@@ -420,10 +435,15 @@ test('DOM contract: selector table stays present across every pinned app state',
     await assertContract(app, STUDIO_EDITOR);
   });
 
-  await test.step('close Part Studio without saving', async () => {
-    await app.click('.studio-cancel');
-    await expect(app.locator('.studio-overlay')).toHaveCount(0);
-    // Cancelling an untouched fresh part must not mutate the design.
+  await test.step('leave the Workshop without saving', async () => {
+    // Picking a type is not an edit — the fresh part IS the baseline — so this
+    // switch runs the dirty gate and passes it without a confirm. (The fixture
+    // auto-accepts dialogs, so the parts-count assertion below is what proves
+    // nothing was written either way.)
+    await app.click('#ws-tab-furnish');
+    await expect(app.locator('#ws-tab-furnish')).toHaveClass(/active/);
+    await expect(app.locator('#pane-workshop')).toHaveCount(0);
+    await expect(app.locator('.studio')).toHaveCount(0);
     const partsAfter = await app.evaluate(() => window.__kp.store.design.customParts.length);
     expect(partsAfter).toBe(partsBefore);
   });

@@ -7,6 +7,7 @@ import { workspace } from '../workspaceState';
 import { useChannel } from './hooks/useStore';
 import { PropsPanel } from './PropsPanel';
 import { Sidebar } from './Sidebar';
+import { WorkshopPane } from './WorkshopPane';
 
 /**
  * The workspace row: sidebar, the two canvas panes, properties panel — ported
@@ -27,6 +28,10 @@ import { Sidebar } from './Sidebar';
  * by hand — `.hidden` from the topbar's view toggle, `.elev-mode` from the
  * 2D/elev sub-toggle below — and a re-render here would reconcile `className`
  * back to the literal below. State belongs in the leaf controls.
+ *
+ * That is also why <WorkshopPane/> — the overlay pane that hosts the Part
+ * Studio — is a CHILD holding its own 'workspace' subscription rather than a
+ * conditional here: this component renders once and never reconciles it.
  */
 export function Workspace(): ReactElement {
   const { plan, elevation, view3d } = useAppServices();
@@ -73,6 +78,7 @@ export function Workspace(): ReactElement {
           <div className="pane-badge">3D view</div>
           <CamControls />
         </div>
+        <WorkshopPane />
       </section>
 
       <PropsPanel />

@@ -5,6 +5,7 @@ import { ITEM_MATERIALS, COUNTER_MATERIALS, overridesColor } from '../../../mode
 import { hasPreset } from '../../../model/presets';
 import type { Item } from '../../../model/types';
 import { isVarRef, resolveColor } from '../../../model/variables';
+import { openInWorkshop } from '../../workspaceState';
 import { AngleField } from '../fields/AngleField';
 import { LengthField } from '../fields/LengthField';
 import { MaterialRow } from '../fields/MaterialRow';
@@ -35,7 +36,7 @@ const MIN_DIM = 0.01;
  * useLiveValue.ts).
  */
 export function ItemProps({ item }: { item: Item }): ReactElement {
-  const { store, studio } = useAppServices();
+  const { store } = useAppServices();
   const def = store.defOf(item.defId);
   const part = store.partOf(item.defId);
   // presets are parts too, but read as built-ins to the user
@@ -146,8 +147,7 @@ export function ItemProps({ item }: { item: Item }): ReactElement {
             <button
               className="btn"
               onClick={() => {
-                const own = store.customPartById(item.defId);
-                if (own) studio.open(own);
+                if (store.customPartById(item.defId)) openInWorkshop(item.defId, item.id);
               }}
             >
               Edit part template…
@@ -162,7 +162,7 @@ export function ItemProps({ item }: { item: Item }): ReactElement {
                 const fork = store.forkPartForItem(item.id);
                 if (!fork) return;
                 store.commit();
-                studio.open(fork);
+                openInWorkshop(fork.id, item.id);
               }}
             >
               Customize part…

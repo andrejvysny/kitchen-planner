@@ -121,6 +121,12 @@ test('an armed tile places its def into the plan and disarms itself', async ({ a
   });
 });
 
+/**
+ * Both catalog routes into the Part Studio are NAVIGATIONS now (WS-SPEC WP
+ * 1.6): they switch to the Workshop workspace, where the studio is built into
+ * #pane-workshop rather than into a body modal. Back returns to the workspace
+ * the edit started from, and saving no longer leaves the editor.
+ */
 test('＋ New part opens the type picker; ✎ opens an existing part in the editor', async ({
   app,
 }) => {
@@ -131,29 +137,39 @@ test('＋ New part opens the type picker; ✎ opens an existing part in the edit
 
   // ＋ New part: the picker stage, and no part loaded yet
   await app.click('.cat-item.cat-new');
-  await expect(app.locator('.studio-overlay .studio-cards')).toBeVisible();
+  await expect(app.locator('#ws-tab-workshop')).toHaveClass(/active/);
+  await expect(app.locator('#pane-workshop .studio-hosted .studio-cards')).toBeVisible();
   expect(await app.locator('.studio-card').count()).toBeGreaterThanOrEqual(2);
-  await app.keyboard.press('Escape');
-  await expect(app.locator('.studio-overlay')).toHaveCount(0);
+
+  // Back leaves the Workshop for the workspace the edit started from
+  await app.click('#wsp-back');
+  await expect(app.locator('#ws-tab-furnish')).toHaveClass(/active/);
+  await expect(app.locator('.studio')).toHaveCount(0);
 
   // ✎ on a custom part tile: the editor stage, that part's name in the field,
   // and the place tool dropped on the way in
   await app.click('.cat-item[data-def-id="base-cabinet"]');
   expect(await armed(app)).toEqual({ tool: 'place', def: 'base-cabinet' });
   await app.locator(`.cat-item-wrap:has([data-def-id="${part.id}"]) .cat-edit`).click();
-  await expect(app.locator('.studio-overlay .studio-body .studio-form')).toBeVisible();
+  await expect(app.locator('#ws-tab-workshop')).toHaveClass(/active/);
+  await expect(app.locator('#pane-workshop .studio-body .studio-form')).toBeVisible();
   await expect(app.locator('.studio-name')).toHaveValue(part.name);
   await expect(app.locator('.studio-save')).toHaveText('Save changes');
   expect(await armed(app)).toEqual({ tool: 'select', def: null });
 
-  // renaming and saving lands in the store AND back in the tile's label
+  // renaming and saving lands in the store, and KEEPS the editor open on it
   await app.locator('.studio-name').fill('Renamed part');
   await app.click('.studio-save');
-  await expect(app.locator('.studio-overlay')).toHaveCount(0);
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.store.design.customParts[0].name))
+    .toBe('Renamed part');
+  await expect(app.locator('#pane-workshop .studio')).toBeVisible();
+
+  // ...and the tile's label once we are back where the tiles live
+  await app.click('#wsp-back');
+  await expect(app.locator('#ws-tab-furnish')).toHaveClass(/active/);
+  await expect(app.locator('.studio')).toHaveCount(0);
   await expect(app.locator(`.cat-item[data-def-id="${part.id}"] span`)).toHaveText('Renamed part');
-  expect(await app.evaluate(() => window.__kp.store.design.customParts[0].name)).toBe(
-    'Renamed part'
-  );
 });
 
 test('the outline groups a seeded design in display order, with counts', async ({ app }) => {

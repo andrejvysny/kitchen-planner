@@ -79,21 +79,28 @@ const bootReady = () =>
     15000
   );
 
-/** Part Studio is open and showing the given stage ('picker' | 'editor'). */
+/**
+ * Part Studio is open in the Workshop pane, showing the given stage
+ * ('picker' | 'editor'). Since WS-SPEC WP 1.6 the studio is hosted inside
+ * #pane-workshop instead of being a body modal, so every route in is a
+ * workspace switch — the inner selectors are unchanged.
+ */
 const studioReady = (stage) =>
   page.waitForSelector(
     stage === 'picker'
-      ? '.studio-overlay .studio-cards'
-      : '.studio-overlay .studio-body .studio-form',
+      ? '#pane-workshop .studio-hosted .studio-cards'
+      : '#pane-workshop .studio-hosted .studio-body .studio-form',
     {
       state: 'visible',
       timeout: 5000,
     }
   );
 
-/** Part Studio has closed (save/cancel committed). */
-const studioClosed = () =>
-  page.waitForSelector('.studio-overlay', { state: 'detached', timeout: 5000 });
+/** Leave the Workshop the way a user does, and wait for the studio to go. */
+const leaveWorkshop = async () => {
+  await page.click('#wsp-back');
+  await page.waitForSelector('.studio', { state: 'detached', timeout: 5000 });
+};
 
 /** Every motion unit of `itemId` has finished animating to open/closed. */
 const waitForPose = (itemId, open) =>
@@ -365,7 +372,7 @@ const pickerCards = await page.locator('.studio-card').count();
 await page.click('.studio-card[data-type="cabinet"]');
 await studioReady('editor');
 await page.click('.studio-save');
-await studioClosed();
+await leaveWorkshop();
 const parts = await page.evaluate(() => window.__kp.store.design.customParts.length);
 results.push(['save custom part', pickerCards >= 2 && parts === 2]); // sample + new
 
@@ -399,7 +406,7 @@ await waitUntil(() => {
 });
 const saveOpen = await page.locator('.studio-save').isEnabled();
 await page.click('.studio-save');
-await studioClosed();
+await leaveWorkshop();
 const ffState = await page.evaluate(() => {
   const parts = window.__kp.store.design.customParts;
   const p = parts[parts.length - 1];
@@ -471,7 +478,7 @@ await yInput.press('Enter');
 await waitUntil(() => !document.querySelector('.studio-save')?.disabled);
 const saveOk = await page.locator('.studio-save').isEnabled();
 await page.click('.studio-save');
-await studioClosed();
+await leaveWorkshop();
 const boardPart = await page.evaluate(() => {
   const parts = window.__kp.store.design.customParts;
   const p = parts[parts.length - 1];
@@ -538,7 +545,7 @@ await page.click('.zone-toolbar button:has-text("⬌ Split")');
 // page.click() below already auto-waits for the post-split "Door" fill button
 await page.click('.zone-toolbar button:text-is("Door")');
 await page.click('.studio-save');
-await studioClosed();
+await leaveWorkshop();
 const zonePart = await page.evaluate(() => {
   const parts = window.__kp.store.design.customParts;
   const p = parts[parts.length - 1];
@@ -563,7 +570,7 @@ await studioReady('editor');
 await page.click('.foot-choice button:has-text("Diagonal corner")');
 // page.click() below already auto-waits for .studio-save
 await page.click('.studio-save');
-await studioClosed();
+await leaveWorkshop();
 const cornerPart = await page.evaluate(() => {
   const parts = window.__kp.store.design.customParts;
   const p = parts[parts.length - 1];
@@ -1520,7 +1527,7 @@ await custBtn.click();
 await studioReady('editor'); // "Customize part…" forks straight into the editor
 const studioOpen = await page.locator('.studio-save').count();
 await page.click('.studio-save');
-await studioClosed();
+await leaveWorkshop();
 const customized = await page.evaluate((arg) => {
   const st = window.__kp.store;
   const item = st.itemById(arg.itemId);
@@ -1637,7 +1644,7 @@ await page.click('.zone-toolbar button:has-text("＋ Drawer")');
 // page.click() below already auto-waits for the "← Done" button
 await page.click('.zone-toolbar button:has-text("← Done")');
 await page.click('.studio-save');
-await studioClosed();
+await leaveWorkshop();
 const interiorSaved = await page.evaluate(() => {
   const parts = window.__kp.store.design.customParts;
   const part = parts[parts.length - 1];

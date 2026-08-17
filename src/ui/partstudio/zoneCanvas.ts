@@ -348,13 +348,10 @@ export class ZoneCanvas {
     sep.className = 'zone-toolbar-sep';
     tb.appendChild(sep);
 
-    if (!leaf) {
-      const hint = document.createElement('span');
-      hint.className = 'studio-caption';
-      hint.textContent = 'Click a zone to edit it.';
-      tb.appendChild(hint);
-      return;
-    }
+    // no leaf selected: no fill buttons. The "click a zone" prompt is the
+    // canvas' own footer caption (see draw()) — a second copy here rendered
+    // one on top of the other.
+    if (!leaf) return;
     for (const fill of Object.keys(FILL_LABELS) as ZoneFill[]) {
       btn(
         FILL_LABELS[fill],

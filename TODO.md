@@ -78,7 +78,9 @@ green gate above runs per WP.
 - [x] WP 1.3 catalog filtering by workspace + search
 - [x] WP 1.4 tool scoping per workspace
 - [x] WP 1.5 sidebar per workspace (WorkshopPartsPanel / output caption)
-- [ ] WP 1.6 hosted Part Studio (WorkshopPane) + caption fix
+- [x] WP 1.6 hosted Part Studio (WorkshopPane) + caption fix
+      (follow-up noted: openInWorkshop skips setTool('select')/drawer close;
+      declined re-open confirm leaves workshopTarget naming the other part)
 - [ ] WP 1.7 topbar slimming + settings menu + canvas overlays
 - [ ] WP 1.8 output pane (six export cards)
 - [ ] WP 1.9 test + docs migration sweep; Phase 1 exit criteria walk

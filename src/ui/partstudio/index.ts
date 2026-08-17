@@ -6,9 +6,11 @@ import {
   normalizeBoardOutline,
   normalizeFreeform,
 } from '../../model/parts';
+import { presetPart } from '../../model/presets';
 import type { Store } from '../../model/store';
 import type { CustomPartDef } from '../../model/types';
 import { uid } from '../../model/types';
+import { clearWorkshopTarget } from '../workspaceState';
 import { BoardPanel } from './boardPanel';
 import { renderCabinetPanel } from './cabinetPanel';
 import { FreeformPanel } from './freeformPanel';
@@ -26,13 +28,25 @@ const TYPE_LABELS: Record<CustomPartDef['type'], string> = {
 const CREATABLE: CustomPartDef['type'][] = ['cabinet', 'board', 'freeform'];
 
 /**
- * Part Studio: a modal editor where users create and edit their own parts
- * with a live 3D preview. New parts start at a type picker; the type is
- * fixed at creation. Saved parts appear in the "My parts" catalog section.
+ * Part Studio: the part editor — a form rail, a zone/polygon canvas and a live
+ * 3D preview. New parts start at a type picker; the type is fixed at creation.
+ * Saved parts appear in the "My parts" catalog section.
+ *
+ * It is HOSTED, not modal (WS-SPEC WP 1.6): `open()` takes the element to
+ * build into — <WorkshopPane/> hands it the Workshop pane's host div — and
+ * there is no backdrop, no ✕ and no closed state of its own. Leaving is the
+ * workspace's job (the pane's Back button, the topbar tabs), which is why
+ * `switchWorkspace` owns the dirty gate and why `handleEscape` no longer
+ * closes. What the footer keeps is what belongs to the PART: save (which now
+ * stays open on the part it just wrote), revert, duplicate and delete.
+ *
+ * `overlay` is the wrapper element inside that host — kept as the name for
+ * `isOpen()`'s sake; "open" means "built into a host", not "covering the app".
  */
 export class PartStudio {
   private store: Store;
   private onClose: () => void;
+  private host: HTMLElement | null = null;
   private overlay: HTMLElement | null = null;
   private part: CustomPartDef | null = null;
   private isNew = true;
@@ -53,20 +67,29 @@ export class PartStudio {
     return !!this.overlay;
   }
 
-  open(existing?: CustomPartDef): void {
+  /**
+   * Build the studio into `host` — the Workshop pane's host div. `existing` is
+   * deep-cloned (so a deep-frozen preset def is a legal argument); omitting it
+   * starts at the type picker.
+   *
+   * `host` is optional in the signature only so the throw can name the rule:
+   * there is no un-hosted studio any more.
+   */
+  open(existing?: CustomPartDef, host?: HTMLElement): void {
+    if (!host) throw new Error('PartStudio.open needs a host (WS-SPEC WP1.6)');
     if (!this.close()) return;
+    this.host = host;
     this.isNew = !existing;
     this.part = existing ? (JSON.parse(JSON.stringify(existing)) as CustomPartDef) : null;
     this.originalJson = JSON.stringify(this.part);
 
     const overlay = document.createElement('div');
-    overlay.className = 'studio-overlay';
+    overlay.className = 'studio-hosted';
     overlay.innerHTML = `
       <div class="studio">
         <div class="studio-head">
           <input class="studio-name" type="text" maxlength="32" />
           <span class="studio-type-badge"></span>
-          <button class="studio-x" title="Close">✕</button>
         </div>
         <div class="studio-body"></div>
         <div class="studio-foot">
@@ -74,22 +97,16 @@ export class PartStudio {
           <button class="btn studio-duplicate" title="Save an independent copy of this part">⧉ Duplicate</button>
           <span class="studio-validation"></span>
           <span style="flex:1"></span>
-          <button class="btn studio-cancel">Cancel</button>
+          <button class="btn studio-cancel" title="Discard changes and reload the saved part">Revert</button>
           <button class="btn primary studio-save"></button>
         </div>
       </div>`;
-    document.body.appendChild(overlay);
+    host.appendChild(overlay);
     this.overlay = overlay;
 
-    (overlay.querySelector('.studio-x') as HTMLElement).addEventListener('click', () =>
-      this.close()
-    );
     (overlay.querySelector('.studio-cancel') as HTMLElement).addEventListener('click', () =>
-      this.close()
+      this.revert()
     );
-    overlay.addEventListener('pointerdown', (e) => {
-      if (e.target === overlay) this.close();
-    });
     this.keyHandler = (e) => this.onKeyDown(e);
     document.addEventListener('keydown', this.keyHandler);
 
@@ -97,7 +114,11 @@ export class PartStudio {
     else this.renderPicker();
   }
 
-  /** Escape inside the studio: clear in-studio selection first, then close. */
+  /**
+   * Escape inside the studio: clear the in-studio selection. There is no
+   * further fallback — a workspace pane has no closed state, so Escape at the
+   * top level does nothing rather than dumping the user out of the Workshop.
+   */
   handleEscape(): void {
     if (
       this.freeform?.handleEscape() ||
@@ -105,12 +126,10 @@ export class PartStudio {
       this.zoneCanvas?.handleEscape()
     ) {
       this.refreshPreview();
-      return;
     }
-    this.close();
   }
 
-  /** Close the studio. Unsaved edits ask for confirmation unless `force`. Returns false if kept open. */
+  /** Tear the studio out of its host. Unsaved edits ask for confirmation unless `force`. Returns false if kept open. */
   close(force = false): boolean {
     if (this.overlay && this.part && !force && JSON.stringify(this.part) !== this.originalJson) {
       if (!confirm('Discard your changes to this part?')) return false;
@@ -125,6 +144,7 @@ export class PartStudio {
     this.part = null;
     this.overlay?.remove();
     this.overlay = null;
+    this.host = null;
     this.onClose();
     return true;
   }
@@ -147,6 +167,8 @@ export class PartStudio {
     (this.overlay!.querySelector('.studio-delete') as HTMLElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-duplicate') as HTMLElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-save') as HTMLElement).style.display = 'none';
+    // nothing to revert TO before a type is picked
+    (this.overlay!.querySelector('.studio-cancel') as HTMLElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-type-badge') as HTMLElement).textContent = 'New part';
     renderTypePicker(body, CREATABLE, (type) => {
       this.part =
@@ -180,20 +202,14 @@ export class PartStudio {
 
     const save = overlay.querySelector('.studio-save') as HTMLButtonElement;
     save.style.display = '';
-    save.textContent = this.isNew ? 'Add to my parts' : 'Save changes';
     save.addEventListener('click', () => this.save());
+    (overlay.querySelector('.studio-cancel') as HTMLElement).style.display = '';
 
     const del = overlay.querySelector('.studio-delete') as HTMLButtonElement;
     const dup = overlay.querySelector('.studio-duplicate') as HTMLButtonElement;
-    if (this.isNew || !this.store.customPartById(part.id)) {
-      del.style.display = 'none';
-      dup.style.display = 'none';
-    } else {
-      del.style.display = '';
-      dup.style.display = '';
-    }
     del.addEventListener('click', () => this.deletePart());
     dup.addEventListener('click', () => this.duplicatePart());
+    this.syncFooter();
 
     this.preview = new StudioPreview(body.querySelector('.studio-preview') as HTMLElement);
     if (part.type === 'cabinet') {
@@ -211,6 +227,24 @@ export class PartStudio {
     }
     this.renderRail();
     this.refreshPreview();
+  }
+
+  /**
+   * The three footer nodes that depend on "is this part in the library yet":
+   * the save label, Delete and Duplicate. Patched in place rather than
+   * re-rendered, because save() calls it while the user is still editing —
+   * rebuilding the editor there would eat their focus and scroll position.
+   */
+  private syncFooter(): void {
+    const overlay = this.overlay;
+    const part = this.part;
+    if (!overlay || !part) return;
+    (overlay.querySelector('.studio-save') as HTMLElement).textContent = this.isNew
+      ? 'Add to my parts'
+      : 'Save changes';
+    const saved = !this.isNew && !!this.store.customPartById(part.id);
+    (overlay.querySelector('.studio-delete') as HTMLElement).style.display = saved ? '' : 'none';
+    (overlay.querySelector('.studio-duplicate') as HTMLElement).style.display = saved ? '' : 'none';
   }
 
   private renderRail(): void {
@@ -289,13 +323,38 @@ export class PartStudio {
     }
   }
 
+  /**
+   * Write the part to the library and STAY on it: the Workshop is a place, not
+   * a dialog, so saving is a checkpoint rather than an exit. What changes is
+   * the part's status — it is no longer new, it is no longer dirty, and it can
+   * now be deleted or duplicated — so only the footer is patched.
+   */
   private save(): void {
     if (!this.part) return;
     if (this.part.type === 'freeform') normalizeFreeform(this.part);
     if (this.part.type === 'board') normalizeBoardOutline(this.part);
     this.store.upsertCustomPart(JSON.parse(JSON.stringify(this.part)));
     this.store.commit();
+    this.isNew = false;
+    this.originalJson = JSON.stringify(this.part);
+    this.syncFooter();
+  }
+
+  /**
+   * Throw the current edits away and reload: the saved part if there is one,
+   * the built-in preset this id shadows if not, and the type picker for a part
+   * that was never saved at all.
+   */
+  private revert(): void {
+    const host = this.host;
+    if (!host || !this.part) return;
+    if (JSON.stringify(this.part) !== this.originalJson) {
+      if (!confirm('Discard your changes to this part?')) return;
+    }
+    const id = this.part.id;
+    const saved = this.store.customPartById(id) ?? presetPart(id);
     this.close(true);
+    this.open(saved, host);
   }
 
   private deletePart(): void {
@@ -305,9 +364,14 @@ export class PartStudio {
       ? `Delete this part and its ${used} placed ${used === 1 ? 'copy' : 'copies'}?`
       : 'Delete this part?';
     if (!confirm(msg)) return;
+    const host = this.host!;
     this.store.deleteCustomPart(this.part.id);
     this.store.commit();
+    // the target names a part that no longer exists; drop it and land on the
+    // picker, which is the Workshop's empty state
+    clearWorkshopTarget();
     this.close(true);
+    this.open(undefined, host);
   }
 
   /** Continue editing an independent copy — covers "same part, different config". */
@@ -318,8 +382,6 @@ export class PartStudio {
     this.isNew = true;
     this.originalJson = '';
     (this.overlay!.querySelector('.studio-name') as HTMLInputElement).value = this.part.name;
-    (this.overlay!.querySelector('.studio-save') as HTMLElement).textContent = 'Add to my parts';
-    (this.overlay!.querySelector('.studio-delete') as HTMLElement).style.display = 'none';
-    (this.overlay!.querySelector('.studio-duplicate') as HTMLElement).style.display = 'none';
+    this.syncFooter();
   }
 }

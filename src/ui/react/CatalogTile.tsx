@@ -10,6 +10,7 @@ import { useAppServices } from './services';
 import type { CatalogDef } from '../../model/catalog';
 import { footprintPolygon } from '../../model/parts';
 import { renderThumbnail } from '../../plan2d/symbols';
+import { openInWorkshop } from '../workspaceState';
 
 /**
  * One catalog tile: a plan-symbol thumbnail, a label, and the click that arms
@@ -33,7 +34,7 @@ export const CatalogTile = memo(function CatalogTile({
   editable,
   armed,
 }: CatalogTileProps): ReactElement {
-  const { store, editor, plan, studio } = useAppServices();
+  const { store, editor, plan } = useAppServices();
   const canvas = useRef<HTMLCanvasElement>(null);
 
   // The thumbnail is canvas pixels, not markup, so it is drawn imperatively.
@@ -69,7 +70,7 @@ export const CatalogTile = memo(function CatalogTile({
   const edit = (e: MouseEvent): void => {
     e.stopPropagation();
     plan.setArmed(null);
-    studio.open(store.customPartById(def.id));
+    openInWorkshop(def.id);
   };
 
   return (

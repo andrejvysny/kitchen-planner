@@ -122,6 +122,49 @@ test('ElevationView detach unsubscribes; attach restores the baseline', async ({
   expect(await counts(app)).toEqual({ change: base.change - 1, selection: base.selection - 1 });
 });
 
+/**
+ * The Workshop pane COVERS the canvases, it does not replace them (WS-SPEC WP
+ * 1.6). If it ever unmounted #canvas2d/#canvas3d instead, every view would go
+ * through a detach/attach round trip and the WebGL context would be rebuilt —
+ * so the assertion is that nothing moved at all: same subscriptions, same
+ * curtain, same renderer, on the way in AND on the way out.
+ */
+test('a Workshop round trip leaves the canvases and their subscriptions untouched', async ({
+  app,
+}) => {
+  const base = await counts(app);
+
+  await app.click('#ws-tab-workshop');
+  await expect(app.locator('#pane-workshop .studio')).toBeVisible();
+  expect(await counts(app), 'entering the Workshop moved a subscription').toEqual(base);
+  expect(
+    await app.evaluate(() => document.querySelectorAll('#canvas2d, #canvas3d').length),
+    'the Workshop pane unmounted a canvas'
+  ).toBe(2);
+  expect(
+    await app.evaluate(() => document.querySelectorAll('.gl-lost').length),
+    'the 3D view was re-attached, not covered'
+  ).toBe(1);
+
+  await app.click('#wsp-back');
+  await expect(app.locator('#pane-workshop')).toHaveCount(0);
+  expect(await counts(app), 'leaving the Workshop moved a subscription').toEqual(base);
+
+  // both views are live again: the 3D renderer still owns its context, and the
+  // plan still redraws on a store change
+  expect(await app.evaluate(() => window.__kp.view.snapshotPNG().slice(0, 15))).toBe(
+    'data:image/png;'
+  );
+  await twoFrames(app);
+  const resumed = await app.evaluate(() => window.__kp.plan.debug().drawCount);
+  await nudge(app, 1.15);
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.plan.debug().drawCount), {
+      message: 'the plan stopped drawing after a Workshop visit',
+    })
+    .toBeGreaterThan(resumed);
+});
+
 test('View3D survives a detach/attach cycle with the same canvas', async ({ app }) => {
   const base = await counts(app);
 
