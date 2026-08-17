@@ -1,26 +1,27 @@
 import { memo, useEffect, useRef, useState, type ReactElement } from 'react';
-import { plan, store, view } from '../../app/bootstrap';
+import { editor, plan, store, view } from '../../app/bootstrap';
 import { buildBom } from '../../model/export';
 import { bomHtml, cutListCsv, shoppingListCsv } from '../../model/exportFormats';
 import { navInput, setNavInput } from '../../model/navPref';
 import { emptyDesign, sanitizeDesign } from '../../model/store';
 import { openPrintSheet } from '../../print/sheet';
 import { isMac, NAV_INPUTS, type NavInput } from '../../view3d/wheelInput';
+import { catalogOpen, setCatalogOpen, setHint } from '../shellState';
 import { useChannel } from './hooks/useStore';
 
 /**
- * The top bar. B1 ported the markup from index.html node-for-node; B2 moves the
- * BEHAVIOR off src/ui/ui.ts wireTopbar/wireExportMenu into the components below
- * — same ids, classes, attribute values and order (e2e/dom-contract.spec.ts
- * pins them), same public calls on the store and the views.
+ * The top bar. B1 ported the markup from index.html node-for-node; B2/B3 moved
+ * the BEHAVIOR off src/ui/ui.ts's old wireTopbar/wireExportMenu into the
+ * components below — same ids, classes, attribute values and order
+ * (e2e/dom-contract.spec.ts pins them), same public calls on the store and the
+ * views.
  *
  * Every piece of state is held by the smallest component that needs it, so
  * <Topbar/> itself stays stateless and never re-renders. That matters: the DOM
  * ui.ts still writes to must never be reconciled out from under it.
  *
- * Two controls stay legacy-wired until the tool-state migration (B5): the
- * catalog hamburger (it toggles the sidebar's `.open` class and owns a
- * click-away listener) and the reference-photo input (wireUnderlay's).
+ * One control stays legacy-wired: the reference-photo input, which ui.ts's
+ * wireUnderlay clicks, reads and resets.
  */
 export function Topbar(): ReactElement {
   return (
@@ -29,7 +30,7 @@ export function Topbar(): ReactElement {
         <span className="brand-mark">▦</span>
         <span className="brand-name">Interior Planner</span>
       </div>
-      <LegacyCatalogButton />
+      <CatalogButton />
       <ViewToggle />
       <HistoryButtons />
       <SceneToggles />
@@ -41,15 +42,6 @@ export function Topbar(): ReactElement {
 }
 
 /* ================= helpers shared by the ported handlers ================= */
-
-/**
- * #status-hint is still legacy DOM — Plan2D's hint callback and ui.ts both
- * write it — so the ported handlers set it exactly the way ui.ts did. Goes away
- * when the hint becomes tool state in B5.
- */
-function setHint(text: string): void {
-  document.getElementById('status-hint')!.textContent = text;
-}
 
 /** Moved verbatim from ui.ts: click a synthetic <a download>, then free the blob. */
 function download(url: string, name: string): void {
@@ -66,20 +58,55 @@ function downloadText(text: string, name: string, type: string): void {
   download(URL.createObjectURL(blob), name);
 }
 
-/* ================= legacy-wired shell ================= */
+/* ================= catalog drawer ================= */
 
 /**
- * B5 EXPIRY: ui.ts owns this button's listener (it toggles `#catalog.open` and
- * runs the click-away). No props, so React never re-renders it and can never
- * clobber what ui.ts writes.
+ * Narrow screens only (the button is display:none above 900px): the catalog is
+ * an off-canvas drawer, and this is its handle. The open flag lives in
+ * shellState so <Sidebar/> can put `.open` on #catalog — the two components are
+ * on opposite sides of the tree, which is exactly what a shell singleton is
+ * for.
  */
-const LegacyCatalogButton = memo(function LegacyCatalogButton(): ReactElement {
+function CatalogButton(): ReactElement {
+  useChannel('shell');
+  useChannel('editor');
+  const btn = useRef<HTMLButtonElement>(null);
+  const open = catalogOpen();
+
+  // click-away close, as wireTopbar had it: pointerdown (not click) so it lands
+  // before a catalog tile's own click, and never on a press that hit the drawer
+  // or this button — those own the toggle. Cleanup keeps a StrictMode double
+  // mount from stacking listeners.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent): void => {
+      const t = e.target as Node;
+      const cat = document.getElementById('catalog')!;
+      if (!cat.contains(t) && !btn.current!.contains(t)) setCatalogOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [open]);
+
+  // arming a tile closes the drawer: it covers the plan you are about to click
+  const armed = editor.isTool('place');
+  useEffect(() => {
+    if (armed) setCatalogOpen(false);
+  }, [armed]);
+
   return (
-    <button id="btn-catalog" title="Show / hide the catalog">
+    <button
+      id="btn-catalog"
+      title="Show / hide the catalog"
+      ref={btn}
+      onClick={() => setCatalogOpen(!catalogOpen())}
+    >
       ☰
     </button>
   );
-});
+}
+
+/* ================= legacy-wired shell ================= */
 
 /**
  * B5 EXPIRY: the reference-photo picker belongs to ui.ts wireUnderlay, which
@@ -95,9 +122,9 @@ type ViewMode = '2d' | 'split' | '3d';
 
 /**
  * 2D / Split / 3D. React owns the buttons' own `.active` class; the panes stay
- * imperative because they are ui.ts's DOM too — the 2D/elev sub-toggle writes
- * `.elev-mode` on the same class list — so this is wireTopbar's setView,
- * unchanged, minus the part React now renders.
+ * imperative because the 2D/elev sub-toggle (Workspace.tsx) writes
+ * `.elev-mode` on the same class list — so this is the old setView, unchanged,
+ * minus the part React now renders.
  */
 function ViewToggle(): ReactElement {
   const [mode, setMode] = useState<ViewMode>('split');

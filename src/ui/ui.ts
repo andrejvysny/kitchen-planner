@@ -32,8 +32,9 @@ import type { Item, Selection, Underlay, WallVisMode } from '../model/types';
 import { isVarRef, refId, resolveColor, toVarRef } from '../model/variables';
 import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
-import type { ElevationView } from '../plan2d/elevation';
+import type { EditorState } from '../editor/editorState';
 import { materialSwatch } from '../view3d/textures';
+import { setHint } from './shellState';
 import { PartStudio } from './partstudio';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T => document.querySelector(sel) as T;
@@ -54,16 +55,17 @@ function displayDeg(rad: number): number {
 export class UI {
   private store: Store;
   private plan: Plan2D;
-  private elev: ElevationView;
+  private editor: EditorState;
   private studio: PartStudio;
 
   // The 3D view left this class in step B2 with the topbar buttons that drove
-  // it (snapshot / GLB / camera presets / pane visibility) — everything ui.ts
-  // still owns is 2D or panel DOM.
-  constructor(store: Store, plan: Plan2D, elev: ElevationView) {
+  // it (snapshot / GLB / camera presets / pane visibility); B3 took the tool
+  // buttons, the 2D/elev toggle, the wall nav and the catalog drawer. What is
+  // left is panel DOM plus the keyboard map.
+  constructor(store: Store, plan: Plan2D, editor: EditorState) {
     this.store = store;
     this.plan = plan;
-    this.elev = elev;
+    this.editor = editor;
     this.studio = new PartStudio(store, () => this.renderCatalogIfPartsChanged());
 
     this.renderCatalog();
@@ -71,9 +73,20 @@ export class UI {
     this.renderVariables();
     this.renderProps();
     this.wireTabs();
-    this.wireTopbar();
     this.wireUnderlay();
     this.wireKeyboard();
+
+    // TRANSITIONAL (dies with T3/T4): two bits of legacy DOM still mirror tool
+    // state by hand — the armed catalog tile and the calibrate button inside
+    // the props panel. Both become components once the catalog and the props
+    // panel are React's; until then this is the one subscription that keeps
+    // them honest, in place of the onArmedChange/onCalibrateChange callbacks.
+    editor.subscribe(() => {
+      this.markArmedTile();
+      document
+        .querySelector('#props-inner .underlay-calibrate')
+        ?.classList.toggle('active', editor.isTool('calibrate'));
+    });
 
     store.on('selection', () => {
       this.renderProps();
@@ -179,7 +192,7 @@ export class UI {
       const label = document.createElement('span');
       label.textContent = def.label;
       tile.appendChild(label);
-      const arm = () => this.plan.setArmed(this.plan.armedDef?.id === def.id ? null : def);
+      const arm = () => this.plan.setArmed(this.editor.armedDefId === def.id ? null : def);
       tile.addEventListener('click', arm);
       tile.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -246,7 +259,7 @@ export class UI {
   }
 
   private markArmedTile(): void {
-    const armedId = this.plan.armedDef?.id;
+    const armedId = this.editor.armedDefId;
     document.querySelectorAll<HTMLElement>('.cat-item').forEach((el) => {
       el.classList.toggle('armed', !!armedId && el.dataset.defId === armedId);
     });
@@ -579,7 +592,7 @@ export class UI {
       apply.addEventListener('click', () => {
         const n = this.store.applyVarToItems(v.id, 'front');
         this.store.commit();
-        $('#status-hint').textContent = `Bound ${n} item${n === 1 ? '' : 's'} to "${v.name}"`;
+        setHint(`Bound ${n} item${n === 1 ? '' : 's'} to "${v.name}"`);
       });
       const del = this.el('<button class="btn danger">Delete</button>');
       del.addEventListener('click', () => {
@@ -994,8 +1007,10 @@ export class UI {
       '<div class="btn-row"><button class="btn underlay-calibrate">Calibrate scale</button></div>'
     );
     const calBtn = calRow.querySelector('button') as HTMLButtonElement;
-    calBtn.classList.toggle('active', this.plan.calibrateOn);
-    calBtn.addEventListener('click', () => this.plan.setCalibrate(!this.plan.calibrateOn));
+    calBtn.classList.toggle('active', this.editor.isTool('calibrate'));
+    calBtn.addEventListener('click', () =>
+      this.plan.setCalibrate(!this.editor.isTool('calibrate'))
+    );
     sec.appendChild(calRow);
 
     this.underlayToggles(sec, u);
@@ -1044,7 +1059,12 @@ export class UI {
     ($('#underlay-input') as HTMLInputElement).click();
   }
 
-  /** Import + calibration wiring; the file input itself lives in index.html. */
+  /**
+   * Import + calibration wiring; the file input itself is React's markup. The
+   * calibrate button's `.active` class rides the editor subscription in the
+   * constructor — only the completed span still comes back through Plan2D,
+   * because answering it needs a blocking prompt this class owns.
+   */
   private wireUnderlay(): void {
     const input = $('#underlay-input') as HTMLInputElement;
     input.addEventListener('change', async () => {
@@ -1052,10 +1072,6 @@ export class UI {
       input.value = '';
       if (f) await this.importUnderlay(f);
     });
-    this.plan.onCalibrateChange = () =>
-      $('#props-inner')
-        .querySelector('.underlay-calibrate')
-        ?.classList.toggle('active', this.plan.calibrateOn);
     this.plan.onCalibrateDone = (d) => this.applyCalibration(d);
   }
 
@@ -1064,20 +1080,18 @@ export class UI {
     try {
       img = await this.downscaleImage(f);
     } catch {
-      $('#status-hint').textContent = 'Could not read that image — try a JPEG or PNG';
+      setHint('Could not read that image — try a JPEG or PNG');
       return;
     }
     const b = polygonBounds(this.store.activeRoom().corners);
     const center = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
     if (!this.store.setUnderlay(img.src, initialUnderlay(img.w, img.h, center))) {
-      $('#status-hint').textContent =
-        'Could not store the reference photo — browser storage is full or blocked';
+      setHint('Could not store the reference photo — browser storage is full or blocked');
       return;
     }
     this.store.commit();
     this.renderProps();
-    $('#status-hint').textContent =
-      'Reference photo placed — drag it into position, then Calibrate scale';
+    setHint('Reference photo placed — drag it into position, then Calibrate scale');
   }
 
   /**
@@ -1115,15 +1129,16 @@ export class UI {
     const answer = prompt('How long is that distance in reality? (cm)');
     const cm = Number(answer);
     if (answer === null || !Number.isFinite(cm) || cm <= 0) {
-      $('#status-hint').textContent = 'Scale calibration cancelled';
+      setHint('Scale calibration cancelled');
       return;
     }
     const scale = underlayScaleFrom(dWorld, u.scale, cm / 100);
     this.store.updateUnderlay({ scale });
     this.store.commit();
     this.renderProps();
-    $('#status-hint').textContent =
-      `Reference scaled: that span is ${Math.round(cm)} cm · 1 photo pixel = ${(scale * 100).toFixed(2)} cm`;
+    setHint(
+      `Reference scaled: that span is ${Math.round(cm)} cm · 1 photo pixel = ${(scale * 100).toFixed(2)} cm`
+    );
   }
 
   /** Global lighting controls (shown in the no-selection panel). */
@@ -1632,62 +1647,7 @@ export class UI {
     a.appendChild(del);
   }
 
-  /* ================= tool buttons & shortcuts ================= */
-
-  /**
-   * What is LEFT of the old topbar wiring after step B2 handed the rest to
-   * React (src/ui/react/Topbar.tsx, StatusBar.tsx, Workspace.tsx): the controls
-   * whose `.active` class mirrors Plan2D/ElevationView tool state, plus the
-   * catalog drawer. They move in B5, together with the tool state itself.
-   */
-  private wireTopbar(): void {
-    // 2D pane sub-mode: top-down plan vs. front-view wall elevation
-    const setMode2d = (mode: 'plan' | 'elev') => {
-      $('#pane2d').classList.toggle('elev-mode', mode === 'elev');
-      document
-        .querySelectorAll<HTMLElement>('#mode2d-toggle button')
-        .forEach((b) => b.classList.toggle('active', b.dataset['2dmode'] === mode));
-      this.elev.setActive(mode === 'elev');
-      if (mode === 'plan') this.plan.requestDraw();
-    };
-    document
-      .querySelectorAll<HTMLElement>('#mode2d-toggle button')
-      .forEach((b) =>
-        b.addEventListener('click', () => setMode2d(b.dataset['2dmode'] as 'plan' | 'elev'))
-      );
-    $('#btn-wall-prev').addEventListener('click', () => this.elev.stepWall(-1));
-    $('#btn-wall-next').addEventListener('click', () => this.elev.stepWall(1));
-
-    // narrow screens: the catalog is an off-canvas drawer; click-away closes it
-    const catalogBtn = $('#btn-catalog');
-    catalogBtn.addEventListener('click', () => $('#catalog').classList.toggle('open'));
-    document.addEventListener('pointerdown', (e) => {
-      const cat = $('#catalog');
-      if (!cat.classList.contains('open')) return;
-      const t = e.target as Node;
-      if (!cat.contains(t) && !catalogBtn.contains(t)) cat.classList.remove('open');
-    });
-    this.plan.onArmedChange = () => {
-      this.markArmedTile();
-      if (this.plan.armedDef) $('#catalog').classList.remove('open');
-    };
-
-    const measureBtn = $('#btn-measure');
-    measureBtn.addEventListener('click', () => this.plan.setMeasure(!this.plan.measureOn));
-    this.plan.onMeasureChange = () => measureBtn.classList.toggle('active', this.plan.measureOn);
-
-    const checksBtn = $('#btn-checks');
-    checksBtn.addEventListener('click', () => this.plan.setChecks(!this.plan.checksOn));
-    this.plan.onChecksChange = () => checksBtn.classList.toggle('active', this.plan.checksOn);
-
-    const roomBtn = $('#btn-room');
-    roomBtn.addEventListener('click', () => this.plan.setRoomTool(!this.plan.roomToolOn));
-    this.plan.onRoomToolChange = () => roomBtn.classList.toggle('active', this.plan.roomToolOn);
-
-    const drawBtn = $('#btn-draw-room');
-    drawBtn.addEventListener('click', () => this.plan.setDrawRoom(!this.plan.drawRoomOn));
-    this.plan.onDrawRoomChange = () => drawBtn.classList.toggle('active', this.plan.drawRoomOn);
-  }
+  /* ================= keyboard shortcuts ================= */
 
   private wireKeyboard(): void {
     window.addEventListener('keydown', (e) => {
@@ -1697,20 +1657,24 @@ export class UI {
         target instanceof HTMLTextAreaElement ||
         target.isContentEditable;
 
+      // one tool is live at a time, so the order below is really a priority
+      // list for the studio-vs-tool-vs-selection question, not a cascade
       if (e.key === 'Escape') {
+        const tool = this.editor.tool;
         if (this.studio.isOpen()) this.studio.handleEscape();
-        else if (this.plan.armedDef) this.plan.setArmed(null);
-        else if (this.plan.calibrateOn) this.plan.setCalibrate(false);
-        else if (this.plan.measureOn) this.plan.setMeasure(false);
-        else if (this.plan.roomToolOn) this.plan.setRoomTool(false);
-        else if (this.plan.drawRoomOn) this.plan.cancelDrawRoom();
+        else if (tool === 'place') this.plan.setArmed(null);
+        else if (tool === 'calibrate') this.plan.setCalibrate(false);
+        else if (tool === 'measure') this.plan.setMeasure(false);
+        else if (tool === 'room') this.plan.setRoomTool(false);
+        // two-stage: the ring in progress goes first, the tool only when empty
+        else if (tool === 'drawRoom') this.plan.cancelDrawRoom();
         else this.store.select({ kind: 'none' });
         return;
       }
       if (typing || this.studio.isOpen()) return;
 
       // Enter closes the ring the draw-room tool is building
-      if (e.key === 'Enter' && this.plan.drawRoomOn) {
+      if (e.key === 'Enter' && this.editor.isTool('drawRoom')) {
         e.preventDefault();
         this.plan.closeDrawRoom();
         return;

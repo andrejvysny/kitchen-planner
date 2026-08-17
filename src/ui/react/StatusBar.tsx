@@ -1,18 +1,19 @@
-import { memo, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { store } from '../../app/bootstrap';
+import { hint } from '../shellState';
 import { statusInfoText } from '../statusText';
 import { useChannel } from './hooks/useStore';
 
 /**
  * The status bar. B2 moved the right-hand summary and the save-failure banner
  * off src/ui/ui.ts (updateInfo + its 'savefail' handler) into the components
- * below; the hint on the left is still written imperatively and stays legacy
- * until B5. <StatusBar/> itself holds no state, so it renders once.
+ * below; the hint on the left now reads the shell singleton. <StatusBar/>
+ * itself holds no state, so it renders once.
  */
 export function StatusBar(): ReactElement {
   return (
     <footer id="statusbar">
-      <LegacyStatusHint />
+      <StatusHint />
       <SaveFailWarning />
       <span className="statusbar-spacer"></span>
       <StatusInfo />
@@ -21,13 +22,15 @@ export function StatusBar(): ReactElement {
 }
 
 /**
- * B5 EXPIRY: #status-hint is written by Plan2D's hint callback (see
- * src/app/bootstrap.ts) and by ui.ts. No props, so React never re-renders it
- * and can never wipe the text back to empty.
+ * Transient one-liner: what the armed tool expects next, or the outcome of the
+ * last command. Every writer — Plan2D's hint callback, the export handlers,
+ * ui.ts — goes through shellState.setHint, so this is the only thing that
+ * touches the element.
  */
-const LegacyStatusHint = memo(function LegacyStatusHint(): ReactElement {
-  return <span id="status-hint"></span>;
-});
+function StatusHint(): ReactElement {
+  useChannel('shell');
+  return <span id="status-hint">{hint()}</span>;
+}
 
 /**
  * Persistent, unlike a hint: it stays lit across unrelated status messages

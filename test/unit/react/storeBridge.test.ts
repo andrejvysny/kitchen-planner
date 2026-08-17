@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { emptyDesign, Store } from '../../../src/model/store';
 import { EditorState } from '../../../src/editor/editorState';
 import { StoreBridge, type Channel } from '../../../src/ui/react/storeBridge';
+import { setCatalogOpen, setHint } from '../../../src/ui/shellState';
 
-// src/ui/react/storeBridge.ts — the Store/EditorState → React adapter. Pure
-// plumbing: no DOM, no React, so it runs in plain node like the rest of
+// src/ui/react/storeBridge.ts — the Store/EditorState/shell → React adapter.
+// Pure plumbing: no DOM, no React, so it runs in plain node like the rest of
 // test/unit. What is pinned here is the version bookkeeping every
 // useSyncExternalStore subscription depends on.
 
@@ -17,6 +18,7 @@ const ALL: readonly Channel[] = [
   'activeRoom',
   'savefail',
   'editor',
+  'shell',
 ];
 
 function setup(): { store: Store; editor: EditorState; bridge: StoreBridge } {
@@ -136,6 +138,19 @@ describe('StoreBridge', () => {
     expect(bridge.getVersion('editor')).toBe(2);
   });
 
+  it('a shell change bumps the shell channel only', () => {
+    const { bridge } = setup();
+    const before = versions(bridge);
+
+    setHint('placed — drag to fine-tune');
+    setHint('placed — drag to fine-tune'); // no-op upstream, so no bump here either
+    setCatalogOpen(true);
+    setCatalogOpen(false);
+
+    expect(moved(before, versions(bridge))).toEqual(['shell']);
+    expect(bridge.getVersion('shell')).toBe(3);
+  });
+
   it('notifies subscribers of the bumped channel only', () => {
     const { store, editor, bridge } = setup();
     const seen: Channel[] = [];
@@ -163,15 +178,17 @@ describe('StoreBridge', () => {
     expect(bridge.getVersion('selection')).toBe(1); // the version still moved
   });
 
-  it('dispose() unhooks the store and the editor, and leaves versions frozen', () => {
+  it('dispose() unhooks the store, the editor and the shell, and leaves versions frozen', () => {
     const { store, editor, bridge } = setup();
     let calls = 0;
     bridge.subscribe('design', () => calls++);
     bridge.subscribe('editor', () => calls++);
+    bridge.subscribe('shell', () => calls++);
 
     store.notify({ structural: true, transient: false });
     editor.setTool('room');
-    expect(calls).toBe(2);
+    setHint('dispose test');
+    expect(calls).toBe(3);
 
     const before = versions(bridge);
     bridge.dispose();
@@ -179,8 +196,9 @@ describe('StoreBridge', () => {
     store.notify({ structural: true, transient: false });
     store.select({ kind: 'none' });
     editor.setTool('select');
+    setHint('after dispose');
 
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
     expect(versions(bridge)).toEqual(before);
   });
 

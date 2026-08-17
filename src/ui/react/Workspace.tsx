@@ -1,6 +1,8 @@
-import { memo, useEffect, useRef, useState, type ReactElement } from 'react';
-import { elev, plan, view } from '../../app/bootstrap';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { editor, elev, plan, view } from '../../app/bootstrap';
+import type { ToolId } from '../../editor/editorState';
 import type { CamPreset } from '../../view3d/view3d';
+import { useChannel } from './hooks/useStore';
 import { PropsPanel } from './PropsPanel';
 import { Sidebar } from './Sidebar';
 
@@ -20,10 +22,9 @@ import { Sidebar } from './Sidebar';
  * ui.ts always finds three attached views.
  *
  * <Workspace/> must stay STATELESS. #pane2d and #pane3d carry classes written
- * by hand — `.hidden` from the topbar's view toggle, `.elev-mode` from ui.ts's
- * 2D/elev sub-toggle — and a re-render here would reconcile `className` back to
- * the literal below. State belongs in the leaf controls; the ones ui.ts still
- * owns are memo fragments that never re-render at all.
+ * by hand — `.hidden` from the topbar's view toggle, `.elev-mode` from the
+ * 2D/elev sub-toggle below — and a re-render here would reconcile `className`
+ * back to the literal below. State belongs in the leaf controls.
  */
 export function Workspace(): ReactElement {
   const planCanvas = useRef<HTMLCanvasElement>(null);
@@ -59,10 +60,10 @@ export function Workspace(): ReactElement {
           <div className="pane-badge" id="badge-elev">
             Wall elevation
           </div>
-          <LegacyMode2dToggle />
+          <Mode2dToggle />
           <ZoomControls />
-          <LegacyToolButtons />
-          <LegacyWallNav />
+          <ToolButtons />
+          <WallNav />
         </div>
         <div id="pane3d" className="pane">
           <canvas id="canvas3d" ref={viewCanvas}></canvas>
@@ -76,72 +77,117 @@ export function Workspace(): ReactElement {
   );
 }
 
+type Mode2d = 'plan' | 'elev';
+
 /**
- * B5 EXPIRY: ui.ts's setMode2d owns this pair — it flips `.elev-mode` on
- * #pane2d, drives ElevationView.setActive and writes the `.active` classes
- * below. No props, so React never re-renders it.
+ * 2D pane sub-mode: top-down plan vs. front-view wall elevation. React owns the
+ * buttons' `.active` class; `.elev-mode` on #pane2d stays imperative because
+ * that class list is shared with the topbar's view toggle (`.hidden`), exactly
+ * as ui.ts's setMode2d wrote it — the rest of that function is unchanged.
  */
-const LegacyMode2dToggle = memo(function LegacyMode2dToggle(): ReactElement {
+function Mode2dToggle(): ReactElement {
+  const [mode, setMode] = useState<Mode2d>('plan');
+
+  const pick = (next: Mode2d): void => {
+    document.getElementById('pane2d')!.classList.toggle('elev-mode', next === 'elev');
+    elev.setActive(next === 'elev');
+    if (next === 'plan') plan.requestDraw();
+    setMode(next);
+  };
+
+  const cls = (m: Mode2d): string | undefined => (mode === m ? 'active' : undefined);
+
   return (
     <div id="mode2d-toggle" className="pane-modes">
-      <button data-2dmode="plan" className="active" title="Top-down floor plan">
+      <button
+        data-2dmode="plan"
+        className={cls('plan')}
+        title="Top-down floor plan"
+        onClick={() => pick('plan')}
+      >
         Plan
       </button>
-      <button data-2dmode="elev" title="Front view of one wall">
+      <button
+        data-2dmode="elev"
+        className={cls('elev')}
+        title="Front view of one wall"
+        onClick={() => pick('elev')}
+      >
         Elevation
       </button>
     </div>
   );
-});
+}
 
 /**
- * B5 EXPIRY: the four plan tools stay legacy-wired — their `.active` classes
- * mirror Plan2D tool state through ui.ts's onMeasureChange/onChecksChange/
- * onRoomToolChange/onDrawRoomChange callbacks, and Escape clears them. No
- * props, so React never re-renders them and can never drop an `.active`.
+ * The four plan tools. Three of them are the same single-gesture tool slot, so
+ * clicking one arms it and clicking it again drops back to 'select'; ⚠ is a
+ * display layer and stays orthogonal. Everything is read off EditorState — the
+ * `.active` classes are a projection of it, never a second copy.
  */
-const LegacyToolButtons = memo(function LegacyToolButtons(): ReactElement {
+function ToolButtons(): ReactElement {
+  useChannel('editor');
+
+  const toggle = (t: ToolId) => (): void => editor.setTool(editor.isTool(t) ? 'select' : t);
+  const cls = (t: ToolId): string | undefined => (editor.isTool(t) ? 'active' : undefined);
+
   return (
     <div id="measure-controls">
-      <button id="btn-room" title="Add a room — click in the plan, or hover a wall to attach it">
+      <button
+        id="btn-room"
+        className={cls('room')}
+        title="Add a room — click in the plan, or hover a wall to attach it"
+        onClick={toggle('room')}
+      >
         ▧
       </button>
       <button
         id="btn-draw-room"
+        className={cls('drawRoom')}
         title="Draw a room — click each corner, click the first again (or Enter) to close"
+        onClick={toggle('drawRoom')}
       >
         ✎
       </button>
       <button
         id="btn-measure"
+        className={cls('measure')}
         title="Measure distances — click two points (snaps to corners, edges & walls)"
+        onClick={toggle('measure')}
       >
         📏
       </button>
-      <button id="btn-checks" title="Show clearance warnings">
+      <button
+        id="btn-checks"
+        className={editor.checksOn ? 'active' : undefined}
+        title="Show clearance warnings"
+        onClick={() => editor.setChecks(!editor.checksOn)}
+      >
         ⚠
       </button>
     </div>
   );
-});
+}
 
 /**
- * B5 EXPIRY: wall stepping belongs to the elevation sub-mode ui.ts still owns,
- * and #wall-label's text comes from ElevationView's callback (bootstrap.ts).
+ * Wall stepping for the elevation sub-mode. Stateless on purpose: #wall-label's
+ * text is written by ElevationView's onWallChange callback (bootstrap.ts), so
+ * this must render exactly once — the literal below is only the initial text
+ * index.html shipped, never re-rendered over the callback's.
  */
-const LegacyWallNav = memo(function LegacyWallNav(): ReactElement {
+function WallNav(): ReactElement {
   return (
     <div id="wall-nav">
-      <button id="btn-wall-prev" title="Previous wall">
+      <button id="btn-wall-prev" title="Previous wall" onClick={() => elev.stepWall(-1)}>
         ‹
       </button>
       <span id="wall-label">Wall</span>
-      <button id="btn-wall-next" title="Next wall">
+      <button id="btn-wall-next" title="Next wall" onClick={() => elev.stepWall(1)}>
         ›
       </button>
     </div>
   );
-});
+}
 
 /** Plan zoom. Pure commands on Plan2D — no state, so this renders once. */
 function ZoomControls(): ReactElement {

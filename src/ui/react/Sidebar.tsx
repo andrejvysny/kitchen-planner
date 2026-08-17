@@ -1,4 +1,6 @@
 import type { ReactElement } from 'react';
+import { catalogOpen } from '../shellState';
+import { useChannel } from './hooks/useStore';
 
 /**
  * The left sidebar: three tab buttons over three panels, ported node-for-node
@@ -6,13 +8,17 @@ import type { ReactElement } from 'react';
  *
  * The panels are deliberately EMPTY shells — src/ui/ui.ts renders the catalog
  * into #catalog-inner, the outline into #outline and the variables editor into
- * #variables-panel, and flips the `hidden` attribute as tabs change. React
- * renders this subtree once and never reconciles it again, so those runtime
- * children are safe.
+ * #variables-panel, and flips the `hidden` attribute as tabs change. Those
+ * runtime children survive the drawer re-render below because React only writes
+ * props that CHANGED between renders, and it manages no children here at all.
+ *
+ * `.open` is the off-canvas drawer state on narrow screens, driven by the
+ * topbar's ☰ (src/ui/react/Topbar.tsx) through the shell singleton.
  */
 export function Sidebar(): ReactElement {
+  useChannel('shell');
   return (
-    <aside id="catalog">
+    <aside id="catalog" className={catalogOpen() ? 'open' : undefined}>
       <div id="sidebar-tabs" role="tablist" aria-label="Left sidebar">
         <button
           id="tab-btn-library"

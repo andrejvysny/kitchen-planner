@@ -50,6 +50,24 @@ describe('EditorState', () => {
     expect(ed.getVersion()).toBe(2);
   });
 
+  it('isTool answers for exactly one tool at a time', () => {
+    const ed = new EditorState();
+    expect(ed.isTool('select')).toBe(true);
+    expect(ed.isTool('place')).toBe(false);
+
+    ed.setTool('place', 'base-cabinet');
+    expect(ed.isTool('place')).toBe(true);
+    expect(ed.isTool('select')).toBe(false);
+
+    // the checks LAYER is not a tool, so it never shows up here
+    ed.setChecks(true);
+    expect(ed.isTool('place')).toBe(true);
+
+    ed.setTool('drawRoom');
+    expect(ed.isTool('drawRoom')).toBe(true);
+    expect(ed.isTool('place')).toBe(false);
+  });
+
   it('setChecks is orthogonal to the tool and no-ops on the same value', () => {
     const ed = new EditorState();
     let calls = 0;

@@ -261,7 +261,7 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   `attach(canvas)` (idempotent for the held canvas) / `detach()` (idempotent;
   aborts listeners, disconnects the ResizeObserver, runs store-subscription
   disposers, cancels rAF loops) / `dispose()` (detach + permanent teardown).
-  All three are constructed DETACHED — `new Plan2D(store, onHint)`,
+  All three are constructed DETACHED — `new Plan2D(store, editor, onHint)`,
   `new ElevationView(store, onWallChange)`, `new View3D(store, opts)` never
   touch the DOM — and the React shell hands each one its canvas from a ref
   effect (src/ui/react/Workspace.tsx). View3D therefore starts rebuild-dirty
@@ -280,6 +280,29 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   dispose(), so `mountLegacyUI()` (src/app/bootstrap.ts) constructs it once
   behind a module guard, from an App-level effect that runs after the canvas
   effects; the guard goes away when ui.ts is dissolved into components.
+- **`EditorState` (src/editor/editorState.ts) is the single source of tool
+  truth**: `tool` (`select | place | measure | calibrate | room | drawRoom`),
+  `armedDefId` (only meaningful under `place`, and `setTool` nulls it on every
+  other switch) and the orthogonal `checksOn` display layer. Ephemeral like
+  `store.openFronts` — never serialized, never undone. Plan2D's six public tool
+  fields (`armedDef/measureOn/calibrateOn/roomToolOn/drawRoomOn/checksOn`) are
+  READ-ONLY MIRRORS written only by its `syncFromEditor()`, which the
+  constructor subscribes (not `attach()` — a detached view still tracks the
+  tool). A tool change there runs the **leaving-tool cleanup** — calibrate →
+  `resetCalibrate`, place → ghosts, measure → `resetMeasure`, room →
+  `roomGhost`, drawRoom → `resetDrawRing` — which is what replaced
+  `closeOtherTools(keep)`. `syncFromEditor` NEVER writes the editor back
+  (re-entrancy), and `resolveArmed` is null-safe on purpose: `store.defOf`
+  THROWS, so a stale armed id must resolve to null, not an exception. The
+  `setX()` methods are delegates that keep their ENTRY reset (re-arming the
+  live tool is a no-op upstream, so that reset is the only effect) and then
+  call `editor.setTool`. React's tool buttons call the editor directly.
+- Chrome state that is neither design nor tool lives in
+  src/ui/shellState.ts — the status-bar hint text and the catalog drawer's
+  open flag, a module singleton shaped like src/model/prefs.ts. Everything
+  that used to write `#status-hint` calls `setHint()`; `<StatusHint/>` renders
+  it. StoreBridge carries all three upstreams as channels: Store, `'editor'`
+  and `'shell'`.
 - Tests drive Plan2D ONLY through its façade: `viewport()/setViewport()/
   toolState()/overlayState()/debug()`. `debug().drawCount/gestureCount` are
   monotonic counters — the no-sleep assertion seam. If a test needs a private
@@ -292,7 +315,10 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   include) — a selector or API drift breaks the build, not just the specs.
 - e2e/dom-contract.spec.ts pins every DOM id/class/data-attr the suites use.
   Renaming one means updating the contract table AND both suites in the same
-  change.
+  change. e2e/tools.spec.ts is the gate for the EditorState seam (mirror
+  parity, leaving-tool cleanup, entry resets, Escape order, stale armed ids);
+  test/unit/planTools.test.ts covers the DOM-free half of it — Plan2D
+  constructs headless, so the mirrors are unit-testable without a canvas.
 
 ## Gotchas
 

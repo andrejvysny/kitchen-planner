@@ -13,10 +13,10 @@ import { Workspace } from './Workspace';
  * honest regression gates for the move itself.
  *
  * src/ui/ui.ts still owns everything INSIDE those containers (catalog, outline,
- * variables, props panel) and the shell controls that mirror Plan2D tool state
- * — B2 took the rest of the topbar and status bar into the components. This
- * component holds no state and never re-renders, so React never reconciles over
- * the DOM ui.ts writes.
+ * variables, props panel) — B2 took the topbar and status bar into the
+ * components, B3 the tool buttons, the 2D/elev toggle, the wall nav and the
+ * catalog drawer. This component holds no state and never re-renders, so React
+ * never reconciles over the DOM ui.ts writes.
  *
  * The effect below is the handover: it runs after the Workspace's canvas
  * effects (children first), so every view is attached before ui.ts queries the

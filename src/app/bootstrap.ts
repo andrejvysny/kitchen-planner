@@ -8,6 +8,7 @@ import { View3D } from '../view3d/view3d';
 import { setMacOverride } from '../view3d/wheelInput';
 import { EditorState } from '../editor/editorState';
 import { StoreBridge } from '../ui/react/storeBridge';
+import { setHint } from '../ui/shellState';
 
 /**
  * App bootstrap: constructs the singletons, in the order the pre-React
@@ -75,12 +76,13 @@ function showRecoveryBanner(): void {
   document.getElementById('app')!.prepend(bar);
 }
 
-// the status bar is React's markup now, so both callbacks resolve their target
-// on each call — they only ever fire from an ATTACHED view, i.e. after render
-export const plan = new Plan2D(
-  store,
-  (hint) => (document.getElementById('status-hint')!.textContent = hint)
-);
+/** Ephemeral tool state — the single source of truth; see src/editor/editorState.ts. */
+export const editor = new EditorState();
+
+// the hint goes to the shell singleton, which <StatusHint/> renders — no DOM
+// lookup, so a hint raised by a DETACHED view (or before the first render)
+// still lands. #wall-label is still legacy DOM, resolved on each call.
+export const plan = new Plan2D(store, editor, (hint) => setHint(hint));
 
 export const elev = new ElevationView(
   store,
@@ -109,12 +111,10 @@ export function mountLegacyUI(): void {
   if (uiMounted) return;
   uiMounted = true;
   if (needsRecoveryBanner) showRecoveryBanner();
-  new UI(store, plan, elev);
+  new UI(store, plan, editor);
 }
 
-/** Ephemeral editor state — nothing reads it yet; see src/editor/editorState.ts. */
-export const editor = new EditorState();
-/** Store/EditorState → React adapter; inert until a component subscribes. */
+/** Store/EditorState/shell → React adapter; inert until a component subscribes. */
 export const bridge = new StoreBridge(store, editor);
 
 // small debug/testing handle

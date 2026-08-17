@@ -1,16 +1,17 @@
 /**
- * EditorState v0 — the editor's own ephemeral state: which tool is armed, and
- * whether the checks layer is drawn. Framework-free by contract: no DOM types,
- * no React, no three, no Store import. It is a plain observable so both the
- * legacy views and the React shell can read the same thing.
+ * EditorState v1 — the SINGLE SOURCE OF TRUTH for tool state: which tool is
+ * armed, which catalog def it carries, and whether the checks layer is drawn.
+ * Framework-free by contract: no DOM types, no React, no three, no Store
+ * import. It is a plain observable, so the views and the React shell all read
+ * the same thing instead of gossiping through callbacks.
  *
  * NEVER serialized, never in an undo step, never autosaved — the same contract
  * as `store.openFronts` and `store.activeRoomId`. A tool choice is not part of
  * the design.
  *
- * Nothing consumes it yet: Plan2D keeps its own tool flags until the migration
- * ports the gestures (phase B5). It exists now so StoreBridge and the React
- * shell have their observable from day one, with tests pinning the contract.
+ * Plan2D's six tool fields are read-only MIRRORS of this, reconciled by its
+ * `syncFromEditor()`; its `setX()` methods only ever write back here. The React
+ * tool buttons call `setTool`/`setChecks` directly.
  */
 
 export type ToolId = 'select' | 'place' | 'measure' | 'calibrate' | 'room' | 'drawRoom';
@@ -48,6 +49,11 @@ export class EditorState {
     this.tool = t;
     this.armedDefId = armedDefId;
     this.bump();
+  }
+
+  /** Sugar for `tool === t` — reads better at the call sites that only ask. */
+  isTool(t: ToolId): boolean {
+    return this.tool === t;
   }
 
   setChecks(on: boolean): void {

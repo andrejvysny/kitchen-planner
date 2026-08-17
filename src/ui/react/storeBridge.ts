@@ -1,5 +1,6 @@
 import type { Store } from '../../model/store';
 import type { EditorState } from '../../editor/editorState';
+import { onShellChange } from '../shellState';
 
 /**
  * StoreBridge — the one adapter between the mutable app state (Store +
@@ -15,10 +16,23 @@ import type { EditorState } from '../../editor/editorState';
  * Channels are split so a drag (which fires `change` at ~60 Hz with
  * `transient: true`) only wakes the components that opted into 'transient',
  * while the panels that cost real work stay on 'design'.
+ *
+ * Three upstreams feed them: the Store (design + selection + history…), the
+ * EditorState ('editor') and the shell singleton ('shell' — hint text and the
+ * catalog drawer). The last one is module state rather than an instance, so it
+ * takes no constructor argument; its disposer is held like the others.
  */
 
 export type Channel =
-  'design' | 'transient' | 'selection' | 'history' | 'pose' | 'activeRoom' | 'savefail' | 'editor';
+  | 'design'
+  | 'transient'
+  | 'selection'
+  | 'history'
+  | 'pose'
+  | 'activeRoom'
+  | 'savefail'
+  | 'editor'
+  | 'shell';
 
 const CHANNELS: readonly Channel[] = [
   'design',
@@ -29,6 +43,7 @@ const CHANNELS: readonly Channel[] = [
   'activeRoom',
   'savefail',
   'editor',
+  'shell',
 ];
 
 export class StoreBridge {
@@ -57,7 +72,8 @@ export class StoreBridge {
       store.on('pose', () => this.bump('pose')),
       store.on('activeRoom', () => this.bump('activeRoom')),
       store.on('savefail', () => this.bump('savefail')),
-      editor.subscribe(() => this.bump('editor'))
+      editor.subscribe(() => this.bump('editor')),
+      onShellChange(() => this.bump('shell'))
     );
   }
 
