@@ -333,8 +333,8 @@ await page.mouse.click(
 );
 await waitUntil(() => window.__kp.store.selection.kind === 'wall');
 const wallTitle = await page.textContent('.props-title');
-const lenInput = page.locator('#props-inner input[type=number]').first();
-await lenInput.fill('350');
+const lenInput = page.locator('#props-inner .prop-row input[data-unit]').first();
+await lenInput.fill('3500');
 await lenInput.press('Enter');
 await waitUntil(() => Math.abs(window.__kp.store.floorArea() - 4 * 3.5) < 0.05);
 const area = await page.evaluate(() => window.__kp.store.floorArea());
@@ -344,8 +344,8 @@ results.push(['wall length edit', Math.abs(area - 4 * 3.5) < 0.05]);
 // 7. rectangle resize via room panel
 await page.keyboard.press('Escape');
 await waitUntil(() => window.__kp.store.selection.kind === 'none');
-const widthInput = page.locator('#props-inner input[type=number]').first();
-await widthInput.fill('500');
+const widthInput = page.locator('#props-inner .prop-row input[data-unit]').first();
+await widthInput.fill('5000');
 await widthInput.press('Enter');
 await waitUntil(() => {
   const r = window.__kp.store.rectangleSize();
@@ -462,7 +462,7 @@ const yInput = page
   .locator('.studio-form .prop-section', { hasText: 'Selected cutout' })
   .locator('input')
   .nth(1);
-await yInput.fill('-44');
+await yInput.fill('-440');
 await yInput.press('Enter');
 await waitUntil(() => !document.querySelector('.studio-save')?.disabled);
 const saveOk = await page.locator('.studio-save').isEnabled();
@@ -2188,8 +2188,8 @@ const leftScr10 = await worldToScreen(leftMid10.x, leftMid10.y);
 await page.mouse.click(bb10.x + leftScr10.x, bb10.y + leftScr10.y);
 await waitUntil(() => window.__kp.store.selection.kind === 'wall');
 const wallTitle10 = await page.textContent('.props-title');
-const lenInput10 = page.locator('#props-inner input[type=number]').first();
-await lenInput10.fill('300');
+const lenInput10 = page.locator('#props-inner .prop-row input[data-unit]').first();
+await lenInput10.fill('3000');
 await lenInput10.press('Enter');
 await waitUntil((w0) => Math.abs(window.__kp.store.floorArea() - w0 * 3.0) < 0.05, n10setup.rect.w);
 const area10 = await page.evaluate(() => window.__kp.store.floorArea());
@@ -2200,8 +2200,8 @@ results.push([
 
 await page.keyboard.press('Escape');
 await waitUntil(() => window.__kp.store.selection.kind === 'none');
-const widthInput10 = page.locator('#props-inner input[type=number]').first();
-await widthInput10.fill('450');
+const widthInput10 = page.locator('#props-inner .prop-row input[data-unit]').first();
+await widthInput10.fill('4500');
 await widthInput10.press('Enter');
 await waitUntil(() => {
   const r = window.__kp.store.rectangleSize();

@@ -40,16 +40,16 @@ export function OpeningProps({ id }: { id: string }): ReactElement | null {
           items={one}
           read={(x) => x.width}
           onCommit={(m) => store.updateOpening(id, { width: m })}
-          min={30}
-          max={400}
+          min={0.3}
+          max={4}
         />
         <LengthField
           label="Height"
           items={one}
           read={(x) => x.height}
           onCommit={(m) => store.updateOpening(id, { height: m })}
-          min={30}
-          max={300}
+          min={0.3}
+          max={3}
         />
         {o.type === 'window' ? (
           <LengthField
@@ -58,7 +58,7 @@ export function OpeningProps({ id }: { id: string }): ReactElement | null {
             read={(x) => x.sill}
             onCommit={(m) => store.updateOpening(id, { sill: m })}
             min={0}
-            max={250}
+            max={2.5}
           />
         ) : null}
         {wall ? (
@@ -68,7 +68,7 @@ export function OpeningProps({ id }: { id: string }): ReactElement | null {
             read={(x) => x.offset}
             onCommit={(m) => store.updateOpening(id, { offset: m })}
             min={0}
-            max={Math.round(wall.len * 100)}
+            max={wall.len}
             cls="opening-off"
             live
           />

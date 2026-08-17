@@ -1,6 +1,8 @@
 import { COUNTER_COLORS, OAK, WALNUT } from '../../model/catalog';
 import type { BoardPartDef, Point } from '../../model/types';
-import { choiceRow, dimRow, numRow, section, swatchRow } from './controls';
+import { unitPrefs } from '../../model/prefs';
+import { formatLengthLabel } from '../../model/units';
+import { choiceRow, dimRow, numRow, section, swatchRow, unitSuffix } from './controls';
 import type { PolygonCanvas } from './polygonCanvas';
 
 /** Outline presets, sized around a typical worktop. */
@@ -49,7 +51,7 @@ export class BoardPanel {
     this.onChange = onChange;
     canvas.onSelect = () => this.renderInspector();
 
-    const slab = section(rail, 'Slab (cm)');
+    const slab = section(rail, `Slab (${unitSuffix()})`);
     dimRow(
       slab,
       'Thickness',
@@ -76,7 +78,7 @@ export class BoardPanel {
     capEl.className = 'studio-caption';
     slab.appendChild(capEl);
     const caption = () => {
-      capEl.textContent = `Top surface at ${Math.round((part.elevation + part.h) * 100)} cm.`;
+      capEl.textContent = `Top surface at ${formatLengthLabel(part.elevation + part.h, unitPrefs())}.`;
     };
     caption();
     this.topCaption = caption;
@@ -167,7 +169,7 @@ export class BoardPanel {
     if (sel.kind === 'corner') {
       const c = this.part.outline[sel.i];
       if (!c) return;
-      const ins = section(this.inspectorEl, 'Selected corner (cm)');
+      const ins = section(this.inspectorEl, `Selected corner (${unitSuffix()})`);
       numRow(
         ins,
         'X',
@@ -191,7 +193,7 @@ export class BoardPanel {
     } else if (sel.kind === 'hole') {
       const h = this.part.holes[sel.i];
       if (!h) return;
-      const ins = section(this.inspectorEl, 'Selected cutout (cm)');
+      const ins = section(this.inspectorEl, `Selected cutout (${unitSuffix()})`);
       numRow(
         ins,
         'X (center)',

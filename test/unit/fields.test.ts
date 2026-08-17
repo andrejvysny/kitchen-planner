@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { fromCm, fromDeg, toCm, toDeg } from '../../src/ui/react/fields/convert';
+import { formatAngle, parseAngle } from '../../src/model/units';
+import { wrapAngle } from '../../src/ui/react/fields/convert';
 import { mixedValue } from '../../src/ui/react/fields/useMixedValue';
 
 // The pure cores of src/ui/react/fields/ — the shared field set the props
@@ -49,57 +50,40 @@ describe('mixedValue', () => {
   });
 });
 
-describe('length conversion (metres ↔ the cm box)', () => {
-  it('shows whole centimetres, exactly as ui.ts numberRow did', () => {
-    expect(toCm(0.6)).toBe(60);
-    expect(toCm(2.4)).toBe(240);
-    expect(toCm(0)).toBe(0);
-    expect(toCm(-0.35)).toBe(-35);
+describe('wrapAngle (the rotation box shows [0, 360), the model does not)', () => {
+  const deg = (rad: number): string => formatAngle(wrapAngle(rad));
+
+  it('leaves a direction already inside one turn alone', () => {
+    expect(deg(0)).toBe('0');
+    expect(deg(Math.PI / 2)).toBe('90');
+    expect(deg(Math.PI)).toBe('180');
   });
 
-  it('rounds rather than truncates', () => {
-    expect(toCm(0.4567)).toBe(46);
-    expect(toCm(0.4549)).toBe(45);
-    // floating-point metres that are not exact cm still land on an integer
-    expect(Number.isInteger(toCm(1 / 3))).toBe(true);
-  });
-
-  it('takes typed centimetres back to metres', () => {
-    expect(fromCm(60)).toBeCloseTo(0.6, 12);
-    expect(fromCm(0)).toBe(0);
-    expect(fromCm(-35)).toBeCloseTo(-0.35, 12);
-  });
-
-  it('round-trips any value already on a whole centimetre', () => {
-    for (const m of [0, 0.02, 0.6, 1.25, 2.4, 12.34]) {
-      expect(fromCm(toCm(m))).toBeCloseTo(m, 12);
-    }
-  });
-});
-
-describe('angle conversion (radians ↔ the degree box)', () => {
-  it('normalizes to whole degrees in [0, 360)', () => {
-    expect(toDeg(0)).toBe(0);
-    expect(toDeg(Math.PI / 2)).toBe(90);
-    expect(toDeg(Math.PI)).toBe(180);
-    expect(toDeg(2 * Math.PI)).toBe(0);
+  it('folds a full turn back to zero, from either side', () => {
+    expect(deg(2 * Math.PI)).toBe('0');
+    expect(deg(-2 * Math.PI)).toBe('0');
   });
 
   it('wraps unbounded model rotations, in both directions', () => {
-    expect(toDeg(-Math.PI / 2)).toBe(270);
-    expect(toDeg(-2 * Math.PI)).toBe(0);
-    expect(toDeg(5 * Math.PI)).toBe(180);
-    expect(toDeg(-5 * Math.PI)).toBe(180);
+    expect(deg(-Math.PI / 2)).toBe('270');
+    expect(deg(5 * Math.PI)).toBe('180');
+    expect(deg(-5 * Math.PI)).toBe('180');
   });
 
-  it('takes typed degrees back to radians', () => {
-    expect(fromDeg(90)).toBeCloseTo(Math.PI / 2, 12);
-    expect(fromDeg(0)).toBe(0);
-    expect(fromDeg(-90)).toBeCloseTo(-Math.PI / 2, 12);
+  it('round-trips what the box parses back into it', () => {
+    expect(deg(parseAngle('270')!)).toBe('270');
+    expect(deg(parseAngle('-90')!)).toBe('270');
+    // degrees go through the same expression engine lengths do
+    expect(deg(parseAngle('90+45')!)).toBe('135');
   });
 
-  it('round-trips through the wrap: 270° in is 270° out', () => {
-    expect(toDeg(fromDeg(270))).toBe(270);
-    expect(toDeg(fromDeg(-90))).toBe(270);
+  it('never returns a non-finite or out-of-range angle', () => {
+    expect(wrapAngle(NaN)).toBe(0);
+    expect(wrapAngle(Infinity)).toBe(0);
+    for (const rad of [0, -1e-12, 1e-12, -7, 7, 1e6]) {
+      const w = wrapAngle(rad);
+      expect(w).toBeGreaterThanOrEqual(0);
+      expect(w).toBeLessThan(2 * Math.PI);
+    }
   });
 });

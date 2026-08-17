@@ -16,7 +16,11 @@ import { ToggleRow } from '../fields/ToggleRow';
 import { VarChips } from '../fields/VarChips';
 import { ChecksSection } from './ChecksSection';
 
-/** 1 cm — dimensions are otherwise freeform (KITCHENP-7), this only stops degenerate geometry. */
+/**
+ * 1 cm — dimensions are otherwise freeform (KITCHENP-7), this only stops
+ * degenerate geometry. Handed to the fields as their `min`, which is where the
+ * clamp lives now that the boxes take expressions rather than spinner values.
+ */
 const MIN_DIM = 0.01;
 
 /**
@@ -25,7 +29,7 @@ const MIN_DIM = 0.01;
  * an attached appliance has no position of its own, an opening or a marker no
  * colour, a cabinet an Accent and a Worktop slot, a fixture a Light.
  *
- * Dimensions carry no catalog limits on purpose; the only clamp is MIN_DIM.
+ * Dimensions carry no catalog limits on purpose; the only floor is MIN_DIM.
  * Position and rotation are `live` fields — they follow a drag through the
  * 'transient' channel without this component re-rendering at all (see
  * useLiveValue.ts).
@@ -55,22 +59,22 @@ export function ItemProps({ item }: { item: Item }): ReactElement {
           label="Width"
           items={one}
           read={(it) => it.w}
-          onCommit={(m) => store.updateItem(item.id, { w: Math.max(MIN_DIM, m) })}
-          min={1}
+          onCommit={(m) => store.updateItem(item.id, { w: m })}
+          min={MIN_DIM}
         />
         <LengthField
           label="Depth"
           items={one}
           read={(it) => it.d}
-          onCommit={(m) => store.updateItem(item.id, { d: Math.max(MIN_DIM, m) })}
-          min={1}
+          onCommit={(m) => store.updateItem(item.id, { d: m })}
+          min={MIN_DIM}
         />
         <LengthField
           label="Height"
           items={one}
           read={(it) => it.h}
-          onCommit={(m) => store.updateItem(item.id, { h: Math.max(MIN_DIM, m) })}
-          min={1}
+          onCommit={(m) => store.updateItem(item.id, { h: m })}
+          min={MIN_DIM}
         />
         {item.attach ? null : (
           // off-floor placement is likewise freeform for every item (floor at 0, no ceiling cap)
@@ -78,7 +82,7 @@ export function ItemProps({ item }: { item: Item }): ReactElement {
             label="Off floor"
             items={one}
             read={(it) => it.elevation}
-            onCommit={(m) => store.updateItem(item.id, { elevation: Math.max(0, m) })}
+            onCommit={(m) => store.updateItem(item.id, { elevation: m })}
             min={0}
           />
         )}

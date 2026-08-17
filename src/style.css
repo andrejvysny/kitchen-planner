@@ -710,7 +710,10 @@ body {
   flex: none;
 }
 
-.prop-row input[type='number'] {
+/* the studio's spinner rows and the inspector's unit boxes look the same;
+   the inspector's are type=text because they take expressions (units.ts) */
+.prop-row input[type='number'],
+.prop-row input[data-unit] {
   width: 74px;
   padding: 5px 7px;
   border: 1px solid var(--panel-border);
@@ -722,7 +725,8 @@ body {
   text-align: right;
 }
 
-.prop-row input[type='number']:focus {
+.prop-row input[type='number']:focus,
+.prop-row input[data-unit]:focus {
   outline: none;
   border-color: var(--accent);
 }

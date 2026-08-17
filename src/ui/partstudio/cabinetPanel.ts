@@ -1,7 +1,7 @@
 import { COUNTER_COLORS, FRONT_COLORS, OAK, WALNUT } from '../../model/catalog';
 import { clamp } from '../../model/geometry';
 import type { CabinetPartDef, Footprint } from '../../model/types';
-import { choiceRow, dimRow, numRow, section, swatchRow, toggleRow } from './controls';
+import { choiceRow, dimRow, numRow, section, swatchRow, toggleRow, unitSuffix } from './controls';
 
 type FootKind = 'rect' | 'angledEnd' | 'diagonal' | 'cornerL';
 
@@ -53,7 +53,7 @@ export function renderCabinetPanel(
   part: CabinetPartDef,
   onChange: () => void
 ): void {
-  const dims = section(rail, 'Dimensions (cm)');
+  const dims = section(rail, `Dimensions (${unitSuffix()})`);
   dimRow(
     dims,
     'Width',

@@ -1,33 +1,22 @@
 /**
- * Display-unit conversions for the numeric fields. Pure, DOM-free, so
- * test/unit/fields.test.ts pins them directly.
+ * The last display-space helper the numeric fields need, kept pure and DOM-free
+ * so test/unit/fields.test.ts can pin it.
  *
- * The model is metres and radians everywhere (CLAUDE.md); the UI shows whole
- * centimetres and whole degrees. These four functions are that edge, and they
- * reproduce src/ui/ui.ts's numberRow call sites EXACTLY — `Math.round(m * 100)`
- * out, `cm / 100` back in — so T3 changes no pixel and no stored number.
- *
- * T4 replaces the length pair with src/model/units.ts (mm/cm/m prefs and the
- * expression parser). That switch is a sanctioned, visible change; this file is
- * deliberately the only place it has to happen.
+ * Everything else that used to live here — metres↔centimetres, radians↔degrees
+ * — is gone: src/model/units.ts is the single conversion authority now
+ * (parseLength / parseAngle / formatLength / formatAngle), and the fields call
+ * it directly. What units.ts deliberately does NOT do is wrap: `formatAngle`
+ * reports the radians it is given, and the model keeps rotation unbounded
+ * (four right turns is 4π, not 0). The rotation BOX has always shown [0, 360),
+ * which is a display decision, so it lives here.
  */
 
-/** metres → the whole centimetres the field shows. */
-export function toCm(m: number): number {
-  return Math.round(m * 100);
-}
+const TAU = 2 * Math.PI;
 
-/** centimetres typed into a field → metres for the model. */
-export function fromCm(cm: number): number {
-  return cm / 100;
-}
-
-/** radians → whole degrees in [0, 360) for display; the model keeps radians unbounded. */
-export function toDeg(rad: number): number {
-  return ((Math.round((rad * 180) / Math.PI) % 360) + 360) % 360;
-}
-
-/** degrees typed into a field → radians for the model. */
-export function fromDeg(deg: number): number {
-  return (deg * Math.PI) / 180;
+/** Radians → the same direction, in [0, 2π). Negative and multi-turn values fold in. */
+export function wrapAngle(rad: number): number {
+  if (!Number.isFinite(rad)) return 0;
+  const wrapped = rad - Math.floor(rad / TAU) * TAU;
+  // a hair under TAU can round up to TAU itself; 360° must read as 0°
+  return wrapped >= TAU || wrapped < 0 ? 0 : wrapped;
 }

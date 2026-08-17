@@ -46,22 +46,17 @@ export function WallProps({ wallId }: { wallId: string }): ReactElement | null {
           label="Length"
           items={[wall]}
           read={(w) => w.len}
-          onCommit={(m) => store.setWallLength(wallId, Math.max(0.3, m))}
-          min={30}
-          max={3000}
+          onCommit={(m) => store.setWallLength(wallId, m)}
+          min={0.3}
+          max={30}
         />
         <LengthField
           label="Thickness"
           items={[wallRoom.style]}
           read={(s) => s.wallThickness}
-          onCommit={(m) =>
-            store.setRoomStyle(
-              { wallThickness: Math.min(0.4, Math.max(0.05, m)) },
-              wallRoom.id
-            )
-          }
-          min={5}
-          max={40}
+          onCommit={(m) => store.setRoomStyle({ wallThickness: m }, wallRoom.id)}
+          min={0.05}
+          max={0.4}
         />
       </div>
 

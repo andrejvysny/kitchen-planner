@@ -1,4 +1,30 @@
+import { unitPrefs } from '../../model/prefs';
+import { formatLength, parseLength } from '../../model/units';
+
 /** Small DOM builders shared by the studio panels (rail sections, rows). */
+
+/**
+ * The studio's length rows are plain spinners, not the inspector's expression
+ * boxes, but they read and write the SAME unit — src/model/units.ts is the one
+ * conversion authority (CLAUDE.md), so nothing here multiplies by 100. Both
+ * helpers re-read the preference on every call: it is a module singleton and a
+ * studio panel is rebuilt whenever it is opened.
+ */
+
+/** metres → the number a studio box shows, in the preferred unit. */
+function disp(m: number): number {
+  return Number(formatLength(m, unitPrefs()));
+}
+
+/** a bare number typed into a studio box → metres, or null if it is not one. */
+function model(v: number): number | null {
+  return Number.isFinite(v) ? parseLength(String(v), unitPrefs()) : null;
+}
+
+/** The unit suffix a studio section title carries, e.g. "Dimensions (mm)". */
+export function unitSuffix(): string {
+  return unitPrefs().unit;
+}
 
 export function section(parent: HTMLElement, title: string): HTMLElement {
   const s = document.createElement('div');
@@ -8,7 +34,7 @@ export function section(parent: HTMLElement, title: string): HTMLElement {
   return s;
 }
 
-/** Slider + number pair editing a length in cm (model in meters). */
+/** Slider + number pair editing a length in the display unit (model in meters). */
 export function dimRow(
   parent: HTMLElement,
   label: string,
@@ -20,23 +46,25 @@ export function dimRow(
   const row = document.createElement('div');
   row.className = 'prop-row';
   row.innerHTML = `<label>${label}</label>
-    <input type="range" min="${min * 100}" max="${max * 100}" step="1" value="${Math.round(get() * 100)}">
-    <input type="number" min="${min * 100}" max="${max * 100}" step="1" value="${Math.round(get() * 100)}">`;
+    <input type="range" min="${disp(min)}" max="${disp(max)}" step="1" value="${disp(get())}">
+    <input type="number" min="${disp(min)}" max="${disp(max)}" step="1" value="${disp(get())}">`;
   const range = row.querySelector('input[type=range]') as HTMLInputElement;
   const num = row.querySelector('input[type=number]') as HTMLInputElement;
+  const sync = () => {
+    range.value = num.value = String(disp(get()));
+  };
   const apply = (v: number) => {
-    set(Math.min(max, Math.max(min, v / 100)));
-    range.value = num.value = String(Math.round(get() * 100));
+    const m = model(v);
+    if (m !== null) set(Math.min(max, Math.max(min, m)));
+    sync();
   };
   range.addEventListener('input', () => apply(Number(range.value)));
   num.addEventListener('change', () => apply(Number(num.value)));
   parent.appendChild(row);
-  return () => {
-    range.value = num.value = String(Math.round(get() * 100));
-  };
+  return sync;
 }
 
-/** Plain number input editing a length in cm (model in meters). */
+/** Plain number input editing a length in the display unit (model in meters). */
 export function numRow(
   parent: HTMLElement,
   label: string,
@@ -48,10 +76,12 @@ export function numRow(
   row.className = 'prop-row';
   row.innerHTML = `<label>${label}</label><input type="number" step="${opts.step ?? 1}">`;
   const num = row.querySelector('input') as HTMLInputElement;
-  const sync = () => (num.value = String(Math.round(get() * 100)));
+  const sync = () => (num.value = String(disp(get())));
   sync();
   num.addEventListener('change', () => {
-    let v = Number(num.value) / 100;
+    let v = model(Number(num.value));
+    // nonsense in, nothing out — put the model's own value back
+    if (v === null) return sync();
     if (opts.min !== undefined) v = Math.max(opts.min, v);
     if (opts.max !== undefined) v = Math.min(opts.max, v);
     set(v);

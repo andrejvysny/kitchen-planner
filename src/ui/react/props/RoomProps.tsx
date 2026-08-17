@@ -84,16 +84,16 @@ export function RoomProps(): ReactElement {
               items={[rect]}
               read={(r) => r.w}
               onCommit={(m) => store.setRectangleSize(m, rect.d)}
-              min={100}
-              max={2000}
+              min={1}
+              max={20}
             />
             <LengthField
               label="Depth"
               items={[rect]}
               read={(r) => r.d}
               onCommit={(m) => store.setRectangleSize(rect.w, m)}
-              min={100}
-              max={2000}
+              min={1}
+              max={20}
             />
           </>
         ) : (
@@ -105,9 +105,9 @@ export function RoomProps(): ReactElement {
           label="Ceiling"
           items={[style]}
           read={(s) => s.wallHeight}
-          onCommit={(m) => store.setRoomStyle({ wallHeight: Math.min(4, Math.max(2, m)) })}
-          min={200}
-          max={400}
+          onCommit={(m) => store.setRoomStyle({ wallHeight: m })}
+          min={2}
+          max={4}
         />
       </div>
 

@@ -1,5 +1,6 @@
 import type { Store } from '../../model/store';
 import type { EditorState } from '../../editor/editorState';
+import { onUnitPrefsChange } from '../../model/prefs';
 import { onShellChange } from '../shellState';
 
 /**
@@ -17,10 +18,12 @@ import { onShellChange } from '../shellState';
  * `transient: true`) only wakes the components that opted into 'transient',
  * while the panels that cost real work stay on 'design'.
  *
- * Three upstreams feed them: the Store (design + selection + history…), the
- * EditorState ('editor') and the shell singleton ('shell' — hint text and the
- * catalog drawer). The last one is module state rather than an instance, so it
- * takes no constructor argument; its disposer is held like the others.
+ * Four upstreams feed them: the Store (design + selection + history…), the
+ * EditorState ('editor'), the shell singleton ('shell' — hint text and the
+ * catalog drawer) and the length-unit preference ('units' — which unit every
+ * length field shows and parses). The last two are module state rather than
+ * instances, so they take no constructor argument; their disposers are held
+ * like the others.
  */
 
 export type Channel =
@@ -32,7 +35,8 @@ export type Channel =
   | 'activeRoom'
   | 'savefail'
   | 'editor'
-  | 'shell';
+  | 'shell'
+  | 'units';
 
 const CHANNELS: readonly Channel[] = [
   'design',
@@ -44,6 +48,7 @@ const CHANNELS: readonly Channel[] = [
   'savefail',
   'editor',
   'shell',
+  'units',
 ];
 
 export class StoreBridge {
@@ -73,7 +78,8 @@ export class StoreBridge {
       store.on('activeRoom', () => this.bump('activeRoom')),
       store.on('savefail', () => this.bump('savefail')),
       editor.subscribe(() => this.bump('editor')),
-      onShellChange(() => this.bump('shell'))
+      onShellChange(() => this.bump('shell')),
+      onUnitPrefsChange(() => this.bump('units'))
     );
   }
 

@@ -403,8 +403,18 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   plan (`footprintPolygon` + `pointInPolygon`) but SNAP by bounding box —
   intentional simplification; a diagonal corner unit's square back still
   hugs both walls correctly.
-- Date/format: all lengths meters internally; UI shows cm (ints) everywhere,
-  including wall lengths and canvas dimension labels.
+- Units: all lengths are meters internally, and **src/model/units.ts is the
+  single conversion authority** — nothing outside it multiplies a length by
+  100. The properties inspector and the Part Studio DISPLAY and PARSE through
+  it, in the unit `src/model/prefs.ts` holds (**mm, 0 decimals, by default**;
+  the pref is per-device, never design data). Inspector length/angle boxes are
+  `type=text` + `inputMode=decimal` + `data-unit`, not spinners, because they
+  take EXPRESSIONS — '600-18*2', '1.2m', '90+45' — and a rejected one restores
+  the model's value instead of committing. `min`/`max` on those fields are
+  MODEL units and the field clamps to them, since a text box has no browser
+  range to lean on. The plan and elevation CANVASES still label in cm (wall
+  lengths, dimension lines): they draw their own text and were deliberately
+  left alone.
 
 ## graphify (knowledge graph)
 

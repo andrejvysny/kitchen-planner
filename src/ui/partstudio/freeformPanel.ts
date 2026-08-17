@@ -2,7 +2,7 @@ import { COUNTER_COLORS, FRONT_COLORS, OAK, WALNUT } from '../../model/catalog';
 import { freeformBounds } from '../../model/parts';
 import type { Board, FreeformPartDef } from '../../model/types';
 import { uid } from '../../model/types';
-import { choiceRow, numRow, section, swatchRow } from './controls';
+import { choiceRow, numRow, section, swatchRow, unitSuffix } from './controls';
 
 /**
  * Free-boards mode: a list of boards composing arbitrary furniture. Boards
@@ -198,7 +198,7 @@ export class FreeformPanel {
     this.inspectorEl.innerHTML = '';
     const b = this.selected();
     if (!b) return;
-    const ins = section(this.inspectorEl, 'Selected board (cm)');
+    const ins = section(this.inspectorEl, `Selected board (${unitSuffix()})`);
     const sync: Array<() => void> = [];
     const change = () => {
       this.renderList();

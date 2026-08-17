@@ -29,6 +29,9 @@ const VIEW = { zoom: 60, panX: 120, panY: 120 };
 /** Enough pointer samples that ONE stray subscription would show up loudly. */
 const DRAG_STEPS = 60;
 
+/** display unit → how many of it make a metre; the box carries its own in data-unit. */
+const PER_METRE: Record<string, number> = { mm: 1000, cm: 100, m: 1 };
+
 /** Page coordinates of a plan world point, under the pinned transform. */
 async function at(page: Page, x: number, y: number): Promise<{ x: number; y: number }> {
   const box = (await page.locator('#canvas2d').boundingBox())!;
@@ -81,10 +84,11 @@ test('dragging an item never re-renders the inspector, yet its fields follow', a
   const live = await app.evaluate((id) => {
     const it = window.__kp.store.itemById(id)!;
     const box = document.querySelector<HTMLInputElement>('#props-inner input[data-cls="pos-x"]')!;
-    return { model: it.x, shown: box.value };
+    // the box says which unit it is showing, so this stays true under any pref
+    return { model: it.x, shown: box.value, unit: box.dataset.unit! };
   }, pose.id);
   expect(live.shown, 'the live field never moved').not.toBe(shownBefore);
-  expect(Math.abs(Number(live.shown) / 100 - live.model)).toBeLessThan(0.02);
+  expect(Math.abs(Number(live.shown) / PER_METRE[live.unit] - live.model)).toBeLessThan(0.02);
 
   await app.mouse.up();
 
