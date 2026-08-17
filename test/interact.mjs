@@ -1779,6 +1779,12 @@ const clickWorld = async (x, y) => {
   await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gc);
 };
 
+// WS-SPEC §4.4: the room tools render only in the Plan workspace and the
+// suite boots into Furnish (the default). Switch once here — everything from
+// N1 on is plan editing and the later sequences don't assume Furnish.
+await page.click('#ws-tab-plan');
+await waitUntil(() => !!document.getElementById('btn-room'));
+
 // N1 — the tool arms, previews and drops a free-standing room clear of the first
 await page.click('#btn-room');
 const roomToolArmed = await page.evaluate(() => ({
@@ -2592,6 +2598,11 @@ const clickAt = async (x, y) => {
   // (closeDrawRoom()s the ring early) even though each targets a different point
   await page.waitForTimeout(120); // pacing: guards against dblclick-folding between clicks
 };
+
+// the M3 block above cleared storage and reloaded, which lands back in the
+// Furnish default — return to Plan for the room tools (WS-SPEC §4.4)
+await page.click('#ws-tab-plan');
+await waitUntil(() => !!document.getElementById('btn-draw-room'));
 
 await page.click('#btn-draw-room');
 const drawArmed = await page.evaluate(() => ({

@@ -37,6 +37,14 @@ async function clickPlan(page: Page, x: number, y: number): Promise<void> {
   await page.mouse.click(p.x, p.y);
 }
 
+// WS-SPEC §4.4: the room tools only render in the Plan workspace, and the
+// fixture boots into Furnish (the persisted default with cleared storage).
+// Every spec here exercises plan-editing tools, so start each in Plan.
+test.beforeEach(async ({ app }) => {
+  await app.click('#ws-tab-plan');
+  await expect(app.locator('#btn-room')).toBeVisible();
+});
+
 const toolState = (page: Page) => page.evaluate(() => window.__kp.plan.toolState());
 const editorTool = (page: Page) => page.evaluate(() => window.__kp.editor.tool);
 const isActive = (page: Page, sel: string) =>
@@ -250,6 +258,22 @@ test('the 2D/elevation toggle and the wall nav still drive the elevation view', 
   await app.click('#mode2d-toggle button[data-2dmode="plan"]');
   await expect(app.locator('#pane2d')).not.toHaveClass(/elev-mode/);
   expect(await isActive(app, '#mode2d-toggle button[data-2dmode="plan"]')).toBe(true);
+});
+
+test('arming survives inside a workspace and dies across a switch', async ({ app }) => {
+  await app.click('#btn-room');
+  expect(await editorTool(app)).toBe('room');
+
+  // chrome interactions inside the same workspace leave the tool alone
+  await app.click('#btn-zoom-in');
+  expect(await editorTool(app)).toBe('room');
+
+  // a workspace switch is a task change (WS-SPEC I3): the tool resets to
+  // select, the mirrors follow, and the plan-only button leaves the DOM
+  await app.click('#ws-tab-furnish');
+  expect(await editorTool(app)).toBe('select');
+  expect((await toolState(app)).room).toBe(false);
+  await expect(app.locator('#btn-room')).toHaveCount(0);
 });
 
 test('the status hint renders from the shell store', async ({ app }) => {

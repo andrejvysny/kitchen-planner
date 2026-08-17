@@ -3,6 +3,7 @@ import { useAppServices, useEditor } from './services';
 import type { ToolId } from '../../editor/editorState';
 import type { CamPreset } from '../../view3d/view3d';
 import { wallLabel } from '../shellState';
+import { workspace } from '../workspaceState';
 import { useChannel } from './hooks/useStore';
 import { PropsPanel } from './PropsPanel';
 import { Sidebar } from './Sidebar';
@@ -127,32 +128,46 @@ function Mode2dToggle(): ReactElement {
  * clicking one arms it and clicking it again drops back to 'select'; ⚠ is a
  * display layer and stays orthogonal. Everything is read off EditorState — the
  * `.active` classes are a projection of it, never a second copy.
+ *
+ * Which buttons exist follows the workspace (WS-SPEC §4.4): the room tools are
+ * Plan's job, measuring and checks belong to arranging too, and in the
+ * Workshop/Output workspaces the cluster is covered by an overlay pane — the
+ * component returns null there so the DOM stays honest. No cleanup is needed
+ * on the buttons that disappear: switchWorkspace already reset the tool.
  */
-function ToolButtons(): ReactElement {
+function ToolButtons(): ReactElement | null {
   const editor = useEditor();
   useChannel('editor');
+  useChannel('workspace');
+  const ws = workspace();
 
   const toggle = (t: ToolId) => (): void => editor.setTool(editor.isTool(t) ? 'select' : t);
   const cls = (t: ToolId): string | undefined => (editor.isTool(t) ? 'active' : undefined);
 
+  if (ws === 'workshop' || ws === 'output') return null;
+
   return (
     <div id="measure-controls">
-      <button
-        id="btn-room"
-        className={cls('room')}
-        title="Add a room — click in the plan, or hover a wall to attach it"
-        onClick={toggle('room')}
-      >
-        ▧
-      </button>
-      <button
-        id="btn-draw-room"
-        className={cls('drawRoom')}
-        title="Draw a room — click each corner, click the first again (or Enter) to close"
-        onClick={toggle('drawRoom')}
-      >
-        ✎
-      </button>
+      {ws === 'plan' && (
+        <>
+          <button
+            id="btn-room"
+            className={cls('room')}
+            title="Add a room — click in the plan, or hover a wall to attach it"
+            onClick={toggle('room')}
+          >
+            ▧
+          </button>
+          <button
+            id="btn-draw-room"
+            className={cls('drawRoom')}
+            title="Draw a room — click each corner, click the first again (or Enter) to close"
+            onClick={toggle('drawRoom')}
+          >
+            ✎
+          </button>
+        </>
+      )}
       <button
         id="btn-measure"
         className={cls('measure')}

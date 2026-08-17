@@ -96,8 +96,6 @@ const ALWAYS: readonly ContractEntry[] = [
   vis('#btn-zoom-fit'),
   vis('#btn-zoom-out'),
   vis('#measure-controls'),
-  vis('#btn-room'),
-  vis('#btn-draw-room'),
   vis('#btn-measure'),
   vis('#btn-checks'),
   present('#wall-nav'), // display:none outside Elevation mode
@@ -125,6 +123,11 @@ const ALWAYS: readonly ContractEntry[] = [
   present('#status-savefail'), // hidden unless storage write fails
   vis('#status-info'),
 ];
+
+/** Plan-workspace-only chrome — the room tools exist only under #ws-tab-plan
+ *  (WS-SPEC §4.4: workspaces scope toolsets; #btn-measure/#btn-checks stay in
+ *  ALWAYS because they exist in Furnish, the boot default, too). */
+const PLAN_TOOLS: readonly ContractEntry[] = [vis('#btn-room'), vis('#btn-draw-room')];
 
 /** Catalog tiles — .cat-item is one of the selectors named in the plan. */
 const CATALOG: readonly ContractEntry[] = [
@@ -264,6 +267,15 @@ test('DOM contract: selector table stays present across every pinned app state',
   // ---- boot: the static shell + first render ----
   await test.step('always (boot state)', async () => {
     await assertContract(app, ALWAYS);
+  });
+
+  // The room tools only exist in the Plan workspace (WS-SPEC §4.4); visit it,
+  // assert, and come back to Furnish — the default every later step assumes.
+  await test.step('plan workspace tools', async () => {
+    await app.click('#ws-tab-plan');
+    await assertContract(app, PLAN_TOOLS);
+    await app.click('#ws-tab-furnish');
+    await expect(app.locator('#ws-tab-furnish')).toHaveClass(/active/);
   });
 
   await test.step('catalog', async () => {
