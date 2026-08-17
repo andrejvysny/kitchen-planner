@@ -35,6 +35,11 @@ export interface KeyBinding {
   commandId: CommandId;
   /** survives focus in an input/textarea/contentEditable and an open modal */
   allowWhileTyping?: boolean;
+  /**
+   * Runs even while the modal (Part Studio) is open — the switch helper owns
+   * the dirty guard. Still blocked while typing.
+   */
+  allowInModal?: boolean;
   /** default true — suppressed only when the command ran; see the note above */
   preventDefault?: boolean;
 }
@@ -76,6 +81,15 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   { key: 'arrowright', shift: true, commandId: 'transform.nudgeRightCoarse' },
   { key: 'arrowup', shift: true, commandId: 'transform.nudgeUpCoarse' },
   { key: 'arrowdown', shift: true, commandId: 'transform.nudgeDownCoarse' },
+
+  // Workspace tabs. `mod: false` is REQUIRED, not don't-care: Ctrl/Cmd+digit is
+  // the browser's own tab switch and must never be swallowed. `allowInModal`
+  // because leaving the Workshop while the Part Studio is open is a legitimate
+  // move — the switch helper asks about unsaved edits before it happens.
+  { key: '1', mod: false, commandId: 'workspace.plan', allowInModal: true },
+  { key: '2', mod: false, commandId: 'workspace.furnish', allowInModal: true },
+  { key: '3', mod: false, commandId: 'workspace.workshop', allowInModal: true },
+  { key: '4', mod: false, commandId: 'workspace.output', allowInModal: true },
 ];
 
 /** First binding whose key and modifier constraints all hold, or null. */

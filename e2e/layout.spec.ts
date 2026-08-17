@@ -41,6 +41,12 @@ test('boot layout geometry is unchanged', async ({ app }) => {
     expect(Math.abs(box!.height - want.height), `#${id} height`).toBeLessThanOrEqual(TOL);
   }
 
+  // The workspace tabs are the only topbar child that paints outside the bar's
+  // 29px content row (37px tall, pulled back 4px top and bottom), so they are
+  // the one element that could push #topbar off the 46px pinned above. Presence
+  // here, geometry there.
+  await expect(app.locator('#ws-tabs')).toBeVisible();
+
   // the elevation canvas shares #pane2d with the plan and is hidden at boot —
   // no box at all, which is what the 2D/elev sub-toggle flips
   expect(await app.locator('#canvas-elev').boundingBox(), '#canvas-elev is visible at boot').toBe(

@@ -52,12 +52,24 @@ export interface ModalPort {
   handleEscape(): void;
 }
 
+/**
+ * The workspace shell as the commands see it — implemented by the app layer
+ * (src/app/services.ts), like ModalPort/PlanToolPort, so src/editor never
+ * imports src/ui. `switchTo` runs the guarded switch (dirty-check, tool reset)
+ * and returns false when the user cancelled it.
+ */
+export interface WorkspacePort {
+  workspace(): WorkspaceId;
+  switchTo(w: WorkspaceId): boolean;
+}
+
 /** Everything a command is allowed to touch. Assembled once, in src/app. */
 export interface EditorContext {
   store: Store;
   editor: EditorState;
   plan: PlanToolPort;
   modal: ModalPort;
+  workspace: WorkspacePort;
 }
 
 export interface CommandDefinition {

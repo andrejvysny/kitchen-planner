@@ -6,6 +6,8 @@ import type {
   EditorContext,
   ModalPort,
   PlanToolPort,
+  WorkspaceId,
+  WorkspacePort,
 } from '../../../src/editor/commands/types';
 import { EditorState } from '../../../src/editor/editorState';
 import { demoDesign, Store } from '../../../src/model/store';
@@ -38,12 +40,38 @@ function fakeModal(): ModalPort & { calls: string[]; open: boolean } {
   return state;
 }
 
+/**
+ * The guarded switch lives in src/app (it needs the studio and the shell), so
+ * from here it is just a port: what the commands owe it is the right id.
+ * `refuse` stands in for the dirty-confirm the user cancelled.
+ */
+function fakeWorkspace(): WorkspacePort & {
+  calls: WorkspaceId[];
+  current: WorkspaceId;
+  refuse: boolean;
+} {
+  const state = {
+    calls: [] as WorkspaceId[],
+    current: 'furnish' as WorkspaceId,
+    refuse: false,
+    workspace: () => state.current,
+    switchTo: (w: WorkspaceId) => {
+      state.calls.push(w);
+      if (state.refuse) return false;
+      state.current = w;
+      return true;
+    },
+  };
+  return state;
+}
+
 describe('CommandRegistry', () => {
   const ctx = (): EditorContext => ({
     store: new Store(demoDesign()),
     editor: new EditorState(),
     plan: fakePlan(),
     modal: fakeModal(),
+    workspace: fakeWorkspace(),
   });
 
   it('an unknown id is a no-op that reports false, never a throw', () => {
@@ -101,6 +129,7 @@ describe('app commands', () => {
   let editor: EditorState;
   let plan: ReturnType<typeof fakePlan>;
   let modal: ReturnType<typeof fakeModal>;
+  let ws: ReturnType<typeof fakeWorkspace>;
   let reg: CommandRegistry;
 
   beforeEach(() => {
@@ -108,7 +137,8 @@ describe('app commands', () => {
     editor = new EditorState();
     plan = fakePlan();
     modal = fakeModal();
-    reg = new CommandRegistry({ store, editor, plan, modal });
+    ws = fakeWorkspace();
+    reg = new CommandRegistry({ store, editor, plan, modal, workspace: ws });
     reg.registerAll(APP_COMMANDS);
   });
 
@@ -239,6 +269,41 @@ describe('app commands', () => {
       reg.execute('tool.cancel');
       expect(store.selection).toEqual({ kind: 'none' });
       expect(plan.calls).toEqual([]);
+    });
+  });
+
+  describe('workspace.*', () => {
+    it.each([
+      ['workspace.plan', 'plan'],
+      ['workspace.furnish', 'furnish'],
+      ['workspace.workshop', 'workshop'],
+      ['workspace.output', 'output'],
+    ] as const)('%s switches to %s through the port', (id, want) => {
+      expect(reg.execute(id)).toBe(true);
+      expect(ws.calls).toEqual([want]);
+      expect(ws.current).toBe(want);
+    });
+
+    it('has no guard — re-picking the live workspace still runs, and the port absorbs it', () => {
+      expect(reg.canExecute('workspace.furnish')).toBe(true);
+      expect(reg.execute('workspace.furnish')).toBe(true);
+      expect(ws.calls).toEqual(['furnish']);
+      expect(ws.current).toBe('furnish');
+    });
+
+    it('a refused switch is the port’s answer, not the command’s — it still ran', () => {
+      ws.refuse = true;
+      expect(reg.execute('workspace.plan')).toBe(true);
+      expect(ws.calls).toEqual(['plan']);
+      expect(ws.current).toBe('furnish');
+    });
+
+    it('switching workspace touches neither the design nor the undo stack', () => {
+      const depth = store.canUndo();
+      reg.execute('workspace.output');
+      expect(store.canUndo()).toBe(depth);
+      expect(plan.calls).toEqual([]);
+      expect(modal.calls).toEqual([]);
     });
   });
 

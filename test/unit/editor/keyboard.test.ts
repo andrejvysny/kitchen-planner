@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { APP_COMMANDS } from '../../../src/editor/commands/appCommands';
+import { CommandRegistry } from '../../../src/editor/commands/registry';
+import type { EditorContext } from '../../../src/editor/commands/types';
 import { KEY_BINDINGS, matchBinding } from '../../../src/editor/keyboard/bindings';
+import { KeyboardController } from '../../../src/editor/keyboard/KeyboardController';
 
 // src/editor/keyboard/bindings.ts — the key map as data. Pure and DOM-free, so
 // the whole table is checkable here; KeyboardController is the thin adapter
@@ -82,6 +85,26 @@ describe('key bindings', () => {
     expect(hit('arrowdown', false, true)).toBe('transform.nudgeDownCoarse');
   });
 
+  it('1-4 pick a workspace, and Ctrl/Cmd+digit is left to the browser', () => {
+    expect(hit('1')).toBe('workspace.plan');
+    expect(hit('2')).toBe('workspace.furnish');
+    expect(hit('3')).toBe('workspace.workshop');
+    expect(hit('4')).toBe('workspace.output');
+    // Ctrl/Cmd+digit switches BROWSER tabs — `mod: false` is a hard exclusion
+    // here, not the usual don't-care
+    expect(hit('1', true)).toBe(null);
+    expect(hit('4', true)).toBe(null);
+    // Shift is don't-care, as everywhere else in the table
+    expect(hit('1', false, true)).toBe('workspace.plan');
+  });
+
+  it('the workspace keys are the only ones that survive an open modal', () => {
+    const inModal = KEY_BINDINGS.filter((b) => b.allowInModal);
+    expect(inModal.map((b) => b.key)).toEqual(['1', '2', '3', '4']);
+    // allowInModal is about the MODAL only: typing still wins
+    for (const b of inModal) expect(b.allowWhileTyping).toBeUndefined();
+  });
+
   it('an unbound key matches nothing', () => {
     expect(hit('q')).toBe(null);
     expect(hit('f5')).toBe(null);
@@ -93,5 +116,142 @@ describe('key bindings', () => {
       { key: 'x', commandId: 'second' },
     ];
     expect(matchBinding('x', { mod: false, shift: false }, table)!.commandId).toBe('first');
+  });
+});
+
+/* ---------------- the two gates around the table: typing and the modal ------ */
+
+// KeyboardController is the DOM adapter, and everything it decides on its own
+// is those two gates. Node has Event/EventTarget but none of the DOM classes
+// `isTyping` does `instanceof` against, and this suite runs without jsdom (see
+// test/unit/workspaceState.test.ts) — so stub the three constructors and
+// dispatch a plain Event carrying the four fields the controller reads.
+
+class FakeInput extends EventTarget {}
+class FakeTextArea extends EventTarget {}
+class FakeElement extends EventTarget {}
+
+type DomCtors = {
+  HTMLInputElement?: unknown;
+  HTMLTextAreaElement?: unknown;
+  HTMLElement?: unknown;
+};
+
+/** Dispatch a keydown on `target` and hand back the event, for defaultPrevented. */
+function press(
+  target: EventTarget,
+  key: string,
+  mods: { mod?: boolean; shift?: boolean } = {}
+): Event {
+  const ev = Object.assign(new Event('keydown', { cancelable: true }), {
+    key,
+    ctrlKey: !!mods.mod,
+    metaKey: false,
+    shiftKey: !!mods.shift,
+  });
+  target.dispatchEvent(ev);
+  return ev;
+}
+
+/**
+ * A controller over PROBE commands — one per binding id, recording only that it
+ * ran. The context is empty because nothing here reads it: the registry only
+ * passes it through, and these commands ignore it.
+ */
+function setup(): {
+  kb: KeyboardController;
+  ran: string[];
+  modal: { open: boolean };
+} {
+  const ran: string[] = [];
+  const reg = new CommandRegistry({} as EditorContext);
+  reg.registerAll(
+    KEY_BINDINGS.map((b) => ({
+      id: b.commandId,
+      label: b.commandId,
+      execute: () => {
+        ran.push(b.commandId);
+      },
+    }))
+  );
+  const modal = { open: false };
+  return { kb: new KeyboardController(reg, { modalOpen: () => modal.open }), ran, modal };
+}
+
+describe('KeyboardController gates', () => {
+  beforeEach(() => {
+    const g = globalThis as unknown as DomCtors;
+    g.HTMLInputElement = FakeInput;
+    g.HTMLTextAreaElement = FakeTextArea;
+    g.HTMLElement = FakeElement;
+  });
+
+  afterEach(() => {
+    const g = globalThis as unknown as DomCtors;
+    delete g.HTMLInputElement;
+    delete g.HTMLTextAreaElement;
+    delete g.HTMLElement;
+  });
+
+  it('runs a binding and swallows the key when the command ran', () => {
+    const { kb, ran } = setup();
+    const target = new EventTarget();
+    kb.attach(target);
+
+    const ev = press(target, '2');
+    expect(ran).toEqual(['workspace.furnish']);
+    expect(ev.defaultPrevented).toBe(true);
+    kb.dispose();
+  });
+
+  it('allowInModal: the workspace keys still run while the Part Studio is open', () => {
+    const { kb, ran, modal } = setup();
+    const target = new EventTarget();
+    kb.attach(target);
+    modal.open = true;
+
+    press(target, '3');
+    expect(ran).toEqual(['workspace.workshop']);
+    kb.dispose();
+  });
+
+  it('an ordinary binding is still blocked by an open modal — the gate only moved', () => {
+    const { kb, ran, modal } = setup();
+    const target = new EventTarget();
+    kb.attach(target);
+    modal.open = true;
+
+    const ev = press(target, 'r');
+    expect(ran).toEqual([]);
+    expect(ev.defaultPrevented).toBe(false);
+    kb.dispose();
+  });
+
+  it('typing beats allowInModal: a digit in a text field types, modal or not', () => {
+    const { kb, ran, modal } = setup();
+    const input = new FakeInput();
+    kb.attach(input);
+    modal.open = true;
+
+    const ev = press(input, '1');
+    expect(ran).toEqual([]);
+    expect(ev.defaultPrevented).toBe(false);
+
+    modal.open = false;
+    press(input, '1');
+    expect(ran).toEqual([]);
+    kb.dispose();
+  });
+
+  it('Escape is exempt from both gates and never preventDefaults', () => {
+    const { kb, ran, modal } = setup();
+    const input = new FakeInput();
+    kb.attach(input);
+    modal.open = true;
+
+    const ev = press(input, 'escape');
+    expect(ran).toEqual(['tool.cancel']);
+    expect(ev.defaultPrevented).toBe(false);
+    kb.dispose();
   });
 });

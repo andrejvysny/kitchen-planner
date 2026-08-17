@@ -43,6 +43,11 @@ const ALWAYS: readonly ContractEntry[] = [
   // topbar
   vis('#topbar'),
   present('#btn-catalog'), // mobile-only hamburger, display:none above 900px
+  vis('#ws-tabs'),
+  vis('#ws-tab-plan'),
+  vis('#ws-tab-furnish.active'), // Furnish is the default workspace, and the fixture clears storage
+  vis('#ws-tab-workshop'),
+  vis('#ws-tab-output'),
   vis('#view-toggle'),
   vis('button[data-view="2d"]'),
   vis('button[data-view="split"].active'), // Split is the default view

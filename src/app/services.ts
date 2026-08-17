@@ -8,7 +8,8 @@ import { APP_COMMANDS } from '../editor/commands/appCommands';
 import { CommandRegistry } from '../editor/commands/registry';
 import { KeyboardController } from '../editor/keyboard/KeyboardController';
 import { StoreBridge } from '../ui/react/storeBridge';
-import { setHint, setWallLabel } from '../ui/shellState';
+import { setCatalogOpen, setHint, setWallLabel } from '../ui/shellState';
+import { setWorkspace, workspace, type WorkspaceId } from '../ui/workspaceState';
 
 /**
  * The application's object graph, assembled in one place.
@@ -42,6 +43,13 @@ export interface AppServices {
 
   /** Store/EditorState/shell → React adapter; inert until a component subscribes */
   bridge: StoreBridge;
+
+  /**
+   * The ONE guarded workspace switch — the Topbar tabs, the panes and the
+   * `workspace.*` commands all route through it. Returns false when the switch
+   * was refused (unsaved Part Studio edits the user chose to keep).
+   */
+  switchWorkspace: (w: WorkspaceId) => boolean;
 
   /**
    * Whether the autosave was unreadable and a backup was stashed. Decided HERE,
@@ -89,13 +97,44 @@ export function createServices(): AppServices {
   const studio = new PartStudio(store, () => {});
 
   /**
+   * The one guarded workspace switch. Everything that changes workspace — the
+   * topbar tabs, the panes, the `workspace.*` commands behind keys 1-4 — comes
+   * through here, so the guard and the resets are written once.
+   *
+   * The guard is the Part Studio's own dirty-confirm: today the Workshop IS
+   * that modal, so leaving it with unsaved edits has to ask, and a refused
+   * close must abort the switch rather than leave the shell showing a
+   * workspace the modal is still covering. When WP 1.6 hosts the studio inside
+   * the Workshop pane instead, the guard moves but this helper does not.
+   *
+   * The two resets exist because a workspace is a different TASK, not a
+   * different view of the same one: an armed catalog def or a live measure
+   * would otherwise fire on the next click in a pane that never armed it, and
+   * the narrow-screen catalog drawer would stay open over the new pane.
+   */
+  const switchWorkspace = (w: WorkspaceId): boolean => {
+    if (w === workspace()) return true;
+    if (workspace() === 'workshop' && studio.isOpen() && !studio.close()) return false;
+    editor.setTool('select');
+    setCatalogOpen(false);
+    setWorkspace(w);
+    return true;
+  };
+
+  /**
    * `plan` and `studio` go in as the STRUCTURAL `PlanToolPort` / `ModalPort`
    * the command layer declares. That indirection is the point: src/editor may
    * not import src/ui or src/app (eslint boundary), and plan2d already imports
    * editorState, so a concrete import either way would be a cycle. It also
    * makes every command unit-testable against fakes.
    */
-  const commands = new CommandRegistry({ store, editor, plan, modal: studio });
+  const commands = new CommandRegistry({
+    store,
+    editor,
+    plan,
+    modal: studio,
+    workspace: { workspace, switchTo: switchWorkspace },
+  });
   commands.registerAll(APP_COMMANDS);
 
   const keyboard = new KeyboardController(commands, { modalOpen: () => studio.isOpen() });
@@ -112,6 +151,7 @@ export function createServices(): AppServices {
     commands,
     keyboard,
     bridge,
+    switchWorkspace,
     needsRecoveryBanner,
   };
 }

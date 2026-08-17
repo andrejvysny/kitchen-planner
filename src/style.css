@@ -75,6 +75,46 @@ body {
   flex: 1;
 }
 
+/* The four workspaces are the app's primary navigation, so they read heavier
+   than the .topbar-group segmented controls beside them: a real surface and a
+   border on the current one rather than the plain ink fill every other topbar
+   button gets.
+   The bar's own box caps the height — 8px padding over a 29px content row is
+   the 46px e2e/layout.spec.ts pins — so the tabs buy their touch target by
+   painting INTO that padding: 37px tall, pulled back 4px top and bottom, which
+   leaves the flex line (and the bar) exactly as tall as before. */
+.ws-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin: -4px 6px -4px 0;
+}
+
+#topbar .ws-tabs button {
+  min-width: 78px;
+  min-height: 37px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 550;
+}
+
+#topbar .ws-tabs button:hover {
+  background: #ecebe7;
+}
+
+#topbar .ws-tabs button.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#topbar .ws-tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 #topbar button {
   border: none;
   background: transparent;

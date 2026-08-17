@@ -64,7 +64,8 @@ export class KeyboardController {
     );
     if (!binding) return;
 
-    if (!binding.allowWhileTyping && (isTyping(e.target) || this.opts.modalOpen())) return;
+    if (!binding.allowWhileTyping && isTyping(e.target)) return;
+    if (!binding.allowWhileTyping && !binding.allowInModal && this.opts.modalOpen()) return;
 
     // preventDefault only on a command that actually ran, so a binding whose
     // canExecute says no still reaches the browser (Ctrl+D with no selection)

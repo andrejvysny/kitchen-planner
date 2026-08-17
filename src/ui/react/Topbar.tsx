@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
 import { useAppServices, useEditor, useStore } from './services';
 import { buildBom } from '../../model/export';
 import { bomHtml, cutListCsv, shoppingListCsv } from '../../model/exportFormats';
@@ -8,6 +8,7 @@ import { openPrintSheet } from '../../print/sheet';
 import { isMac, NAV_INPUTS, type NavInput } from '../../view3d/wheelInput';
 import { catalogOpen, setCatalogOpen, setHint } from '../shellState';
 import { applyCalibration, importUnderlay } from '../underlayImport';
+import { workspace, type WorkspaceId } from '../workspaceState';
 import { useChannel } from './hooks/useStore';
 
 /**
@@ -32,6 +33,7 @@ export function Topbar(): ReactElement {
         <span className="brand-name">Interior Planner</span>
       </div>
       <CatalogButton />
+      <WorkspaceTabs />
       <ViewToggle />
       <HistoryButtons />
       <SceneToggles />
@@ -105,6 +107,66 @@ function CatalogButton(): ReactElement {
     >
       ☰
     </button>
+  );
+}
+
+/* ================= workspace tabs ================= */
+
+const WS: { id: WorkspaceId; label: string; title: string }[] = [
+  { id: 'plan', label: 'Plan', title: 'Rooms, walls, doors and windows (1)' },
+  { id: 'furnish', label: 'Furnish', title: 'Place furniture, appliances and lighting (2)' },
+  { id: 'workshop', label: 'Workshop', title: 'Design and customize your own parts (3)' },
+  { id: 'output', label: 'Output', title: 'Drawings, cut lists and exports (4)' },
+];
+
+/**
+ * The four task workspaces — the app's PRIMARY navigation, which is why it
+ * sits first in the bar and reads heavier than the view toggle beside it.
+ *
+ * Every path that changes workspace goes through `switchWorkspace`, the app's
+ * one guarded switch (src/app/services.ts): these buttons, the `workspace.*`
+ * commands behind keys 1-4, and the panes to come. The component holds NO
+ * state of its own — `workspace()` is the truth and the 'workspace' channel is
+ * the re-render ticket — so <Topbar/> above stays stateless.
+ *
+ * A `<nav>` rather than a tablist: there are no tabpanels to point
+ * `aria-controls` at yet, and a landmark marks its current destination with
+ * `aria-current`. Arrows move the CARET only, like a link list — selection is
+ * the button's own click, so Tab-then-Enter never switches by accident.
+ */
+function WorkspaceTabs(): ReactElement {
+  const { switchWorkspace } = useAppServices();
+  useChannel('workspace');
+  const btns = useRef<(HTMLButtonElement | null)[]>([]);
+  const current = workspace();
+
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, i: number): void => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    e.preventDefault();
+    const next = (i + (e.key === 'ArrowRight' ? 1 : WS.length - 1)) % WS.length;
+    btns.current[next]?.focus();
+  };
+
+  return (
+    <nav id="ws-tabs" className="ws-tabs" aria-label="Workspace">
+      {WS.map((w, i) => (
+        <button
+          key={w.id}
+          id={`ws-tab-${w.id}`}
+          data-ws={w.id}
+          className={current === w.id ? 'active' : undefined}
+          aria-current={current === w.id ? 'true' : undefined}
+          title={w.title}
+          ref={(el) => {
+            btns.current[i] = el;
+          }}
+          onClick={() => switchWorkspace(w.id)}
+          onKeyDown={(e) => onKeyDown(e, i)}
+        >
+          {w.label}
+        </button>
+      ))}
+    </nav>
   );
 }
 

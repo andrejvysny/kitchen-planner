@@ -1,4 +1,4 @@
-import type { CommandDefinition, EditorContext } from './types';
+import type { CommandDefinition, EditorContext, WorkspaceId } from './types';
 
 /**
  * The seed command set — the eight behaviours the global keyboard map used to
@@ -54,6 +54,23 @@ function nudgeCommand(id: string, label: string, dx: number, dy: number): Comman
     label,
     canExecute: itemSelected,
     execute: (ctx) => nudge(ctx, dx, dy),
+  };
+}
+
+/**
+ * Switch workspace. No `canExecute`: switching to the one already showing is a
+ * cheap no-op inside the port, and a guard that refuses it would make the key
+ * fall through to the browser for no gain. The dirty-check that CAN refuse the
+ * switch lives in the port too — the command layer never asks the user
+ * anything.
+ */
+function workspaceCommand(id: string, label: string, w: WorkspaceId): CommandDefinition {
+  return {
+    id,
+    label,
+    execute: (ctx) => {
+      ctx.workspace.switchTo(w);
+    },
   };
 }
 
@@ -142,4 +159,9 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     canExecute: (ctx) => ctx.editor.isTool('drawRoom'),
     execute: (ctx) => ctx.plan.closeDrawRoom(),
   },
+
+  workspaceCommand('workspace.plan', 'Plan workspace', 'plan'),
+  workspaceCommand('workspace.furnish', 'Furnish workspace', 'furnish'),
+  workspaceCommand('workspace.workshop', 'Workshop workspace', 'workshop'),
+  workspaceCommand('workspace.output', 'Output workspace', 'output'),
 ];
