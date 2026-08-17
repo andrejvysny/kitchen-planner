@@ -8,6 +8,7 @@ import { PartStudio } from '../ui/partstudio';
 import { View3D } from '../view3d/view3d';
 import { setMacOverride } from '../view3d/wheelInput';
 import { EditorState } from '../editor/editorState';
+import { renderCounts } from '../ui/react/debugCounters';
 import { StoreBridge } from '../ui/react/storeBridge';
 import { setHint } from '../ui/shellState';
 
@@ -142,4 +143,6 @@ export const bridge = new StoreBridge(store, editor);
   setNavInput,
   editor,
   bridge,
+  // React commit counters — a test seam, like Plan2D's debug().drawCount
+  debug: { renderCounts },
 };

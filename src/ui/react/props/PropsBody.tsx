@@ -1,8 +1,12 @@
-import type { ReactElement } from 'react';
+import { useEffect, type ReactElement } from 'react';
 import { store } from '../../../app/bootstrap';
+import { countRender } from '../debugCounters';
 import { useChannel } from '../hooks/useStore';
+import { CornerProps } from './CornerProps';
 import { ItemProps } from './ItemProps';
+import { OpeningProps } from './OpeningProps';
 import { RoomProps } from './RoomProps';
+import { WallProps } from './WallProps';
 
 /**
  * The properties panel's body: one panel per selection kind.
@@ -18,14 +22,18 @@ import { RoomProps } from './RoomProps';
  * this component (see useLiveValue.ts — the fields that show a dragged value
  * subscribe to 'transient' themselves and write into their own node).
  *
- * MIGRATION: kinds React does not own yet render null here and are drawn into
- * `#props-legacy` by src/ui/ui.ts instead — see <LegacyPropsHost/> in
- * src/ui/react/PropsPanel.tsx for why the two writers never share a node.
+ * Every committed render is counted (src/ui/react/debugCounters.ts), so
+ * e2e/transient-perf.spec.ts can assert "not once during a drag" outright
+ * instead of inferring it from what the boxes happen to show.
  */
-export function PropsBody(): ReactElement | null {
+export function PropsBody(): ReactElement {
   useChannel('selection');
   useChannel('history');
   useChannel('activeRoom');
+
+  // no dependency array: one tick per COMMITTED render, which is what the
+  // transient rule is stated in
+  useEffect(() => countRender('propsBody'));
 
   const sel = store.selection;
   // An id that resolves nowhere falls through to the room panel, exactly as
@@ -33,10 +41,13 @@ export function PropsBody(): ReactElement | null {
   if (sel.kind === 'item') {
     const item = store.itemById(sel.id);
     if (item) return <ItemProps item={item} />;
+  } else if (sel.kind === 'wall') {
+    if (store.wallById(sel.id)) return <WallProps wallId={sel.id} />;
+  } else if (sel.kind === 'opening') {
+    if (store.openingById(sel.id)) return <OpeningProps id={sel.id} />;
+  } else if (sel.kind === 'corner') {
+    if (store.cornerById(sel.id)) return <CornerProps id={sel.id} />;
   }
-  if (sel.kind === 'wall' && store.wallById(sel.id)) return null;
-  if (sel.kind === 'opening' && store.openingById(sel.id)) return null;
-  if (sel.kind === 'corner' && store.cornerById(sel.id)) return null;
 
   return <RoomProps />;
 }

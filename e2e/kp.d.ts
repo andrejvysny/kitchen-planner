@@ -26,6 +26,8 @@ declare global {
       editor: EditorState;
       /** Store + EditorState → React adapter; nothing subscribes yet */
       bridge: StoreBridge;
+      /** React commit counters — the seam e2e/transient-perf.spec.ts asserts on */
+      debug: { renderCounts: Record<string, number> };
     };
     /** page-init flag forcing the mac-gated wheel handling on every platform */
     __kpForceMac?: boolean;
