@@ -110,18 +110,19 @@ export const view = new View3D(store, {
  */
 export const studio = new PartStudio(store, () => {});
 
-/** UI has no dispose() yet, so it may only ever be constructed once. */
+/** The construct-once guard; see mountLegacyUI(). */
 let uiMounted = false;
 
 /**
  * Wire the legacy UI controller over the DOM React has just rendered.
  *
- * `UI` document-queries every element it owns in its constructor and registers
- * listeners that it has no way to release, so this runs from an App-level
- * effect — after the canvas effects, hence after every view is attached — and
- * exactly once: React StrictMode calls that effect twice, and the guard makes
- * the second call a no-op. When UI is dissolved into components in a later B
- * step it gains a dispose() and the guard goes with it.
+ * What is left of `UI` is the global keyboard map (T5 took the properties
+ * inspector, the last DOM it owned). It runs from an App-level effect — after
+ * the canvas effects, hence after every view is attached — and exactly once:
+ * React StrictMode calls that effect twice, and the guard makes the second
+ * call a no-op. `UI` now has a dispose(), so the guard is a convenience rather
+ * than a necessity; both go when <App/> owns the keyboard map's lifecycle
+ * directly.
  */
 export function mountLegacyUI(): void {
   if (uiMounted) return;

@@ -4,6 +4,7 @@ import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../../../model/sky';
 import { SliderRow } from '../fields/SliderRow';
 
 const deg = (v: number): string => `${Math.round(v)}°`;
+/** brightness is a 0..2 SCALE shown as a percentage — not a length, so no units.ts */
 const pct = (v: number): string => `${Math.round(v * 100)}%`;
 
 /**

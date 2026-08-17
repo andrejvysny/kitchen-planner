@@ -253,7 +253,10 @@ function WallsSection({ style }: { style: RoomStyle }): ReactElement {
   return (
     <div className="prop-section">
       <div className="prop-section-title">Walls</div>
-      <VarChips current={style.wallColor} onBind={(ref) => store.setRoomStyle({ wallColor: ref })} />
+      <VarChips
+        current={style.wallColor}
+        onBind={(ref) => store.setRoomStyle({ wallColor: ref })}
+      />
       <SwatchRow
         colors={WALL_COLORS}
         current={resolveColor(store.design, style.wallColor)}

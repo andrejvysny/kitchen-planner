@@ -275,11 +275,11 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   node-for-node (Topbar / Sidebar / Workspace / PropsPanel / StatusBar are
   organizational splits — the rendered tree is identical, and
   e2e/layout.spec.ts pins the boot geometry). The shell holds NO state and
-  never re-renders, so src/ui/ui.ts keeps filling #props-inner exactly as
-  before. `UI` itself has no dispose(), so `mountLegacyUI()`
-  (src/app/bootstrap.ts) constructs it once behind a module guard, from an
-  App-level effect that runs after the canvas effects; the guard goes away when
-  ui.ts is dissolved into components.
+  never re-renders. **src/ui/ui.ts is down to the global keyboard map** — one
+  `keydown` listener on `window`, released by `dispose()` through an
+  AbortController — and subscribes to no store event at all; `mountLegacyUI()`
+  (src/app/bootstrap.ts) still constructs it once behind a module guard, from
+  an App-level effect that runs after the canvas effects.
 - The whole left sidebar is React's (src/ui/react/Sidebar.tsx + CatalogPanel /
   OutlinePanel / VariablesPanel): which tab is open is component state, and the
   panels carry BOTH `.active` and `hidden` because style.css hides on
@@ -304,9 +304,37 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   UNCONTROLLED: `useSyncedValue` mirrors the model into them after each render
   and `useLiveValue` during a drag ('transient' channel), both refusing to write
   into `document.activeElement` — that check is what replaced ui.ts's
-  isEditingVariableName guard around its innerHTML rebuilds. Display-unit
-  arithmetic (`convert.ts`) and the multi-selection rule (`useMixedValue`) are
-  pure and pinned by test/unit/fields.test.ts.
+  isEditingVariableName guard around its innerHTML rebuilds. `wrapAngle`
+  (convert.ts) and the multi-selection rule (`useMixedValue`) are pure and
+  pinned by test/unit/fields.test.ts.
+- **The properties inspector is keyed by the selection, and never renders
+  mid-gesture.** src/ui/react/PropsPanel.tsx mounts `<PropsBody/>` under
+  `` `${sel.kind}:${sel.id}` `` (or `room:<activeRoomId>` when nothing is
+  selected), so picking a DIFFERENT object remounts the whole body — the React
+  spelling of ui.ts's `innerHTML = ''`, and what lets every field stay
+  uncontrolled — while an edit to the SAME object is an ordinary re-render that
+  keeps nodes, focus and caret. PropsBody subscribes to 'selection', 'history'
+  and 'activeRoom' and to NOTHING else: a drag fires 'transient' at pointer
+  rate, and the six dragged fields (pos-x, pos-y, rot, corner-x, corner-y,
+  opening-off) follow it themselves through `useLiveValue`, writing into their
+  own node. That is a hard contract, not an optimisation — PropsBody counts its
+  committed renders into `window.__kp.debug.renderCounts`
+  (src/ui/react/debugCounters.ts) and e2e/transient-perf.spec.ts fails on a
+  single one during a drag. Panels are one file each under
+  src/ui/react/props/ (Room / Item / Wall / Opening / Corner, plus the shared
+  Checks / Underlay / Lighting sections); e2e/inspector.spec.ts pins each
+  one's ordered section titles, because test/interact.mjs reaches into this
+  panel by ordinal (`.prop-section` index, the room panel's first numeric
+  field) and those couplings are invisible from the code they constrain.
+- **A length or angle box is `type=text` with `data-unit`, not a spinner.**
+  src/model/units.ts parses and formats it, in the unit src/model/prefs.ts
+  holds (mm, 0 decimals, by default, on its own 'units' bridge channel), so
+  the value can be an expression — '600-18*2', '1.2m', '90+45'. NumericRow
+  (fields/NumberField.tsx) re-implements what the browser used to give for
+  free, once: clamping to `min`/`max` (which are MODEL units — metres and
+  radians — since the display unit is a preference), ArrowUp/Down stepping by
+  `step` in the DISPLAY unit (×10 with Shift), and restoring the model's own
+  value when the input parses to nothing.
 - **`EditorState` (src/editor/editorState.ts) is the single source of tool
   truth**: `tool` (`select | place | measure | calibrate | room | drawRoom`),
   `armedDefId` (only meaningful under `place`, and `setTool` nulls it on every

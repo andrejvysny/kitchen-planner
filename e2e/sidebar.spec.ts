@@ -86,7 +86,7 @@ test('a tab switch moves the class, the hidden attribute and aria-selected toget
 
   await app.click('#tab-btn-components');
   expect(await tabState(app)).toEqual(expected('components'));
-  // #outline is rendered by ui.ts at boot regardless of the tab — the switch
+  // #outline renders regardless of the tab — the switch
   // only ever changes visibility
   await expect(app.locator('#outline .ol-head')).toBeVisible();
 

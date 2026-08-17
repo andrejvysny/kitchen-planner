@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import { editor, plan, store } from '../../../app/bootstrap';
+import { pixelSize } from '../../underlayImport';
 import { SliderRow } from '../fields/SliderRow';
 import { useChannel } from '../hooks/useStore';
 
@@ -18,6 +19,7 @@ import { useChannel } from '../hooks/useStore';
  */
 export function UnderlaySection(): ReactElement {
   useChannel('editor');
+  useChannel('units'); // the pixel-size readout is a length like any other
   const ref = store.underlayRef();
   const pick = (): void => document.querySelector<HTMLInputElement>('#underlay-input')!.click();
 
@@ -46,6 +48,8 @@ export function UnderlaySection(): ReactElement {
   return (
     <div className="prop-section">
       <div className="prop-section-title">Reference photo</div>
+      {/* opacity is a 0..1 RATIO shown as a percentage — not a length, so it
+          does not go through units.ts */}
       <SliderRow
         label="Opacity"
         value={Math.round(u.opacity * 100)}
@@ -91,7 +95,7 @@ export function UnderlaySection(): ReactElement {
         </button>
       </div>
       <p className="props-sub" style={{ marginTop: 8 }}>
-        {`1 photo pixel = ${(u.scale * 100).toFixed(2)} cm · drag the photo in the plan to move it`}
+        {`1 photo pixel = ${pixelSize(u.scale)} · drag the photo in the plan to move it`}
       </p>
     </div>
   );

@@ -6,15 +6,15 @@ import type { Locator, Page } from '@playwright/test';
  *
  * This spec pins every DOM id/class/data-attribute that `test/interact.mjs`
  * (the bespoke 2,540-line Playwright driver) and the `e2e/*.spec.ts` suite
- * (open-fronts.spec.ts today) reach into. It asserts TODAY's markup, not an
+ * (and the rest of e2e/) reach into. It asserts TODAY's markup, not an
  * aspiration: every selector below was found by grepping both suites and
- * then confirmed against either the live DOM or the renderer in
- * src/ui/ui.ts / src/ui/partstudio/*.ts that emits it.
+ * then confirmed against either the live DOM or the component in
+ * src/ui/react/** / src/ui/partstudio/*.ts that emits it.
  *
  * If a selector here goes missing, one of two things happened:
  *  - a real regression in src/ui broke a selector the old suites depend on, or
- *  - a React component intentionally renamed it, in which case update BOTH
- *    this table and the two suites' selectors in the same change.
+ *  - a component intentionally renamed it, in which case update BOTH this
+ *    table and the two suites' selectors in the same change.
  *
  * State is driven through window.__kp (see e2e/kp.d.ts) wherever a store
  * mutator exists, exactly like e2e/open-fronts.spec.ts — never by clicking
@@ -134,7 +134,7 @@ const CATALOG: readonly ContractEntry[] = [
   vis('.cat-item.cat-new'), // "+ New part" tile that opens the Part Studio
 ];
 
-/** src/ui/ui.ts renderOutline — the Components-tab list (interact.mjs uses .ol-row / .room-row-name). */
+/** src/ui/react/OutlinePanel.tsx — the Components-tab list (interact.mjs uses .ol-row / .room-row-name). */
 const OUTLINE: readonly ContractEntry[] = [
   vis('#outline .ol-head'),
   vis('#outline .ol-group'),
@@ -149,11 +149,14 @@ const OUTLINE: readonly ContractEntry[] = [
 // NOTE: .props-sub, .prop-row, .btn-row, .swatches and .stepper are all
 // generic helper classes shared with the room-props panel (default view) and
 // the Variables panel (#variables-panel, under the hidden Variables tab) —
-// see src/ui/ui.ts numberRow/materialRow/renderVariablesSection. Every entry
-// below is scoped to `#props-inner` so `.first()` can't resolve to a hidden
-// match sitting in one of those other panels instead of the selected one.
+// see src/ui/react/fields/**. Every entry below is scoped to `#props-inner`
+// so `.first()` can't resolve to a hidden match sitting in one of those other
+// panels instead of the selected one.
+//
+// e2e/inspector.spec.ts pins the panels' CONTENT (section titles and order);
+// this table only pins the selectors the other suites reach for.
 
-/** src/ui/ui.ts renderItemProps — Dimensions/Position/Colour sections. */
+/** src/ui/react/props/ItemProps.tsx — Dimensions/Position/Colour sections. */
 const ITEM_SELECTED: readonly ContractEntry[] = [
   vis('#props-inner .props-title'),
   vis('#props-inner .props-sub'),
@@ -166,7 +169,7 @@ const ITEM_SELECTED: readonly ContractEntry[] = [
   vis('#props-inner .btn-row'), // Duplicate / Delete actions
 ];
 
-/** src/ui/ui.ts renderWallProps — Size/Visibility/Shape sections. */
+/** src/ui/react/props/WallProps.tsx — Size/Visibility/Shape sections. */
 const WALL_SELECTED: readonly ContractEntry[] = [
   vis('#props-inner .props-title'),
   vis('#props-inner .props-sub'),
@@ -174,7 +177,7 @@ const WALL_SELECTED: readonly ContractEntry[] = [
   vis('#props-inner .btn-row'), // Visibility choice row + "Add corner in the middle"
 ];
 
-/** src/ui/ui.ts renderOpeningProps — Size/Swing sections. */
+/** src/ui/react/props/OpeningProps.tsx — Size/Swing sections. */
 const OPENING_SELECTED: readonly ContractEntry[] = [
   vis('#props-inner .props-title'),
   vis('#props-inner .props-sub'),
@@ -183,7 +186,7 @@ const OPENING_SELECTED: readonly ContractEntry[] = [
   vis('#props-inner .btn-row'), // hinge/swing choice rows + Delete
 ];
 
-/** src/ui/ui.ts renderCornerProps — Position section. */
+/** src/ui/react/props/CornerProps.tsx — Position section. */
 const CORNER_SELECTED: readonly ContractEntry[] = [
   vis('#props-inner .props-title'),
   vis('#props-inner .props-sub'),
@@ -221,7 +224,7 @@ const STUDIO_EDITOR: readonly ContractEntry[] = [
   vis('.studio-save'),
 ];
 
-/** index.html export menu, toggled open by src/ui/ui.ts wireExportMenu. */
+/** The export menu, toggled open by <ExportMenu/> in src/ui/react/Topbar.tsx. */
 const EXPORT_MENU: readonly ContractEntry[] = [
   vis('#export-menu.open'),
   vis('[data-export="cut"]'),
@@ -262,10 +265,10 @@ test('DOM contract: selector table stays present across every pinned app state',
     await assertContract(app, CATALOG);
   });
 
-  // Components tab: renderOutline() runs at boot regardless of which sidebar
-  // tab is active, so #outline already has content — switching tabs only
-  // flips visibility. Switch back to Library before the catalog/studio steps
-  // below, which click tiles that live under #tab-library.
+  // Components tab: <OutlinePanel/> renders regardless of which sidebar tab
+  // is active, so #outline already has content — switching tabs only flips
+  // visibility. Switch back to Library before the catalog/studio steps below,
+  // which click tiles that live under #tab-library.
   await test.step('sidebar tabs / outline', async () => {
     await app.click('#tab-btn-components');
     await expect(app.locator('#tab-components')).toBeVisible();

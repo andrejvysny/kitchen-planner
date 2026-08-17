@@ -52,18 +52,20 @@ async function place(app: Page, defId: string, x: number, y: number): Promise<st
 test('the room panel is the no-selection panel, section for section', async ({ app }) => {
   // A fresh 4x3 room is clean, so there is no Checks section between the photo
   // and Size — that section only exists when runChecks() has something to say.
-  await expect.poll(() => sections(app)).toEqual([
-    'Rooms',
-    'Reference photo',
-    'Size',
-    'Room shape',
-    'Ceiling',
-    'Walls',
-    'Floor',
-    'Worktops',
-    'Lighting',
-    'Actions',
-  ]);
+  await expect
+    .poll(() => sections(app))
+    .toEqual([
+      'Rooms',
+      'Reference photo',
+      'Size',
+      'Room shape',
+      'Ceiling',
+      'Walls',
+      'Floor',
+      'Worktops',
+      'Lighting',
+      'Actions',
+    ]);
 
   // the room panel's title IS its rename field, so there is no .props-title
   await expect(app.locator('#props-inner .props-title')).toHaveCount(0);
@@ -76,9 +78,9 @@ test('the room panel is the no-selection panel, section for section', async ({ a
 
   // no photo imported: the section is the importer, and the opacity slider
   // (the only other input it can show) is absent
-  await expect(app.locator('#props-inner .btn-row button', { hasText: 'Import photo…' })).toHaveCount(
-    1
-  );
+  await expect(
+    app.locator('#props-inner .btn-row button', { hasText: 'Import photo…' })
+  ).toHaveCount(1);
   await expect(app.locator('#props-inner input[type=range]')).toHaveCount(3); // the three Lighting sliders
 });
 
@@ -92,7 +94,10 @@ test('a room row switches rooms without leaving the room panel', async ({ app })
 
   const rows = app.locator('#props-inner .room-row');
   await expect(rows).toHaveCount(2);
-  await rows.filter({ hasNot: app.locator('.active') }).first().click();
+  await rows
+    .filter({ hasNot: app.locator('.active') })
+    .first()
+    .click();
 
   await expect.poll(() => app.evaluate(() => window.__kp.store.activeRoomId)).not.toBe(second);
   await expect.poll(() => app.evaluate(() => window.__kp.store.selection.kind)).toBe('none');
@@ -143,9 +148,7 @@ test('a cabinet shows dimensions, position, both colour slots and its worktop', 
   await expect(worktop.locator('.toggle-row input')).toHaveCount(0); // no pattern yet, no rotate row
 
   // a preset is forkable, so the actions offer the customize path
-  await expect(
-    app.locator('#props-inner button', { hasText: 'Customize part…' })
-  ).toHaveCount(1);
+  await expect(app.locator('#props-inner button', { hasText: 'Customize part…' })).toHaveCount(1);
 });
 
 test('a parametric item shows its stepper, and a clashing one leads with Checks', async ({
@@ -165,7 +168,9 @@ test('a parametric item shows its stepper, and a clashing one leads with Checks'
   await seats.locator('.stepper button').nth(1).click();
   await expect
     .poll(() =>
-      app.evaluate(() => window.__kp.store.design.items.find((i) => i.defId === 'sofa')?.params?.seats)
+      app.evaluate(
+        () => window.__kp.store.design.items.find((i) => i.defId === 'sofa')?.params?.seats
+      )
     )
     .toBe(4);
 });

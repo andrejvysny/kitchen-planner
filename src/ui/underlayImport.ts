@@ -1,5 +1,7 @@
 import { polygonBounds } from '../model/geometry';
+import { unitPrefs } from '../model/prefs';
 import type { Store } from '../model/store';
+import { formatLengthLabel, parseLength } from '../model/units';
 import {
   initialUnderlay,
   UNDERLAY_JPEG_Q,
@@ -69,20 +71,33 @@ export async function importUnderlay(store: Store, f: File): Promise<void> {
   setHint('Reference photo placed — drag it into position, then Calibrate scale');
 }
 
-/** The two calibration clicks spanned `dWorld` m — ask what that really is. */
+/**
+ * The two calibration clicks spanned `dWorld` m — ask what that really is.
+ *
+ * The answer goes through `parseLength`, so it takes the same expressions and
+ * suffixes every inspector field does, in the same preferred unit. A photo
+ * pixel is a fraction of that unit, so the readouts below borrow the prefs
+ * with two decimals rather than the usual none.
+ */
 export function applyCalibration(store: Store, dWorld: number): void {
   const u = store.design.underlay;
   if (!u) return;
-  const answer = prompt('How long is that distance in reality? (cm)');
-  const cm = Number(answer);
-  if (answer === null || !Number.isFinite(cm) || cm <= 0) {
+  const prefs = unitPrefs();
+  const answer = prompt(`How long is that distance in reality? (${prefs.unit})`);
+  const real = answer === null ? null : parseLength(answer, prefs);
+  if (real === null || real <= 0) {
     setHint('Scale calibration cancelled');
     return;
   }
-  const scale = underlayScaleFrom(dWorld, u.scale, cm / 100);
+  const scale = underlayScaleFrom(dWorld, u.scale, real);
   store.updateUnderlay({ scale });
   store.commit();
   setHint(
-    `Reference scaled: that span is ${Math.round(cm)} cm · 1 photo pixel = ${(scale * 100).toFixed(2)} cm`
+    `Reference scaled: that span is ${formatLengthLabel(real, prefs)} · 1 photo pixel = ${pixelSize(scale)}`
   );
+}
+
+/** A photo pixel is a sub-unit length, so it is the one readout that wants decimals. */
+export function pixelSize(scale: number): string {
+  return formatLengthLabel(scale, { ...unitPrefs(), decimals: 2 });
 }
