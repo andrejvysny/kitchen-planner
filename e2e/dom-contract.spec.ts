@@ -129,7 +129,9 @@ const ALWAYS: readonly ContractEntry[] = [
  *  ALWAYS because they exist in Furnish, the boot default, too). */
 const PLAN_TOOLS: readonly ContractEntry[] = [vis('#btn-room'), vis('#btn-draw-room')];
 
-/** Catalog tiles — .cat-item is one of the selectors named in the plan. */
+/** Catalog tiles — .cat-item is one of the selectors named in the plan.
+ *  Furnish-scoped: door/window moved to CATALOG_PLAN (WS-SPEC §4.3), since
+ *  they render only under the Plan workspace now. */
 const CATALOG: readonly ContractEntry[] = [
   vis('.cat-section'),
   vis('.cat-title'),
@@ -137,9 +139,14 @@ const CATALOG: readonly ContractEntry[] = [
   vis('.cat-item'),
   vis('.cat-item-wrap'),
   vis('.cat-item[data-def-id="base-cabinet"]'),
+  vis('.cat-item.cat-new'), // "+ New part" tile that opens the Part Studio
+  vis('#catalog-search'), // WS-SPEC §4.3
+];
+
+/** Catalog tiles that only exist under the Plan workspace (WS-SPEC §4.3). */
+const CATALOG_PLAN: readonly ContractEntry[] = [
   vis('.cat-item[data-def-id="door"]'),
   vis('.cat-item[data-def-id="window"]'),
-  vis('.cat-item.cat-new'), // "+ New part" tile that opens the Part Studio
 ];
 
 /** src/ui/react/OutlinePanel.tsx — the Components-tab list (interact.mjs uses .ol-row / .room-row-name). */
@@ -274,6 +281,7 @@ test('DOM contract: selector table stays present across every pinned app state',
   await test.step('plan workspace tools', async () => {
     await app.click('#ws-tab-plan');
     await assertContract(app, PLAN_TOOLS);
+    await assertContract(app, CATALOG_PLAN); // WS-SPEC §4.3: door/window live here now
     await app.click('#ws-tab-furnish');
     await expect(app.locator('#ws-tab-furnish')).toHaveClass(/active/);
   });

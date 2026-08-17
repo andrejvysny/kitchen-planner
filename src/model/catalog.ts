@@ -117,6 +117,8 @@ export interface CatalogDef {
 export interface CatalogSection {
   title: string;
   items: CatalogDef[];
+  /** which workspace's library shows this section; absent = 'furnish' (WS-SPEC §4.3) */
+  workspace?: 'plan' | 'furnish';
 }
 
 const def = (d: CatalogDef) => d;
@@ -124,6 +126,7 @@ const def = (d: CatalogDef) => d;
 export const CATALOG: CatalogSection[] = [
   {
     title: 'Room & utilities',
+    workspace: 'plan',
     items: [
       def({
         id: 'door',

@@ -72,9 +72,11 @@ test('a tile arms the place tool, marks itself and closes the drawer', async ({ 
   await expect(app.locator('#catalog')).not.toHaveClass(/open/);
 
   // arming a second tile moves the marker rather than adding one
-  const other = app.locator('.cat-item[data-def-id="window"]');
+  // (fridge, not window: window moved to the Plan workspace only — WS-SPEC
+  // §4.3 — and switching workspace itself drops the armed tool)
+  const other = app.locator('.cat-item[data-def-id="fridge"]');
   await other.click();
-  expect(await armed(app)).toEqual({ tool: 'place', def: 'window' });
+  expect(await armed(app)).toEqual({ tool: 'place', def: 'fridge' });
   await expect(app.locator('.cat-item.armed')).toHaveCount(1);
   await expect(other).toHaveClass(/armed/);
 
@@ -236,4 +238,27 @@ test('a room row switches the active room and drops the selection', async ({ app
   await rooms.nth(1).focus();
   await app.keyboard.press('Enter');
   await expect.poll(() => app.evaluate(() => window.__kp.store.activeRoomId)).toBe(roomIds[1]);
+});
+
+// WS-SPEC §4.3: the search box filters tiles (case-insensitive, on def.label)
+// within whichever workspace's sections are currently visible.
+test('the search box filters catalog tiles by label', async ({ app }) => {
+  const search = app.locator('#catalog-search');
+  const cabinet = app.locator('.cat-item[data-def-id="base-cabinet"]');
+  const sofa = app.locator('.cat-item[data-def-id="sofa"]');
+
+  await expect(cabinet).toBeVisible();
+  await expect(sofa).toBeVisible();
+
+  await search.fill('cab');
+  await expect(cabinet).toBeVisible();
+  await expect(sofa).toHaveCount(0);
+
+  await search.fill('');
+  await expect(cabinet).toBeVisible();
+  await expect(sofa).toBeVisible();
+
+  await search.fill('zzzz');
+  await expect(app.locator('.cat-empty')).toBeVisible();
+  await expect(cabinet).toHaveCount(0);
 });

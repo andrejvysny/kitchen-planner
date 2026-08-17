@@ -166,8 +166,10 @@ test('switching tools clears the overlay of the tool being left', async ({ app }
 test('Escape walks the tools in order, and the draw ring goes before its tool', async ({ app }) => {
   await pinViewport(app);
 
-  // armed catalog def
-  await app.click('.cat-item[data-def-id="base-cabinet"]');
+  // armed catalog def (door: a Plan-workspace tile — WS-SPEC §4.3 — since
+  // this whole spec's beforeEach lives in Plan and base-cabinet no longer
+  // renders there)
+  await app.click('.cat-item[data-def-id="door"]');
   expect(await editorTool(app)).toBe('place');
   await app.keyboard.press('Escape');
   expect(await editorTool(app)).toBe('select');

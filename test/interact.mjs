@@ -319,12 +319,16 @@ await waitUntil((n) => window.__kp.store.design.items.length < n, n1);
 results.push(['undo place', (await count()) === n0]);
 
 // 5. place a window on the top wall
+// WS-SPEC §4.3: door/window tiles now live under the Plan workspace only
+await page.click('#ws-tab-plan');
+await waitUntil(() => !!document.querySelector('.cat-item[data-def-id="window"]'));
 await page.click('.cat-item[data-def-id="window"]');
 const wt = await worldToScreen(2.0, 0.0);
 await page.mouse.click(bb.x + wt.x, bb.y + wt.y);
 await waitUntil(() => window.__kp.store.design.openings.length > 0);
 const openings = await page.evaluate(() => window.__kp.store.design.openings.length);
 results.push(['place window', openings === 1]);
+await page.click('#ws-tab-furnish'); // back to furnish for the "My parts" tiles below
 
 // 6. wall length edit via panel: select left wall, set length
 await page.mouse.click(
@@ -2013,6 +2017,12 @@ const n6fixture = await page.evaluate(() => {
     },
   };
 });
+// WS-SPEC §4.3: base-cabinet (and every furniture/appliance tile through the
+// rest of this N-block) lives under Furnish only; #btn-room/#btn-draw-room
+// aren't touched again until after the M3 storage-clear reload below, so one
+// switch here covers N6 through N13.
+await page.click('#ws-tab-furnish');
+await waitUntil(() => !!document.querySelector('.cat-item[data-def-id="base-cabinet"]'));
 await page.click('.cat-item[data-def-id="base-cabinet"]');
 const bb6 = await paneOffset();
 const midX6 = (n6fixture.far.ax + n6fixture.far.bx) / 2;
