@@ -3,15 +3,9 @@
 // data — its own localStorage key, never serialized into the design JSON,
 // DESIGN_VERSION or export/undo. Shape mirrors src/model/navPref.ts exactly
 // (module-level load + in-memory singleton + best-effort persistence).
-//
-// UNIT_PREFS_KEY belongs in src/model/storageKeys.ts alongside the other
-// storage keys; it's declared here instead to avoid an out-of-turn edit to
-// that file while another agent is touching neighbouring config — move it
-// there the next time storageKeys.ts is touched.
 
 import type { Unit, UnitPrefs } from './units';
-
-export const UNIT_PREFS_KEY = 'interior-planner-units-v1';
+import { UNIT_PREFS_KEY } from './storageKeys';
 
 const DEFAULT_PREFS: UnitPrefs = { unit: 'mm', decimals: 0 };
 

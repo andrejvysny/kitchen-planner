@@ -18,6 +18,14 @@ export const RECOVERY_KEY = 'interior-planner-design-recovery-v1';
  */
 export const UNDERLAY_KEY = 'interior-planner-underlay-v1';
 
+/** Which of the four workspaces (plan/furnish/workshop/output) was last
+ * open. A device preference like UNDERLAY_KEY above — new-name only, no
+ * legacy fallback, since the feature postdates the rename. */
+export const WORKSPACE_KEY = 'interior-planner-workspace-v1';
+/** Length-display unit + decimals preference (src/model/prefs.ts). Same
+ * new-name-only property as UNDERLAY_KEY and WORKSPACE_KEY above. */
+export const UNIT_PREFS_KEY = 'interior-planner-units-v1';
+
 export const LEGACY_DESIGN_KEYS = ['kitchen-planner-design-v1'] as const;
 export const LEGACY_PARTS_KEYS = ['kitchen-planner-parts-v1'] as const;
 export const LEGACY_NAV_KEYS = ['kitchen-planner-nav-v1'] as const;

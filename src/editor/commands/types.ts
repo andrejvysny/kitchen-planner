@@ -71,3 +71,6 @@ export interface CommandDefinition {
   canExecute?(ctx: EditorContext): boolean;
   execute(ctx: EditorContext): void;
 }
+
+/** The four task-focused workspaces of the shell. WS-SPEC §2.1. */
+export type WorkspaceId = 'plan' | 'furnish' | 'workshop' | 'output';

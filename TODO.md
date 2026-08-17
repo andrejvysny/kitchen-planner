@@ -63,6 +63,49 @@ of its own — the fix is one `mod: false` in `KEY_BINDINGS`.
 
 ---
 
+# WS — Workspace redesign (WS-SPEC, Phases 1–4)
+
+Plan: `~/.claude/plans/act-as-senior-software-glowing-seahorse.md`
+
+Four task-focused workspaces — Plan · Furnish · Workshop · Output — as filters +
+toolsets (never locks). One commit per WP on master (`ws1.3: …` style); the
+green gate above runs per WP.
+
+## Phase 1 — shell + navigation
+
+- [ ] WP 1.1 `workspaceState` module + `'workspace'` bridge channel + storageKeys TODO
+- [ ] WP 1.2 workspace tabs in topbar + `workspace.*` commands + `1`–`4` keys
+- [ ] WP 1.3 catalog filtering by workspace + search
+- [ ] WP 1.4 tool scoping per workspace
+- [ ] WP 1.5 sidebar per workspace (WorkshopPartsPanel / output caption)
+- [ ] WP 1.6 hosted Part Studio (WorkshopPane) + caption fix
+- [ ] WP 1.7 topbar slimming + settings menu + canvas overlays
+- [ ] WP 1.8 output pane (six export cards)
+- [ ] WP 1.9 test + docs migration sweep; Phase 1 exit criteria walk
+
+## Phase 2 — discoverability + onboarding
+
+- [ ] WP 2.1 context menu (plan + 3D) + pure `contextMenuModel`
+- [ ] WP 2.2 cursor hint chip
+- [ ] WP 2.3 hover affordances in the plan
+- [ ] WP 2.4 empty states
+- [ ] WP 2.5 coach marks + shortcuts cheatsheet; B1 walk
+
+## Phase 3 — workshop maturation
+
+- [ ] WP 3.1 live-apply (`store.updateCustomPart`, guard deletion, discard-if-pristine)
+- [ ] WP 3.2 scope header (def vs instances, fork-for-this-item)
+- [ ] WP 3.3 Simple / Advanced split
+- [ ] WP 3.4 front-layout presets (`faceLayouts.ts`)
+
+## Phase 4 — materials
+
+- [ ] WP 4.1 material metadata (`materialInfo.ts`) + coverage test
+- [ ] WP 4.2 swatch-row names, captions, group headers
+- [ ] WP 4.3 Materials panel (label + bind/apply copy)
+
+---
+
 # M12 — Editor core (next)
 
 See ROADMAP.md. In short: `ToolManager` + `InputRouter` land together with

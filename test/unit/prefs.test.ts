@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // A plain string constant with no load-time side effects — safe to import
 // statically even though the rest of the module is a load-at-import
 // singleton the tests below reload via vi.resetModules() + dynamic import.
-import { UNIT_PREFS_KEY } from '../../src/model/prefs';
+import { UNIT_PREFS_KEY } from '../../src/model/storageKeys';
 
 // This suite runs in node (no jsdom), like storageKeys.test.ts and
 // model.test.ts's "persistence" describe block — stub a minimal Map-backed
