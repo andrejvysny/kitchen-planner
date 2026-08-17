@@ -79,6 +79,12 @@ async function watchHistory(page: Page): Promise<void> {
 const historyCount = (page: Page): Promise<number> =>
   page.evaluate(() => (window as unknown as { __hist: number }).__hist);
 
+test.beforeEach(async ({ app }) => {
+  // WS-SPEC §4.5: the tab strip is furnish's sidebar; every spec below assumes
+  // it, so switch explicitly even though it's already the fixture's default.
+  await app.click('#ws-tab-furnish');
+});
+
 test('a tab switch moves the class, the hidden attribute and aria-selected together', async ({
   app,
 }) => {
@@ -238,4 +244,38 @@ test('a name being typed survives a commit from elsewhere', async ({ app }) => {
   await expect
     .poll(() => app.evaluate(() => window.__kp.store.design.variables[0].name))
     .toBe('Oak');
+});
+
+test('the sidebar swaps per workspace', async ({ app }) => {
+  // workshop replaces the tab strip + three panels with the parts list
+  // (WS-SPEC §4.5) — the Workshop canvas pane itself is WP 1.6, so a row
+  // click today only switches workspace + sets the target.
+  await app.click('#ws-tab-workshop');
+  await expect(app.locator('#workshop-parts')).toBeVisible();
+  await expect(app.locator('#sidebar-tabs')).toHaveCount(0);
+  await expect(app.locator('.wsp-row.wsp-preset')).toHaveCount(14);
+
+  // a design-local custom part shows up as its own (non-preset) row
+  await app.evaluate(() => {
+    const st = window.__kp.store;
+    const copy = JSON.parse(JSON.stringify(st.partOf('base-cabinet')));
+    copy.id = 'sidebar-e2e-part';
+    copy.name = 'Sidebar E2E Part';
+    st.upsertCustomPart(copy);
+    st.commit();
+  });
+  const row = app.locator('.wsp-row[data-part-id="sidebar-e2e-part"]');
+  await expect(row).toBeVisible();
+  await expect(row).not.toHaveClass(/wsp-preset/);
+  await expect(row).toContainText('Sidebar E2E Part');
+
+  // "+ New part" stays inside the Workshop workspace
+  await app.click('#wsp-new');
+  await expect(app.locator('#ws-tab-workshop')).toHaveClass(/active/);
+
+  // and the swap is reversible: furnish gets its three tabs back, library open
+  await app.click('#ws-tab-furnish');
+  await expect(app.locator('#sidebar-tabs')).toBeVisible();
+  await expect(app.locator('#tab-btn-library')).toHaveClass(/active/);
+  await expect(app.locator('#tab-library')).toBeVisible();
 });

@@ -1,9 +1,12 @@
-import { useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
 import { catalogOpen } from '../shellState';
+import { workspace } from '../workspaceState';
 import { CatalogPanel } from './CatalogPanel';
 import { useChannel } from './hooks/useStore';
 import { OutlinePanel } from './OutlinePanel';
+import { OutputDocsPanel } from './OutputDocsPanel';
 import { VariablesPanel } from './VariablesPanel';
+import { WorkshopPartsPanel } from './WorkshopPartsPanel';
 
 const TABS = ['library', 'components', 'variables'] as const;
 type Tab = (typeof TABS)[number];
@@ -29,11 +32,23 @@ const LABELS: Record<Tab, string> = {
  *
  * `.open` is the off-canvas drawer state on narrow screens, driven by the
  * topbar's ☰ (src/ui/react/Topbar.tsx) through the shell singleton.
+ *
+ * The tab strip + three panels are plan/furnish's sidebar only (WS-SPEC
+ * §4.5): workshop swaps in <WorkshopPartsPanel/> and output swaps in
+ * <OutputDocsPanel/> instead, and the tab resets to 'library' on every
+ * workspace change so returning to plan/furnish never leaves a stale tab
+ * selected. The `<aside id="catalog">` wrapper and its drawer `.open` state
+ * stay for every workspace — it is the layout column, not tab chrome.
  */
 export function Sidebar(): ReactElement {
   useChannel('shell');
+  const wsVersion = useChannel('workspace');
   const [tab, setTab] = useState<Tab>('library');
   const btns = useRef<(HTMLButtonElement | null)[]>([]);
+
+  useEffect(() => setTab('library'), [wsVersion]);
+
+  const ws = workspace();
 
   /** Roving focus across the tablist: move the selection AND the caret with it. */
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, i: number): void => {
@@ -47,6 +62,21 @@ export function Sidebar(): ReactElement {
   };
 
   const panel = (t: Tab): string => (tab === t ? 'tab-panel active' : 'tab-panel');
+
+  if (ws === 'workshop') {
+    return (
+      <aside id="catalog" className={catalogOpen() ? 'open' : undefined}>
+        <WorkshopPartsPanel />
+      </aside>
+    );
+  }
+  if (ws === 'output') {
+    return (
+      <aside id="catalog" className={catalogOpen() ? 'open' : undefined}>
+        <OutputDocsPanel />
+      </aside>
+    );
+  }
 
   return (
     <aside id="catalog" className={catalogOpen() ? 'open' : undefined}>

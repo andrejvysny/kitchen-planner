@@ -334,6 +334,53 @@ body {
   color: var(--ink);
 }
 
+/* ---------- Workshop / output sidebars ---------- */
+
+#workshop-parts,
+#output-docs {
+  padding: 10px;
+}
+
+.wsp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 5px 8px;
+  margin-bottom: 2px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.wsp-row:hover {
+  background: var(--accent-soft);
+}
+
+.wsp-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.wsp-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wsp-badge {
+  flex: none;
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+
 /* ---------- Components outline ---------- */
 
 #outline {

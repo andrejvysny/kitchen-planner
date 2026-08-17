@@ -77,7 +77,7 @@ green gate above runs per WP.
 - [x] WP 1.2 workspace tabs in topbar + `workspace.*` commands + `1`–`4` keys
 - [x] WP 1.3 catalog filtering by workspace + search
 - [x] WP 1.4 tool scoping per workspace
-- [ ] WP 1.5 sidebar per workspace (WorkshopPartsPanel / output caption)
+- [x] WP 1.5 sidebar per workspace (WorkshopPartsPanel / output caption)
 - [ ] WP 1.6 hosted Part Studio (WorkshopPane) + caption fix
 - [ ] WP 1.7 topbar slimming + settings menu + canvas overlays
 - [ ] WP 1.8 output pane (six export cards)

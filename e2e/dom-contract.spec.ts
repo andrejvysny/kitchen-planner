@@ -149,6 +149,16 @@ const CATALOG_PLAN: readonly ContractEntry[] = [
   vis('.cat-item[data-def-id="window"]'),
 ];
 
+/** src/ui/react/WorkshopPartsPanel.tsx — the Workshop workspace's sidebar (WS-SPEC §4.5). */
+const WORKSHOP_SIDEBAR: readonly ContractEntry[] = [
+  vis('#workshop-parts'),
+  vis('#wsp-new'),
+  vis('.wsp-row.wsp-preset'),
+];
+
+/** src/ui/react/OutputDocsPanel.tsx — the Output workspace's sidebar (WS-SPEC §4.5). */
+const OUTPUT_SIDEBAR: readonly ContractEntry[] = [vis('#output-docs')];
+
 /** src/ui/react/OutlinePanel.tsx — the Components-tab list (interact.mjs uses .ol-row / .room-row-name). */
 const OUTLINE: readonly ContractEntry[] = [
   vis('#outline .ol-head'),
@@ -284,6 +294,21 @@ test('DOM contract: selector table stays present across every pinned app state',
     await assertContract(app, CATALOG_PLAN); // WS-SPEC §4.3: door/window live here now
     await app.click('#ws-tab-furnish');
     await expect(app.locator('#ws-tab-furnish')).toHaveClass(/active/);
+  });
+
+  // Workshop/output each swap the whole sidebar for their own content
+  // (WS-SPEC §4.5); the swap must be reversible back to furnish's tab strip.
+  await test.step('workshop/output sidebars', async () => {
+    await app.click('#ws-tab-workshop');
+    await assertContract(app, WORKSHOP_SIDEBAR);
+    await expect(app.locator('#sidebar-tabs')).toHaveCount(0);
+
+    await app.click('#ws-tab-output');
+    await assertContract(app, OUTPUT_SIDEBAR);
+    await expect(app.locator('#sidebar-tabs')).toHaveCount(0);
+
+    await app.click('#ws-tab-furnish');
+    await expect(app.locator('#sidebar-tabs')).toBeVisible();
   });
 
   await test.step('catalog', async () => {
