@@ -1,4 +1,111 @@
-# M7 — Editor core foundations (Cycle 1 of the migration + hardening program)
+# M10 — Cycle 2: B3+B4+B5 as T1-T4 — COMPLETE
+
+Reordered (tool state first) so every later port reads clean editor state.
+
+- [x] T1 EditorState owns tool truth: Plan2D setters are delegates with entry
+  resets + immediate repaint; one `syncFromEditor()` replaced
+  `closeOtherTools` (mutual exclusion structural); `toolState()` shape
+  unchanged; the 5 `onXChange` callbacks died; shellState unified the three
+  `#status-hint` writers; ToolButtons/Mode2dToggle/WallNav/CatalogButton/
+  StatusHint went React. `e2e/tools.spec.ts` + `test/unit/planTools.test.ts`.
+- [x] T2 Sidebar owns tab state (active class AND hidden flip); VariablesPanel
+  React with uncontrolled inputs committing via native `change` only — a lint
+  rule bans React `onChange` on inputs under fields/ and props/. The shared
+  field set (src/ui/react/fields/) born. `e2e/sidebar.spec.ts`.
+- [x] T3 CatalogPanel/CatalogTile (memo per def, thumbnails in ref effects,
+  arming via `plan.setArmed` for ghost reset + def identity) + OutlinePanel on
+  pure `outlineModel.ts` (Rooms-first invariant unit-tested). PartStudio
+  construction moved to bootstrap. Six screenshots byte-identical.
+  `e2e/catalog-outline.spec.ts`.
+- [x] T4 The whole inspector went React in five gated commits: room+photo+
+  lighting → item (+`e2e/inspector.spec.ts` pinning every panel's shape) →
+  wall/opening/corner + transient wiring (`useLiveValue`, ZERO inspector
+  React renders mid-drag — `e2e/transient-perf.spec.ts`) → **the sanctioned
+  mm-units commit** (fields are `type=text` expression inputs through
+  units.ts; Part Studio dim rows flipped too; exactly 9 interact.mjs lines
+  updated) → cleanup. `ui.ts` 1772 → **130 lines** (the keyboard map, now
+  with `dispose()`). Zero length `*100`//100` under src/ui.
+- Cycle-end gates: lint · typecheck · **592 unit** · build · interact
+  **104/104** at 1× (and 6× on T1/T4) · **40/40 Playwright specs** ·
+  screenshot diffs confined to the props panel's numeric column (cm→mm).
+- Known split (documented in CLAUDE.md): canvas-drawn labels (plan, elevation,
+  studio zone/polygon canvases) still render cm — they flip with the
+  renderPlan units plumbing in Phase E.
+
+Next: B6 (export dialogs polish + Part Studio rail panels + delete the
+mountLegacyUI guard) is small and optional before Phase C (editor core:
+ToolManager, CommandRegistry, InputRouter). See the plan file.
+
+# M8 — Phase A: baseline lock — COMPLETE
+
+Plan: ~/.claude/plans/act-as-senior-software-polished-blanket.md (supersedes
+the M7 plan below; approved program: A baseline → B React shell → C editor
+core → D multi-select → E precision → F stable edge ids + dimensions +
+constraints → G UX overhaul). Gate every step: `npm run lint && npm run
+typecheck && npm run test:unit && npm run build && node test/interact.mjs`
+(104/104) and `npx playwright test`.
+
+- [x] Baseline re-verified green before any change: lint · typecheck ·
+  434 unit · build · interact **104/104, ERRORS: none**.
+- [x] A1 `@playwright/test` enabled (see M0 below) — CI runs the spec suite
+  on port 4174 after the interact step.
+- [x] A2 `Store.on()` returns a disposer; emit dispatches over a snapshot;
+  `test/unit/store-events.test.ts` (+5, 439 total).
+- [x] A3 `attach(canvas)/detach()/dispose()` on Plan2D, ElevationView and
+  View3D — AbortController-signal listeners, subscription disposers, rAF
+  cancellation, renderer reuse on same-canvas re-attach (StrictMode-safe),
+  detach marks rebuild-dirty and attach catches up. `Store.handlerCount()`
+  test seam. `e2e/lifecycle.spec.ts` (3 tests) is the leak gate.
+- [x] A4 Plan2D façade `viewport()/setViewport()/toolState()/overlayState()/
+  debug()`; interact.mjs no longer touches a private field (pure rename,
+  104/104 unchanged).
+- [x] A5 sleep sweep: **129 → 1** `waitForTimeout` (the survivor is an
+  annotated dblclick-folding pacing beat). New poll helpers `resetReady`/
+  `flushView`/`waitForCameraSettled`; two waits became exact via
+  `camera.updateMatrixWorld()`. Wall/ceiling-visibility waits now poll the
+  mesh `.visible` flag (same frame-rate bug class as the M0 pose fix).
+  Verified **104/104 at 1× and at 6× CPU throttle**.
+- [x] A6 `e2e/dom-contract.spec.ts`: 12-phase tour, ~95 selector assertions
+  pinning every id/class/data-attr both suites use — the gate every React
+  step must keep green. e2e/*.ts brought under lint + typecheck.
+- [x] Repo-wide prettier reflow landed as its own commit (41 files), all
+  gates green after.
+- [ ] Verify CI green via `workflow_dispatch` on this branch (deploy workflow
+  triggers on master push; the branch run proves the new spec step).
+
+# M9 — Phase B0-B2: React shell foundations — COMPLETE
+
+- [x] B0a `src/model/units.ts` — mm-default expression parser (no eval,
+  per-literal unit binding, dimensional discipline, caps) + `prefs.ts`
+  ({unit, decimals} outside the Design). 105 tests incl. seeded fuzz.
+- [x] B0b React 19 toolchain (matched @vitejs/plugin-react\@5, StrictMode on,
+  NO React Compiler), boundary lint rules (model/editor/plan2d/view3d stay
+  framework-free; innerHTML banned in src/ui/react), main.ts →
+  `src/app/bootstrap.ts` + inert React root; `EditorState` v0;
+  `StoreBridge` per-channel version counters (transient never bumps design).
+  React runtime rides its own chunk (+60.6 kB gz accepted; app chunk +0.5 kB).
+- [x] B1 React owns the DOM: index.html markup ported node-for-node into
+  Topbar/Sidebar/Workspace/PropsPanel/StatusBar; controllers construct
+  DETACHED (`new Plan2D(store, onHint)` etc.) and get canvases from mount
+  effects; legacy UI mounts once from an App effect. Parity: layout ±0px,
+  83-node DOM skeleton identical, screenshots byte-identical.
+  `e2e/layout.spec.ts` pins the geometry.
+- [x] B2 React owns topbar/status BEHAVIOR: view toggle, undo/redo,
+  day/night, open fronts, nav input, file ops, export menu, zoom, camera
+  presets, `#status-info` (pure `statusInfoText`), `#status-savefail`.
+  Legacy-mutated elements (4 plan tools, 2d/elev sub-toggle, wall nav,
+  catalog drawer, status hint) live in never-re-rendering memo fragments
+  marked "B5 EXPIRY". ui.ts 2024 → 1772 lines.
+- Gates at cycle end: lint · typecheck · **564 unit** · build · interact
+  **104/104** · **9/9 Playwright specs** (dom-contract, layout ×2,
+  lifecycle ×3, open-fronts ×3).
+
+Next (cycle 2): B3 sidebar/variables → B4 catalog/outline → B5 tool-state →
+EditorState + props inspector (selection-array-shaped fields on units.ts) →
+B6 dialogs/studio shell → delete ui.ts. Then Phase C editor core. See the
+plan file for full specs.
+
+# M7 — Editor core foundations (superseded by the plan above)
 
 Plan: ~/.claude/plans/act-as-senior-software-hashed-honey.md
 Program: Cycle 1 (M0 CI · M1 editor core · M2 multi-selection · M3 React shell),
@@ -34,23 +141,24 @@ npm run build && node test/interact.mjs` (104/104).
 - [x] `vitest.config.ts` scopes the unit run to `test/unit/**` so Playwright
   specs under `e2e/**` are not collected by Vitest's default `*.spec.ts` glob.
 
-- [ ] **@playwright/test NOT enabled — deliberate.** `playwright.config.ts` +
-  `e2e/{fixtures.ts,kp.d.ts,open-fronts.spec.ts}` are committed but inert: the
-  dependency is intentionally absent from package.json because `@playwright/test`
+- [x] **@playwright/test enabled — was deliberately inert.** `playwright.config.ts` +
+  `e2e/{fixtures.ts,kp.d.ts,open-fronts.spec.ts}` were committed but inert: the
+  dependency was intentionally absent from package.json because `@playwright/test`
   ships its own `playwright` bin, and side-by-side with the existing
   `playwright` dep CI's `npx playwright install chromium` fetches one browser
   revision while `test/interact.mjs` needs the other → red build → blocked
-  Pages deploy. Enable with ONE matched version:
-  `npm i -D playwright@X @playwright/test@X && npx playwright install chromium`,
-  then add the `npx playwright test` step to the deploy workflow.
-  (Local `node_modules` is currently in exactly that broken state after an
-  unmatched install — run the matched install to repair it.)
+  Pages deploy. Enabled with ONE matched version:
+  `npm i -D -E playwright@1.61.1 @playwright/test@1.61.1` (both exact, no
+  caret), added `npm run test:e2e`, and wired an `E2E (playwright specs)` step
+  into `.github/workflows/deploy.yml` after the `interact.mjs` step
+  (`KP_E2E_PORT=4174` so it doesn't collide with the interact preview still
+  holding 4173; the existing `npx playwright install --with-deps chromium`
+  step already covers the matched revision, so no second install step).
 - [ ] Port the remaining refactor-adjacent specs: `tools`, `selection`,
   `placement`, `room-editing`. `test/interact.mjs` stays the full net.
 - [ ] Verify CI green via `workflow_dispatch` on a branch before merging — the
   deploy workflow only triggers on push to master, and a red E2E blocks Pages.
-- [ ] Sweep the remaining 131 sleeps opportunistically (input-pacing sleeps
-  after `mouse.move` are fine; render/rebuild/animation waits are not).
+- [x] Sweep the remaining sleeps — done in Phase A (see M8 above): 129 → 1.
 
 ## M1 — editor core (`src/editor/`), not started
 

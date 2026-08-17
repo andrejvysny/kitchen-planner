@@ -1,6 +1,8 @@
 import { COUNTER_COLORS, OAK, WALNUT } from '../../model/catalog';
 import type { BoardPartDef, Point } from '../../model/types';
-import { choiceRow, dimRow, numRow, section, swatchRow } from './controls';
+import { unitPrefs } from '../../model/prefs';
+import { formatLengthLabel } from '../../model/units';
+import { choiceRow, dimRow, numRow, section, swatchRow, unitSuffix } from './controls';
 import type { PolygonCanvas } from './polygonCanvas';
 
 /** Outline presets, sized around a typical worktop. */
@@ -49,37 +51,71 @@ export class BoardPanel {
     this.onChange = onChange;
     canvas.onSelect = () => this.renderInspector();
 
-    const slab = section(rail, 'Slab (cm)');
-    dimRow(slab, 'Thickness', () => part.h, (v) => { part.h = v; onChange(); }, 0.012, 0.08);
-    numRow(slab, 'Off floor', () => part.elevation, (v) => {
-      part.elevation = v;
-      caption();
-      onChange();
-    }, { min: 0, max: 2.2 });
+    const slab = section(rail, `Slab (${unitSuffix()})`);
+    dimRow(
+      slab,
+      'Thickness',
+      () => part.h,
+      (v) => {
+        part.h = v;
+        onChange();
+      },
+      0.012,
+      0.08
+    );
+    numRow(
+      slab,
+      'Off floor',
+      () => part.elevation,
+      (v) => {
+        part.elevation = v;
+        caption();
+        onChange();
+      },
+      { min: 0, max: 2.2 }
+    );
     const capEl = document.createElement('div');
     capEl.className = 'studio-caption';
     slab.appendChild(capEl);
     const caption = () => {
-      capEl.textContent = `Top surface at ${Math.round((part.elevation + part.h) * 100)} cm.`;
+      capEl.textContent = `Top surface at ${formatLengthLabel(part.elevation + part.h, unitPrefs())}.`;
     };
     caption();
     this.topCaption = caption;
 
     const mat = section(rail, 'Material');
-    choiceRow(mat, 'Finish', [['wood', 'Wood'], ['matte', 'Matte']], () => part.material, (v) => {
-      part.material = v as BoardPartDef['material'];
-      onChange();
-    });
-    swatchRow(mat, [OAK, WALNUT, ...COUNTER_COLORS.slice(1)], () => part.color, (c) => {
-      part.color = c;
-      onChange();
-      canvas.draw();
-    });
+    choiceRow(
+      mat,
+      'Finish',
+      [
+        ['wood', 'Wood'],
+        ['matte', 'Matte'],
+      ],
+      () => part.material,
+      (v) => {
+        part.material = v as BoardPartDef['material'];
+        onChange();
+      }
+    );
+    swatchRow(
+      mat,
+      [OAK, WALNUT, ...COUNTER_COLORS.slice(1)],
+      () => part.color,
+      (c) => {
+        part.color = c;
+        onChange();
+        canvas.draw();
+      }
+    );
 
     const shape = section(rail, 'Outline');
     const presets = document.createElement('div');
     presets.className = 'choice';
-    for (const [kind, label] of [['rect', 'Rectangle'], ['l', 'L-shape'], ['u', 'U-shape']] as const) {
+    for (const [kind, label] of [
+      ['rect', 'Rectangle'],
+      ['l', 'L-shape'],
+      ['u', 'U-shape'],
+    ] as const) {
       const b = document.createElement('button');
       b.className = 'btn choice-btn';
       b.textContent = label;
@@ -95,7 +131,8 @@ export class BoardPanel {
     shape.appendChild(presets);
     const hint = document.createElement('div');
     hint.className = 'studio-caption';
-    hint.textContent = 'Drag ■ corners; drag a ◆ edge midpoint to add a corner; Delete removes it. The bottom edge is the front.';
+    hint.textContent =
+      'Drag ■ corners; drag a ◆ edge midpoint to add a corner; Delete removes it. The bottom edge is the front.';
     shape.appendChild(hint);
 
     const cut = document.createElement('button');
@@ -132,17 +169,71 @@ export class BoardPanel {
     if (sel.kind === 'corner') {
       const c = this.part.outline[sel.i];
       if (!c) return;
-      const ins = section(this.inspectorEl, 'Selected corner (cm)');
-      numRow(ins, 'X', () => c.x, (v) => { c.x = v; this.onChange(); this.canvas.draw(); });
-      numRow(ins, 'Y', () => c.y, (v) => { c.y = v; this.onChange(); this.canvas.draw(); });
+      const ins = section(this.inspectorEl, `Selected corner (${unitSuffix()})`);
+      numRow(
+        ins,
+        'X',
+        () => c.x,
+        (v) => {
+          c.x = v;
+          this.onChange();
+          this.canvas.draw();
+        }
+      );
+      numRow(
+        ins,
+        'Y',
+        () => c.y,
+        (v) => {
+          c.y = v;
+          this.onChange();
+          this.canvas.draw();
+        }
+      );
     } else if (sel.kind === 'hole') {
       const h = this.part.holes[sel.i];
       if (!h) return;
-      const ins = section(this.inspectorEl, 'Selected cutout (cm)');
-      numRow(ins, 'X (center)', () => h.x, (v) => { h.x = v; this.onChange(); this.canvas.draw(); });
-      numRow(ins, 'Y (center)', () => h.y, (v) => { h.y = v; this.onChange(); this.canvas.draw(); });
-      numRow(ins, 'Width', () => h.w, (v) => { h.w = Math.max(0.05, v); this.onChange(); this.canvas.draw(); });
-      numRow(ins, 'Depth', () => h.d, (v) => { h.d = Math.max(0.05, v); this.onChange(); this.canvas.draw(); });
+      const ins = section(this.inspectorEl, `Selected cutout (${unitSuffix()})`);
+      numRow(
+        ins,
+        'X (center)',
+        () => h.x,
+        (v) => {
+          h.x = v;
+          this.onChange();
+          this.canvas.draw();
+        }
+      );
+      numRow(
+        ins,
+        'Y (center)',
+        () => h.y,
+        (v) => {
+          h.y = v;
+          this.onChange();
+          this.canvas.draw();
+        }
+      );
+      numRow(
+        ins,
+        'Width',
+        () => h.w,
+        (v) => {
+          h.w = Math.max(0.05, v);
+          this.onChange();
+          this.canvas.draw();
+        }
+      );
+      numRow(
+        ins,
+        'Depth',
+        () => h.d,
+        (v) => {
+          h.d = Math.max(0.05, v);
+          this.onChange();
+          this.canvas.draw();
+        }
+      );
     }
   }
 }

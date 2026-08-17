@@ -106,7 +106,13 @@ export function zoneAtPath(root: Zone, path: number[]): Zone | null {
   return z;
 }
 
-export function zoneAtPoint(root: Zone, w: number, h: number, x: number, y: number): ZoneRect | null {
+export function zoneAtPoint(
+  root: Zone,
+  w: number,
+  h: number,
+  x: number,
+  y: number
+): ZoneRect | null {
   for (const r of walkZones(root, w, h)) {
     if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return r;
   }
@@ -143,7 +149,12 @@ export function splitZone(root: Zone, path: number[], dir: 'h' | 'v', count = 2)
     return normalizeZones(next);
   }
   if (path.length + 1 > MAX_DEPTH) return next;
-  const split: Zone = { kind: 'split', dir, weights: pieces.map(() => 1 / count), children: pieces };
+  const split: Zone = {
+    kind: 'split',
+    dir,
+    weights: pieces.map(() => 1 / count),
+    children: pieces,
+  };
   if (!parent) return normalizeZones(split);
   (parent as Extract<Zone, { kind: 'split' }>).children[idx] = split;
   return normalizeZones(next);
@@ -168,7 +179,8 @@ export function mergeZone(root: Zone, path: number[]): Zone {
  */
 export function setDivider(root: Zone, path: number[], divider: number, frac: number): void {
   const split = zoneAtPath(root, path);
-  if (!split || split.kind !== 'split' || divider < 0 || divider >= split.children.length - 1) return;
+  if (!split || split.kind !== 'split' || divider < 0 || divider >= split.children.length - 1)
+    return;
   const total = split.weights.reduce((s, v) => s + v, 0) || 1;
   const before = split.weights.slice(0, divider).reduce((s, v) => s + v, 0) / total;
   const pair = (split.weights[divider] + split.weights[divider + 1]) / total;
@@ -191,7 +203,11 @@ export function normalizeZones(root: Zone): Zone {
       if (interior) leaf.interior = interior;
       else if (typeof legacyShelves === 'number' && leaf.fill === 'open') {
         // pre-interior zone trees stored a bare shelf count on open leaves
-        leaf.interior = { mode: 'auto', shelves: clamp(Math.round(legacyShelves), 0, 4), innerDrawers: 0 };
+        leaf.interior = {
+          mode: 'auto',
+          shelves: clamp(Math.round(legacyShelves), 0, 4),
+          innerDrawers: 0,
+        };
       }
       if (leaf.fill === 'door' && ['left', 'right', 'top', 'bottom'].includes(z.hinge as string)) {
         leaf.hinge = z.hinge;
@@ -218,7 +234,12 @@ export function normalizeZones(root: Zone): Zone {
     if (children.length === 0) return { kind: 'leaf', fill: 'door' };
     if (children.length === 1) return children[0];
     const total = weights.reduce((s, v) => s + v, 0);
-    return { kind: 'split', dir: z.dir === 'v' ? 'v' : 'h', weights: weights.map((w) => w / total), children };
+    return {
+      kind: 'split',
+      dir: z.dir === 'v' ? 'v' : 'h',
+      weights: weights.map((w) => w / total),
+      children,
+    };
   };
   let out = norm(root, 0);
   while (countLeaves(out) > MAX_LEAVES && out.kind === 'split') {

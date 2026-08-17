@@ -7,16 +7,25 @@ import type { Board } from '../../src/model/types';
 export function deskBoards(drawers: number, dims: { w: number; d: number; h: number }): Board[] {
   const { w, d, h } = dims;
   const topT = 0.035;
-  const b = (partial: Omit<Board, 'rotY' | 'shape' | 'slot' | 'style'> & Partial<Board>): Board => ({
+  const b = (
+    partial: Omit<Board, 'rotY' | 'shape' | 'slot' | 'style'> & Partial<Board>
+  ): Board => ({
     rotY: 0,
     shape: 'box',
     slot: 'front',
     style: 'plain',
     ...partial,
   });
-  const boards: Board[] = [b({ id: 'top', x: 0, y: h - topT, z: 0, w, h: topT, d, slot: 'accent' })];
+  const boards: Board[] = [
+    b({ id: 'top', x: 0, y: h - topT, z: 0, w, h: topT, d, slot: 'accent' }),
+  ];
   let n = 0;
-  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+  for (const [sx, sz] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ] as const) {
     boards.push(
       b({
         id: `leg-${n++}`,

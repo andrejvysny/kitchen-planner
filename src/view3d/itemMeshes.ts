@@ -57,10 +57,18 @@ type Builder = (g: THREE.Group, c: Ctx) => void;
 const sink: Builder = (g, { item }) => {
   const { w, d } = item;
   const bowls = Math.max(1, item.params?.bowls ?? 1);
-  const steel = new THREE.MeshStandardMaterial({ color: '#b9bdc0', roughness: 0.35, metalness: 0.7 });
+  const steel = new THREE.MeshStandardMaterial({
+    color: '#b9bdc0',
+    roughness: 0.35,
+    metalness: 0.7,
+  });
   // rim plate flush on the counter
   box(g, w, 0.012, d - 0.08, steel, 0, 0, 0.02);
-  const basinMat = new THREE.MeshStandardMaterial({ color: '#2e3134', roughness: 0.35, metalness: 0.7 });
+  const basinMat = new THREE.MeshStandardMaterial({
+    color: '#2e3134',
+    roughness: 0.35,
+    metalness: 0.7,
+  });
   const bw = (w - 0.06) / bowls - 0.02;
   for (let i = 0; i < bowls; i++) {
     const x = bowls === 1 ? 0 : (i === 0 ? -1 : 1) * (bw / 2 + 0.015);
@@ -69,7 +77,11 @@ const sink: Builder = (g, { item }) => {
     box(g, bw - 0.04, 0.02, d - 0.18, matte('#191b1d'), x, -0.02, 0.02);
   }
   // black arc faucet at the back edge
-  const black = new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.4, metalness: 0.5 });
+  const black = new THREE.MeshStandardMaterial({
+    color: '#141414',
+    roughness: 0.4,
+    metalness: 0.5,
+  });
   cyl(g, 0.014, 0.3, black, 0, 0.005, -d / 2 + 0.05);
   const arm = cyl(g, 0.011, 0.22, black, 0, 0.295, -d / 2 + 0.05);
   arm.rotation.x = Math.PI / 2.3;
@@ -83,12 +95,30 @@ const hob: Builder = (g, { item }) => {
   const ring = new THREE.MeshStandardMaterial({ color: '#3c3f43', roughness: 0.5, metalness: 0.3 });
   const pos: [number, number][] =
     zones === 2
-      ? [[0, -0.12], [0, 0.12]]
+      ? [
+          [0, -0.12],
+          [0, 0.12],
+        ]
       : zones === 3
-        ? [[-0.14, -0.11], [-0.14, 0.11], [0.13, 0]]
+        ? [
+            [-0.14, -0.11],
+            [-0.14, 0.11],
+            [0.13, 0],
+          ]
         : zones === 4
-          ? [[-0.13, -0.11], [-0.13, 0.11], [0.13, -0.11], [0.13, 0.11]]
-          : [[-0.15, -0.12], [-0.15, 0.12], [0.15, -0.12], [0.15, 0.12], [0, 0]];
+          ? [
+              [-0.13, -0.11],
+              [-0.13, 0.11],
+              [0.13, -0.11],
+              [0.13, 0.11],
+            ]
+          : [
+              [-0.15, -0.12],
+              [-0.15, 0.12],
+              [0.15, -0.12],
+              [0.15, 0.12],
+              [0, 0],
+            ];
   for (const [px, pz] of pos) {
     cyl(g, 0.065, 0.004, ring, px * (w / 0.6), 0.008, pz * (d / 0.6));
   }
@@ -125,7 +155,11 @@ const fridge: Builder = (g, { item }) => {
   const split = h * 0.62;
   box(g, w - 0.02, h - split - 0.04, 0.02, doorMat, 0, split + 0.02, d / 2 + 0.005);
   box(g, w - 0.02, split - 0.06, 0.02, doorMat, 0, 0.04, d / 2 + 0.005);
-  const handle = new THREE.MeshStandardMaterial({ color: '#7e8487', roughness: 0.3, metalness: 0.8 });
+  const handle = new THREE.MeshStandardMaterial({
+    color: '#7e8487',
+    roughness: 0.3,
+    metalness: 0.8,
+  });
   box(g, 0.02, Math.min(0.5, h * 0.25), 0.025, handle, -w / 2 + 0.07, split + 0.1, d / 2 + 0.03);
   box(g, 0.02, Math.min(0.3, h * 0.16), 0.025, handle, -w / 2 + 0.07, split - 0.4, d / 2 + 0.03);
 };
@@ -171,7 +205,16 @@ const bed: Builder = (g, { item, finish }) => {
   const deckH = Math.max(0.06, BED_FRAME_H - BED_BASE_H);
   box(g, drawers ? w - 0.036 : w, deckH, d, frame, 0, BED_BASE_H, 0);
   // headboard at the BACK (-d/2) — the side that meets the wall
-  box(g, w, Math.max(0.1, h - BED_FRAME_H), HEADBOARD_T, frame, 0, BED_FRAME_H, -d / 2 + HEADBOARD_T / 2);
+  box(
+    g,
+    w,
+    Math.max(0.1, h - BED_FRAME_H),
+    HEADBOARD_T,
+    frame,
+    0,
+    BED_FRAME_H,
+    -d / 2 + HEADBOARD_T / 2
+  );
 
   const matW = Math.max(0.2, w - 0.04);
   const matD = Math.max(0.3, d - HEADBOARD_T - 0.04);
@@ -179,14 +222,34 @@ const bed: Builder = (g, { item, finish }) => {
   softSlab(g, matW, matD, BED_MAT_T, matte(MATTRESS_COLOR), BED_FRAME_H, 0, matCz, 0.04);
   // duvet folded back over the foot; pillows sit in the freed head end
   const duvD = matD * 0.62;
-  softSlab(g, matW + 0.03, duvD, 0.07, matte(DUVET_COLOR), BED_FRAME_H + BED_MAT_T - 0.02, 0, matCz + matD / 2 - duvD / 2, 0.05);
+  softSlab(
+    g,
+    matW + 0.03,
+    duvD,
+    0.07,
+    matte(DUVET_COLOR),
+    BED_FRAME_H + BED_MAT_T - 0.02,
+    0,
+    matCz + matD / 2 - duvD / 2,
+    0.05
+  );
   const pillows = Math.max(1, Math.min(2, Math.round(item.params?.pillows ?? 1)));
   const pillowD = Math.min(0.36, matD * 0.22);
   const pillowW = pillows === 1 ? Math.min(0.62, matW - 0.08) : (matW - 0.1) / 2;
   const pillowZ = matCz - matD / 2 + pillowD / 2 + 0.03;
   for (let i = 0; i < pillows; i++) {
     const px = pillows === 1 ? 0 : (i === 0 ? -1 : 1) * (pillowW / 2 + 0.02);
-    softSlab(g, pillowW, pillowD, 0.1, matte(PILLOW_COLOR), BED_FRAME_H + BED_MAT_T - 0.02, px, pillowZ, 0.05);
+    softSlab(
+      g,
+      pillowW,
+      pillowD,
+      0.1,
+      matte(PILLOW_COLOR),
+      BED_FRAME_H + BED_MAT_T - 0.02,
+      px,
+      pillowZ,
+      0.05
+    );
   }
 
   if (drawers > 0) {
@@ -248,7 +311,12 @@ const sofa: Builder = (g, { item, finish }) => {
 
   // short dark feet — the upholstered shell reads as floating on them
   const footMat = matte('#2a2926');
-  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+  for (const [sx, sz] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ] as const) {
     cyl(g, 0.022, SOFA_FOOT_H, footMat, sx * (w / 2 - 0.09), 0, sz * (d / 2 - 0.11));
   }
 
@@ -261,7 +329,7 @@ const sofa: Builder = (g, { item, finish }) => {
   back.rotation.x = -0.05;
   const armH = Math.max(deckY + 0.06, h * 0.74);
   for (const sx of [-1, 1] as const) {
-    box(g, armW, armH - SOFA_FOOT_H, d - 0.02, frameMat, sx * (w - armW) / 2, SOFA_FOOT_H, 0.01);
+    box(g, armW, armH - SOFA_FOOT_H, d - 0.02, frameMat, (sx * (w - armW)) / 2, SOFA_FOOT_H, 0.01);
   }
 
   // seat cushions across the clear width, back cushions leaning on the frame
@@ -352,7 +420,16 @@ const officeChair: Builder = (g, { item, finish }) => {
   box(g, w * 0.82, 0.08, d * 0.78, surfMat(finish), 0, CHAIR_SEAT_H, 0);
   // reclined backrest
   const backH = Math.max(0.28, h - CHAIR_SEAT_H - 0.08);
-  const back = box(g, w * 0.68, backH, 0.06, surfMat(finish), 0, CHAIR_SEAT_H + 0.08, -d / 2 + 0.05);
+  const back = box(
+    g,
+    w * 0.68,
+    backH,
+    0.06,
+    surfMat(finish),
+    0,
+    CHAIR_SEAT_H + 0.08,
+    -d / 2 + 0.05
+  );
   back.rotation.x = 0.1;
 };
 
@@ -362,7 +439,12 @@ const table: Builder = (g, { item, finish }) => {
   const { w, d, h } = item;
   box(g, w, 0.04, d, surfMat(finish, 'wood'), 0, h - 0.04, 0);
   const leg = surfMat(finish, 'wood', 0.85);
-  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+  for (const [sx, sz] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ] as const) {
     cyl(g, 0.025, h - 0.04, leg, sx * (w / 2 - 0.08), 0, sz * (d / 2 - 0.08));
   }
 };
@@ -375,7 +457,12 @@ const chair: Builder = (g, { item, finish }) => {
   box(g, w - 0.04, 0.035, d - 0.06, mat, 0, seatH, 0.02);
   const back = box(g, w - 0.06, h - seatH - 0.05, 0.03, mat, 0, seatH + 0.04, -d / 2 + 0.035);
   back.rotation.x = 0.08;
-  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+  for (const [sx, sz] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ] as const) {
     const l = cyl(g, 0.014, seatH, legMat, sx * (w / 2 - 0.05), 0, sz * (d / 2 - 0.06));
     l.rotation.z = sx * -0.06;
     l.rotation.x = sz * 0.06;
@@ -393,7 +480,15 @@ const stool: Builder = (g, { item, finish }) => {
   const legMat = matte('#2a2926');
   for (let i = 0; i < 4; i++) {
     const a = (i * Math.PI) / 2 + Math.PI / 4;
-    const l = cyl(g, 0.012, h - 0.04, legMat, Math.cos(a) * (w / 2 - 0.05), 0, Math.sin(a) * (w / 2 - 0.05));
+    const l = cyl(
+      g,
+      0.012,
+      h - 0.04,
+      legMat,
+      Math.cos(a) * (w / 2 - 0.05),
+      0,
+      Math.sin(a) * (w / 2 - 0.05)
+    );
     l.rotation.z = Math.cos(a) * 0.12;
     l.rotation.x = -Math.sin(a) * 0.12;
   }
@@ -410,7 +505,11 @@ const pendant: Builder = (g, { item, room, finish }) => {
   shadeMesh.castShadow = false;
   const bulb = new THREE.Mesh(
     new THREE.SphereGeometry(0.045, 16, 12),
-    new THREE.MeshStandardMaterial({ color: '#fff6e0', emissive: '#ffd9a0', emissiveIntensity: 1.6 })
+    new THREE.MeshStandardMaterial({
+      color: '#fff6e0',
+      emissive: '#ffd9a0',
+      emissiveIntensity: 1.6,
+    })
   );
   bulb.position.y = h * 0.22;
   bulb.userData.bulb = true;
@@ -421,7 +520,11 @@ const spot: Builder = (g, { item, finish }) => {
   cyl(g, item.w / 2, 0.02, surfMat(finish), 0, 0.02, 0);
   const lens = new THREE.Mesh(
     new THREE.CylinderGeometry(item.w / 2 - 0.02, item.w / 2 - 0.02, 0.008, 20),
-    new THREE.MeshStandardMaterial({ color: '#fff8e6', emissive: '#ffe8b8', emissiveIntensity: 1.4 })
+    new THREE.MeshStandardMaterial({
+      color: '#fff8e6',
+      emissive: '#ffe8b8',
+      emissiveIntensity: 1.4,
+    })
   );
   lens.position.y = 0.012;
   lens.userData.bulb = true;
@@ -431,7 +534,11 @@ const spot: Builder = (g, { item, finish }) => {
 const strip: Builder = (g, { item }) => {
   const bar = new THREE.Mesh(
     new THREE.BoxGeometry(item.w, 0.018, 0.035),
-    new THREE.MeshStandardMaterial({ color: '#fff4da', emissive: '#ffce7d', emissiveIntensity: 1.8 })
+    new THREE.MeshStandardMaterial({
+      color: '#fff4da',
+      emissive: '#ffce7d',
+      emissiveIntensity: 1.8,
+    })
   );
   bar.position.y = 0.01;
   bar.userData.bulb = true;

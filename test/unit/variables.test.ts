@@ -80,7 +80,13 @@ describe('variables — sanitizeDesign repair', () => {
       ],
     })!;
     expect(d.variables.map((v) => v.id)).toEqual(['ok', 'badMat']);
-    expect(d.variables[0]).toEqual({ id: 'ok', name: 'Ok', color: '#fff', material: 'oak', materialRot: true });
+    expect(d.variables[0]).toEqual({
+      id: 'ok',
+      name: 'Ok',
+      color: '#fff',
+      material: 'oak',
+      materialRot: true,
+    });
     // unknown material dropped; non-literal-true rot dropped
     expect(d.variables[1].material).toBeUndefined();
     expect(d.variables[1].materialRot).toBeUndefined();
@@ -92,10 +98,39 @@ describe('variables — sanitizeDesign repair', () => {
       corners: CORNERS,
       variables: [{ id: 'live', name: 'Live', color: '#abcdef' }],
       items: [
-        { id: 'i1', defId: 'base-cabinet', x: 1, y: 1, rotation: 0, w: 0.6, d: 0.6, h: 0.9, elevation: 0, color: 'var:live' },
-        { id: 'i2', defId: 'base-cabinet', x: 2, y: 1, rotation: 0, w: 0.6, d: 0.6, h: 0.9, elevation: 0, color: 'var:gone', accentColor: 'var:gone' },
+        {
+          id: 'i1',
+          defId: 'base-cabinet',
+          x: 1,
+          y: 1,
+          rotation: 0,
+          w: 0.6,
+          d: 0.6,
+          h: 0.9,
+          elevation: 0,
+          color: 'var:live',
+        },
+        {
+          id: 'i2',
+          defId: 'base-cabinet',
+          x: 2,
+          y: 1,
+          rotation: 0,
+          w: 0.6,
+          d: 0.6,
+          h: 0.9,
+          elevation: 0,
+          color: 'var:gone',
+          accentColor: 'var:gone',
+        },
       ],
-      room: { wallColor: 'var:gone', floorColor: '#cfccc6', counterColor: 'var:live', wallHeight: 2.6, wallThickness: 0.1 },
+      room: {
+        wallColor: 'var:gone',
+        floorColor: '#cfccc6',
+        counterColor: 'var:live',
+        wallHeight: 2.6,
+        wallThickness: 0.1,
+      },
       defaultFrontVar: 'gone',
     })!;
     const i1 = d.items.find((i) => i.id === 'i1')!;

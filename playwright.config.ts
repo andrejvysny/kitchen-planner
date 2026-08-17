@@ -1,18 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * NOT YET ENABLED. `@playwright/test` is deliberately NOT in package.json: it
- * ships its own `playwright` bin, and having it alongside the existing
- * `playwright` dependency makes CI's `npx playwright install chromium` fetch
- * one browser revision while `test/interact.mjs` needs the other — a red build
- * that blocks the Pages deploy. Enable with ONE matched version:
- *
- *     npm i -D playwright@X @playwright/test@X   # X = the same version
- *     npx playwright install chromium
- *     npx playwright test
- *
- * then add the `npx playwright test` step to .github/workflows/deploy.yml.
- *
  * Specs under e2e/ run against the PRODUCTION build, exactly like
  * test/interact.mjs — the bespoke runner stays the full regression net while
  * these specs cover what the editor refactor actually touches, with traces and

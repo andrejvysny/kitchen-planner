@@ -209,7 +209,11 @@ describe('sanitizeDesign attachment gate', () => {
 });
 
 describe('Store lifecycle with attachments', () => {
-  async function storeWith(): Promise<{ store: import('../../src/model/store').Store; hostId: string; applId: string }> {
+  async function storeWith(): Promise<{
+    store: import('../../src/model/store').Store;
+    hostId: string;
+    applId: string;
+  }> {
     const { Store } = await import('../../src/model/store');
     const store = new Store(emptyDesign());
     const host = store.addItem(store.defOf('base-cabinet'), 1, 1);

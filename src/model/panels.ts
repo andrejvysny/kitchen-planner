@@ -41,7 +41,8 @@ export const DEFAULT_WORKTOP_OVERHANG: WorktopOverhang = Object.freeze({
 });
 /** parts whose bottom sits above this (m) are wall-hung: no plinth */
 export const WALL_MOUNT_ELEVATION = 0.3;
-export const isWallMountedElevation = (elevation: number): boolean => elevation > WALL_MOUNT_ELEVATION;
+export const isWallMountedElevation = (elevation: number): boolean =>
+  elevation > WALL_MOUNT_ELEVATION;
 
 export type PanelShape =
   | { kind: 'box'; w: number; h: number; d: number }
@@ -122,7 +123,8 @@ export function cabinetFaceSize(part: CabinetPartDef): { faceW: number; faceH: n
   const y0 = !wallMounted && part.plinth ? PLINTH_H : 0;
   const fp = part.footprint;
   let faceW = part.w;
-  if (fp.kind === 'chamfer') faceW = fp.face === 'angled' ? Math.hypot(fp.cx, fp.cz) : part.w - fp.cx;
+  if (fp.kind === 'chamfer')
+    faceW = fp.face === 'angled' ? Math.hypot(fp.cx, fp.cz) : part.w - fp.cx;
   else if (fp.kind === 'cornerL') faceW = part.w - fp.nw;
   return { faceW: Math.max(0.1, faceW), faceH: Math.max(0.1, part.h - y0 - topT) };
 }
@@ -264,7 +266,14 @@ function facePanels(
   const cavD = cd - BACK_T;
   const zCav = zc + BACK_T / 2;
   const acc: Partial<Panel> = { slot: 'accent', finish: 'wood' };
-  const front = (id: string, w: number, h: number, lx: number, y: number, motion?: PanelMotion): void => {
+  const front = (
+    id: string,
+    w: number,
+    h: number,
+    lx: number,
+    y: number,
+    motion?: PanelMotion
+  ): void => {
     out.push(
       boxPanel(id, 'front', w, h, FRONT_T, lx, y, zFront - FRONT_T / 2, place, rotY, {
         groove: o.groove,
@@ -288,10 +297,58 @@ function facePanels(
     const y = y0 + boxY;
     const rest: Partial<Panel> = { ...acc, motion };
     out.push(
-      boxPanel(`${id}.side-l`, 'drawerBox', DRAWER_SIDE_T, dims.sideH, dims.boxD, xc - dims.boxW / 2 + DRAWER_SIDE_T / 2, y, zBoxC, place, rotY, rest),
-      boxPanel(`${id}.side-r`, 'drawerBox', DRAWER_SIDE_T, dims.sideH, dims.boxD, xc + dims.boxW / 2 - DRAWER_SIDE_T / 2, y, zBoxC, place, rotY, rest),
-      boxPanel(`${id}.back`, 'drawerBox', dims.boxW - DRAWER_SIDE_T * 2, dims.sideH, DRAWER_SIDE_T, xc, y, zBoxC - dims.boxD / 2 + DRAWER_SIDE_T / 2, place, rotY, rest),
-      boxPanel(`${id}.bottom`, 'drawerBox', dims.boxW, DRAWER_BOTTOM_T, dims.boxD, xc, y, zBoxC, place, rotY, rest)
+      boxPanel(
+        `${id}.side-l`,
+        'drawerBox',
+        DRAWER_SIDE_T,
+        dims.sideH,
+        dims.boxD,
+        xc - dims.boxW / 2 + DRAWER_SIDE_T / 2,
+        y,
+        zBoxC,
+        place,
+        rotY,
+        rest
+      ),
+      boxPanel(
+        `${id}.side-r`,
+        'drawerBox',
+        DRAWER_SIDE_T,
+        dims.sideH,
+        dims.boxD,
+        xc + dims.boxW / 2 - DRAWER_SIDE_T / 2,
+        y,
+        zBoxC,
+        place,
+        rotY,
+        rest
+      ),
+      boxPanel(
+        `${id}.back`,
+        'drawerBox',
+        dims.boxW - DRAWER_SIDE_T * 2,
+        dims.sideH,
+        DRAWER_SIDE_T,
+        xc,
+        y,
+        zBoxC - dims.boxD / 2 + DRAWER_SIDE_T / 2,
+        place,
+        rotY,
+        rest
+      ),
+      boxPanel(
+        `${id}.bottom`,
+        'drawerBox',
+        dims.boxW,
+        DRAWER_BOTTOM_T,
+        dims.boxD,
+        xc,
+        y,
+        zBoxC,
+        place,
+        rotY,
+        rest
+      )
     );
     return dims;
   };
@@ -308,7 +365,13 @@ function facePanels(
         const fy = yb + GAP + i * (fh + GAP);
         const unit = `${zid}.front${i}`;
         // every drawer front pulls a real box — the cut list needs its boards
-        const dims = drawerBox(`${zid}.dbox${i}`, cav, fy - y0 + 0.01, Math.max(0.05, fh - 0.03), unit);
+        const dims = drawerBox(
+          `${zid}.dbox${i}`,
+          cav,
+          fy - y0 + 0.01,
+          Math.max(0.05, fh - 0.03),
+          unit
+        );
         front(unit, r.w - GAP * 2, fh, xc, fy, {
           unit,
           kind: 'slide',
@@ -327,7 +390,18 @@ function facePanels(
       });
     } else if (leaf.fill === 'panel') {
       out.push(
-        boxPanel(`${zid}.panel`, 'panel', r.w - GAP * 2, r.h - GAP, FRONT_T, xc, yb + GAP / 2, zFront - FRONT_T / 2, place, rotY)
+        boxPanel(
+          `${zid}.panel`,
+          'panel',
+          r.w - GAP * 2,
+          r.h - GAP,
+          FRONT_T,
+          xc,
+          yb + GAP / 2,
+          zFront - FRONT_T / 2,
+          place,
+          rotY
+        )
       );
     } else if (leaf.fill === 'glass') {
       const fw = r.w - GAP * 2;
@@ -338,20 +412,102 @@ function facePanels(
       out.push(
         boxPanel(`${zid}.frame0`, 'frame', fw, s, FRONT_T, xc, yg, zf, place, rotY),
         boxPanel(`${zid}.frame1`, 'frame', fw, s, FRONT_T, xc, yg + fh - s, zf, place, rotY),
-        boxPanel(`${zid}.frame2`, 'frame', s, fh - s * 2, FRONT_T, xc - fw / 2 + s / 2, yg + s, zf, place, rotY),
-        boxPanel(`${zid}.frame3`, 'frame', s, fh - s * 2, FRONT_T, xc + fw / 2 - s / 2, yg + s, zf, place, rotY),
-        boxPanel(`${zid}.glass`, 'glass', fw - s * 2, fh - s * 2, 0.006, xc, yg + s, zf, place, rotY, { slot: 'glass' })
+        boxPanel(
+          `${zid}.frame2`,
+          'frame',
+          s,
+          fh - s * 2,
+          FRONT_T,
+          xc - fw / 2 + s / 2,
+          yg + s,
+          zf,
+          place,
+          rotY
+        ),
+        boxPanel(
+          `${zid}.frame3`,
+          'frame',
+          s,
+          fh - s * 2,
+          FRONT_T,
+          xc + fw / 2 - s / 2,
+          yg + s,
+          zf,
+          place,
+          rotY
+        ),
+        boxPanel(
+          `${zid}.glass`,
+          'glass',
+          fw - s * 2,
+          fh - s * 2,
+          0.006,
+          xc,
+          yg + s,
+          zf,
+          place,
+          rotY,
+          { slot: 'glass' }
+        )
       );
     } else if (leaf.fill === 'appliance') {
       // empty appliance niche: a carcass-toned housing an oven slides into —
       // no front; the appliance item itself renders separately
       const hous: Partial<Panel> = { tint: 0.92 };
       out.push(
-        boxPanel(`${zid}.niche-back`, 'niche', r.w, r.h, 0.012, xc, yb, zFront - o.nicheD + 0.02, place, rotY, hous),
-        boxPanel(`${zid}.niche-left`, 'niche', 0.015, r.h, cd, xc - r.w / 2 + 0.0075, yb, zc, place, rotY, hous),
-        boxPanel(`${zid}.niche-right`, 'niche', 0.015, r.h, cd, xc + r.w / 2 - 0.0075, yb, zc, place, rotY, hous),
+        boxPanel(
+          `${zid}.niche-back`,
+          'niche',
+          r.w,
+          r.h,
+          0.012,
+          xc,
+          yb,
+          zFront - o.nicheD + 0.02,
+          place,
+          rotY,
+          hous
+        ),
+        boxPanel(
+          `${zid}.niche-left`,
+          'niche',
+          0.015,
+          r.h,
+          cd,
+          xc - r.w / 2 + 0.0075,
+          yb,
+          zc,
+          place,
+          rotY,
+          hous
+        ),
+        boxPanel(
+          `${zid}.niche-right`,
+          'niche',
+          0.015,
+          r.h,
+          cd,
+          xc + r.w / 2 - 0.0075,
+          yb,
+          zc,
+          place,
+          rotY,
+          hous
+        ),
         boxPanel(`${zid}.niche-bottom`, 'niche', r.w, 0.015, cd, xc, yb, zc, place, rotY, hous),
-        boxPanel(`${zid}.niche-top`, 'niche', r.w, 0.015, cd, xc, yb + r.h - 0.015, zc, place, rotY, hous)
+        boxPanel(
+          `${zid}.niche-top`,
+          'niche',
+          r.w,
+          0.015,
+          cd,
+          xc,
+          yb + r.h - 0.015,
+          zc,
+          place,
+          rotY,
+          hous
+        )
       );
     } else {
       // open niche: a real accent-wood lining, visible from the front. It goes
@@ -360,11 +516,59 @@ function facePanels(
       const nx = cav.x0 + cav.w / 2 - faceW / 2;
       const ny = y0 + cav.y0;
       out.push(
-        boxPanel(`${zid}.niche-back`, 'niche', cav.w, cav.h, 0.012, nx, ny, zFront - o.nicheD + 0.02, place, rotY, acc),
-        boxPanel(`${zid}.niche-left`, 'niche', 0.015, cav.h, cd, nx - cav.w / 2 + 0.0075, ny, zc, place, rotY, acc),
-        boxPanel(`${zid}.niche-right`, 'niche', 0.015, cav.h, cd, nx + cav.w / 2 - 0.0075, ny, zc, place, rotY, acc),
+        boxPanel(
+          `${zid}.niche-back`,
+          'niche',
+          cav.w,
+          cav.h,
+          0.012,
+          nx,
+          ny,
+          zFront - o.nicheD + 0.02,
+          place,
+          rotY,
+          acc
+        ),
+        boxPanel(
+          `${zid}.niche-left`,
+          'niche',
+          0.015,
+          cav.h,
+          cd,
+          nx - cav.w / 2 + 0.0075,
+          ny,
+          zc,
+          place,
+          rotY,
+          acc
+        ),
+        boxPanel(
+          `${zid}.niche-right`,
+          'niche',
+          0.015,
+          cav.h,
+          cd,
+          nx + cav.w / 2 - 0.0075,
+          ny,
+          zc,
+          place,
+          rotY,
+          acc
+        ),
         boxPanel(`${zid}.niche-bottom`, 'niche', cav.w, 0.015, cd, nx, ny, zc, place, rotY, acc),
-        boxPanel(`${zid}.niche-top`, 'niche', cav.w, 0.015, cd, nx, ny + cav.h - 0.015, zc, place, rotY, acc)
+        boxPanel(
+          `${zid}.niche-top`,
+          'niche',
+          cav.w,
+          0.015,
+          cd,
+          nx,
+          ny + cav.h - 0.015,
+          zc,
+          place,
+          rotY,
+          acc
+        )
       );
     }
     // interior elements (shelves / internal drawers) behind closed fronts,
@@ -418,10 +622,22 @@ function facePanels(
           if (dims) {
             // internal drawers carry their own small front board
             out.push(
-              boxPanel(`${id}.front`, 'drawerBox', dims.boxW, e.h + 0.02, FRONT_T, exc, y0 + box.y0 + e.y - 0.01, zFront - FRONT_T - GAP - FRONT_T / 2, place, rotY, {
-                ...acc,
-                motion: { unit: id, kind: 'slide', travel: dims.travel },
-              })
+              boxPanel(
+                `${id}.front`,
+                'drawerBox',
+                dims.boxW,
+                e.h + 0.02,
+                FRONT_T,
+                exc,
+                y0 + box.y0 + e.y - 0.01,
+                zFront - FRONT_T - GAP - FRONT_T / 2,
+                place,
+                rotY,
+                {
+                  ...acc,
+                  motion: { unit: id, kind: 'slide', travel: dims.travel },
+                }
+              )
             );
           }
         }
@@ -476,7 +692,11 @@ export function cabinetPanels(part: CabinetPartDef, dims: PartDims, ctx?: HostCo
   const fpPoly = footprintPolygon(part, w, d);
   if (!fpPoly) {
     if (hasPlinth) {
-      out.push(boxPanel('plinth', 'plinth', w - 0.06, PLINTH_H, d - 0.05, 0, 0, -0.02, AT, 0, { slot: 'plinth' }));
+      out.push(
+        boxPanel('plinth', 'plinth', w - 0.06, PLINTH_H, d - 0.05, 0, 0, -0.02, AT, 0, {
+          slot: 'plinth',
+        })
+      );
     }
     // hollow carcass: one shared shell + one divider board per zone boundary —
     // the same boards a shop would cut, so the panel list IS the cut list
@@ -484,25 +704,99 @@ export function cabinetPanels(part: CabinetPartDef, dims: PartDims, ctx?: HostCo
     const zc = -FRONT_T / 2;
     const shell: Partial<Panel> = { tint: 0.92 };
     out.push(
-      boxPanel('carcass.left', 'carcass', CARCASS_T, bodyH, cd, -w / 2 + CARCASS_T / 2, y0, zc, AT, 0, shell),
-      boxPanel('carcass.right', 'carcass', CARCASS_T, bodyH, cd, w / 2 - CARCASS_T / 2, y0, zc, AT, 0, shell),
-      boxPanel('carcass.bottom', 'carcass', w - CARCASS_T * 2, CARCASS_T, cd, 0, y0, zc, AT, 0, shell),
-      boxPanel('carcass.top', 'carcass', w - CARCASS_T * 2, CARCASS_T, cd, 0, y0 + bodyH - CARCASS_T, zc, AT, 0, shell),
-      boxPanel('carcass.back', 'carcass', w - CARCASS_T * 2, bodyH - CARCASS_T * 2, BACK_T, 0, y0 + CARCASS_T, -d / 2 + BACK_T / 2, AT, 0, shell)
+      boxPanel(
+        'carcass.left',
+        'carcass',
+        CARCASS_T,
+        bodyH,
+        cd,
+        -w / 2 + CARCASS_T / 2,
+        y0,
+        zc,
+        AT,
+        0,
+        shell
+      ),
+      boxPanel(
+        'carcass.right',
+        'carcass',
+        CARCASS_T,
+        bodyH,
+        cd,
+        w / 2 - CARCASS_T / 2,
+        y0,
+        zc,
+        AT,
+        0,
+        shell
+      ),
+      boxPanel(
+        'carcass.bottom',
+        'carcass',
+        w - CARCASS_T * 2,
+        CARCASS_T,
+        cd,
+        0,
+        y0,
+        zc,
+        AT,
+        0,
+        shell
+      ),
+      boxPanel(
+        'carcass.top',
+        'carcass',
+        w - CARCASS_T * 2,
+        CARCASS_T,
+        cd,
+        0,
+        y0 + bodyH - CARCASS_T,
+        zc,
+        AT,
+        0,
+        shell
+      ),
+      boxPanel(
+        'carcass.back',
+        'carcass',
+        w - CARCASS_T * 2,
+        bodyH - CARCASS_T * 2,
+        BACK_T,
+        0,
+        y0 + CARCASS_T,
+        -d / 2 + BACK_T / 2,
+        AT,
+        0,
+        shell
+      )
     );
     for (const b of walkSplits(part.face, w, bodyH)) {
       const id = `div.${b.path.join('-') || 'r'}.${b.index}`;
       if (b.dir === 'v') {
-        out.push(boxPanel(id, 'divider', CARCASS_T, b.len, cd, b.x - w / 2, y0 + b.y, zc, AT, 0, shell));
+        out.push(
+          boxPanel(id, 'divider', CARCASS_T, b.len, cd, b.x - w / 2, y0 + b.y, zc, AT, 0, shell)
+        );
       } else {
-        out.push(boxPanel(id, 'divider', b.len, CARCASS_T, cd, b.x + b.len / 2 - w / 2, y0 + b.y - CARCASS_T / 2, zc, AT, 0, shell));
+        out.push(
+          boxPanel(
+            id,
+            'divider',
+            b.len,
+            CARCASS_T,
+            cd,
+            b.x + b.len / 2 - w / 2,
+            y0 + b.y - CARCASS_T / 2,
+            zc,
+            AT,
+            0,
+            shell
+          )
+        );
       }
     }
     facePanels(out, part.face, w, bodyH, y0, d / 2, AT, 0, opts);
     if (part.finishedBack) {
-      out.push(
-        boxPanel('back', 'panel', w, bodyH, FRONT_T, 0, y0, -d / 2 + FRONT_T / 2, AT, 0)
-      );
+      out.push(boxPanel('back', 'panel', w, bodyH, FRONT_T, 0, y0, -d / 2 + FRONT_T / 2, AT, 0));
     }
     if (topT) {
       // overhang extends the slab beyond the carcass, per edge (default snug)
@@ -564,22 +858,44 @@ export function cabinetPanels(part: CabinetPartDef, dims: PartDims, ctx?: HostCo
     const ey = fpPoly[j].y - fpPoly[i].y;
     const len = Math.hypot(ex, ey) || 1;
     // for both chamfer corners the outward normal of edge i→j is (ey, -ex)
-    faces.push({ i, j, outward: { x: ey / len, y: -ex / len }, content: fp.face === 'angled' ? 'zones' : 'panel' });
+    faces.push({
+      i,
+      j,
+      outward: { x: ey / len, y: -ex / len },
+      content: fp.face === 'angled' ? 'zones' : 'panel',
+    });
     const [fi, fj] = fp.corner === 'left' ? [2, 3] : [3, 4];
-    faces.push({ i: fi, j: fj, outward: { x: 0, y: 1 }, content: fp.face === 'front' ? 'zones' : 'panel' });
+    faces.push({
+      i: fi,
+      j: fj,
+      outward: { x: 0, y: 1 },
+      content: fp.face === 'front' ? 'zones' : 'panel',
+    });
   } else if (fp.kind === 'cornerL') {
     const front = fp.notch === 'left' ? [2, 3] : [4, 5];
     faces.push({ i: front[0], j: front[1], outward: { x: 0, y: 1 }, content: 'zones' });
-    faces.push({ i: 3, j: 4, outward: { x: fp.notch === 'left' ? -1 : 1, y: 0 }, content: fp.face2 });
+    faces.push({
+      i: 3,
+      j: 4,
+      outward: { x: fp.notch === 'left' ? -1 : 1, y: 0 },
+      content: fp.face2,
+    });
   }
   for (const f of faces) insetEdge(carcassPoly, f.i, f.j, f.outward, FRONT_T);
 
   if (hasPlinth) {
-    const c = fpPoly.reduce((s, p) => ({ x: s.x + p.x / fpPoly.length, y: s.y + p.y / fpPoly.length }), { x: 0, y: 0 });
+    const c = fpPoly.reduce(
+      (s, p) => ({ x: s.x + p.x / fpPoly.length, y: s.y + p.y / fpPoly.length }),
+      { x: 0, y: 0 }
+    );
     out.push({
       id: 'plinth',
       role: 'plinth',
-      shape: { kind: 'prism', outline: fpPoly.map((p) => ({ x: c.x + (p.x - c.x) * 0.94, y: c.y + (p.y - c.y) * 0.94 })), h: PLINTH_H },
+      shape: {
+        kind: 'prism',
+        outline: fpPoly.map((p) => ({ x: c.x + (p.x - c.x) * 0.94, y: c.y + (p.y - c.y) * 0.94 })),
+        h: PLINTH_H,
+      },
       x: 0,
       y: 0,
       z: 0,
@@ -616,21 +932,48 @@ export function cabinetPanels(part: CabinetPartDef, dims: PartDims, ctx?: HostCo
     });
     const id = `f${fi++}`;
     if (f.content === 'zones') {
-      facePanels(out, part.face, faceW, bodyH, y0, 0, place, ry, { ...opts, nicheD: Math.min(0.3, d), shell: false });
+      facePanels(out, part.face, faceW, bodyH, y0, 0, place, ry, {
+        ...opts,
+        nicheD: Math.min(0.3, d),
+        shell: false,
+      });
     } else if (f.content === 'door') {
       out.push(
-        boxPanel(`${id}.front`, 'front', faceW - GAP * 2, bodyH - GAP, FRONT_T, 0, y0 + GAP / 2, -FRONT_T / 2, place, ry, {
-          groove: opts.groove,
-          motion: {
-            unit: `${id}.front`,
-            kind: 'hinge',
-            side: fp.kind === 'cornerL' && fp.notch === 'right' ? 'right' : 'left',
-          },
-        })
+        boxPanel(
+          `${id}.front`,
+          'front',
+          faceW - GAP * 2,
+          bodyH - GAP,
+          FRONT_T,
+          0,
+          y0 + GAP / 2,
+          -FRONT_T / 2,
+          place,
+          ry,
+          {
+            groove: opts.groove,
+            motion: {
+              unit: `${id}.front`,
+              kind: 'hinge',
+              side: fp.kind === 'cornerL' && fp.notch === 'right' ? 'right' : 'left',
+            },
+          }
+        )
       );
     } else {
       out.push(
-        boxPanel(`${id}.panel`, 'panel', faceW - GAP * 2, bodyH - GAP, FRONT_T, 0, y0 + GAP / 2, -FRONT_T / 2, place, ry)
+        boxPanel(
+          `${id}.panel`,
+          'panel',
+          faceW - GAP * 2,
+          bodyH - GAP,
+          FRONT_T,
+          0,
+          y0 + GAP / 2,
+          -FRONT_T / 2,
+          place,
+          ry
+        )
       );
     }
   }
@@ -720,8 +1063,7 @@ export function freeformPanels(part: FreeformPartDef, dims: PartDims): Panel[] {
  * leaves the standalone slab above untouched.
  */
 export type WorktopPlan =
-  | { role: 'leader'; outline: Point[]; holes: Point[][] }
-  | { role: 'follower' };
+  { role: 'leader'; outline: Point[]; holes: Point[][] } | { role: 'follower' };
 
 /** Per-instance host context: cutouts appliances take out of this item's worktop. */
 export interface HostContext {

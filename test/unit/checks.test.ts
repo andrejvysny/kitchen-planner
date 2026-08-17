@@ -4,8 +4,23 @@ import { catalogDef, type CatalogDef } from '../../src/model/catalog';
 import { toCatalogDef } from '../../src/model/parts';
 import { presetPart } from '../../src/model/presets';
 import { defaultRoomStyle } from '../../src/model/rooms';
-import { DESIGN_VERSION, defaultScene, demoDesign, normalizeDesign, Store } from '../../src/model/store';
-import type { CabinetPartDef, Corner, CustomPartDef, Design, Item, Opening, Point, Room } from '../../src/model/types';
+import {
+  DESIGN_VERSION,
+  defaultScene,
+  demoDesign,
+  normalizeDesign,
+  Store,
+} from '../../src/model/store';
+import type {
+  CabinetPartDef,
+  Corner,
+  CustomPartDef,
+  Design,
+  Item,
+  Opening,
+  Point,
+  Room,
+} from '../../src/model/types';
 
 /* ---------------- fixtures ---------------- */
 
@@ -93,10 +108,14 @@ describe('overlap check', () => {
 
   it('leaves flush edge-snapped neighbours alone', () => {
     // exactly what snapItem produces: 0.6 wide units 0.6 apart
-    const w = runChecks(design({ items: [item('base-cabinet', 1, 1), item('base-cabinet', 1.6, 1)] }));
+    const w = runChecks(
+      design({ items: [item('base-cabinet', 1, 1), item('base-cabinet', 1.6, 1)] })
+    );
     expect(w).toEqual([]);
     // and 4 mm of slop is still within TOUCH_EPS
-    expect(runChecks(design({ items: [item('base-cabinet', 1, 1), item('base-cabinet', 1.596, 1)] }))).toEqual([]);
+    expect(
+      runChecks(design({ items: [item('base-cabinet', 1, 1), item('base-cabinet', 1.596, 1)] }))
+    ).toEqual([]);
   });
 
   it('is 2.5D: a wall cabinet directly above a base cabinet is fine', () => {
@@ -160,7 +179,9 @@ describe('overlap check', () => {
     const inNotch = item('stool', 1.7, 1.8);
     expect(runChecks(design({ items: [corner, inNotch], parts: [part] }))).toEqual([]);
     const inBody = item('stool', 2.3, 1.8);
-    expect(kinds(runChecks(design({ items: [corner, inBody], parts: [part] })))).toEqual(['overlap']);
+    expect(kinds(runChecks(design({ items: [corner, inBody], parts: [part] })))).toEqual([
+      'overlap',
+    ]);
   });
 });
 
@@ -227,16 +248,18 @@ describe('door checks', () => {
     // swinging out, the quarter disc leaves the room entirely: only the
     // landing (which a door needs on BOTH sides) still applies
     const across = item('base-cabinet', 1, 0.4);
-    expect(kinds(runChecks(design({ items: [across], openings: [{ ...door(), swing: 'out' }] })))).toEqual([
-      'doorLanding',
-    ]);
+    expect(
+      kinds(runChecks(design({ items: [across], openings: [{ ...door(), swing: 'out' }] })))
+    ).toEqual(['doorLanding']);
     // deep on the hinge side: swept by a left-hinged leaf, missed by a
     // right-hinged one whose arc is centred on the far jamb
     const byHinge = item('stool', 0.5, 0.8);
-    expect(kinds(runChecks(design({ items: [byHinge], openings: [door()] })))).toEqual(['blocksDoor']);
-    expect(kinds(runChecks(design({ items: [byHinge], openings: [{ ...door(), hinge: 'right' }] })))).toEqual([
-      'doorLanding',
+    expect(kinds(runChecks(design({ items: [byHinge], openings: [door()] })))).toEqual([
+      'blocksDoor',
     ]);
+    expect(
+      kinds(runChecks(design({ items: [byHinge], openings: [{ ...door(), hinge: 'right' }] })))
+    ).toEqual(['doorLanding']);
   });
 
   it('reports a tight landing as info', () => {
@@ -252,7 +275,9 @@ describe('door checks', () => {
   it('leaves items clear of both zones alone, and ignores overhead lights', () => {
     // mid-room, so it is clear of the ergonomic checks too (a cabinet parked
     // 20 cm off the far wall cannot open its door)
-    expect(runChecks(design({ items: [item('base-cabinet', 3, 1.5)], openings: [door()] }))).toEqual([]);
+    expect(
+      runChecks(design({ items: [item('base-cabinet', 3, 1.5)], openings: [door()] }))
+    ).toEqual([]);
     // a ceiling spot right over the door: decorative and far above the leaf
     expect(runChecks(design({ items: [item('spot', 1, 0.4)], openings: [door()] }))).toEqual([]);
   });
@@ -261,7 +286,15 @@ describe('door checks', () => {
     const a = rectRoom('A');
     const b = rectRoom('B', 4);
     // door on the shared wall; A's edge is (4,0) → (4,3), i.e. wall 'Ac1'
-    const shared: Opening = { id: 'o2', wallId: 'Ac1', type: 'door', offset: 1, width: 0.9, height: 2.05, sill: 0 };
+    const shared: Opening = {
+      id: 'o2',
+      wallId: 'Ac1',
+      type: 'door',
+      offset: 1,
+      width: 0.9,
+      height: 2.05,
+      sill: 0,
+    };
     const inB = item('base-cabinet', 4.5, 1.4, { roomId: 'B' });
     const w = runChecks(design({ rooms: [a, b], items: [inB], openings: [shared] }));
     // swing 'in' means into A, so B only ever sees the landing strip
@@ -462,7 +495,9 @@ describe('work triangle', () => {
 
   it('skips a room that is not a kitchen', () => {
     // no fridge: two of three corners is not a triangle
-    expect(runChecks(design({ items: [item('appl-sink', 2.2, 0.3), item('appl-hob', 2.8, 0.3)] }))).toEqual([]);
+    expect(
+      runChecks(design({ items: [item('appl-sink', 2.2, 0.3), item('appl-hob', 2.8, 0.3)] }))
+    ).toEqual([]);
   });
 
   it('judges the tightest triple when an appliance is doubled', () => {
@@ -512,7 +547,9 @@ describe('runChecks output', () => {
 
 describe('store warnings cache', () => {
   it('memoizes until the next notify', () => {
-    const store = new Store(design({ items: [item('base-cabinet', 1, 1), item('base-cabinet', 1.4, 1)] }));
+    const store = new Store(
+      design({ items: [item('base-cabinet', 1, 1), item('base-cabinet', 1.4, 1)] })
+    );
     const first = store.warnings();
     expect(first).toHaveLength(1);
     expect(store.warnings()).toBe(first); // same array identity, no recompute
@@ -526,7 +563,9 @@ describe('store warnings cache', () => {
   });
 
   it('invalidates through undo and replaceDesign', () => {
-    const store = new Store(design({ items: [item('base-cabinet', 1, 1), item('base-cabinet', 1.4, 1)] }));
+    const store = new Store(
+      design({ items: [item('base-cabinet', 1, 1), item('base-cabinet', 1.4, 1)] })
+    );
     expect(store.warnings()).toHaveLength(1);
     store.replaceDesign(design({ items: [item('base-cabinet', 1, 1)] }));
     expect(store.warnings()).toEqual([]);

@@ -235,7 +235,13 @@ export function drawPlanSymbol(
       circle(ctx, 0, 0, hw * 0.35);
       for (let i = 0; i < 4; i++) {
         const a = (i * Math.PI) / 2 + Math.PI / 4;
-        line(ctx, Math.cos(a) * hw, Math.sin(a) * hw, Math.cos(a) * hw * 1.45, Math.sin(a) * hw * 1.45);
+        line(
+          ctx,
+          Math.cos(a) * hw,
+          Math.sin(a) * hw,
+          Math.cos(a) * hw * 1.45,
+          Math.sin(a) * hw * 1.45
+        );
       }
       break;
     }
@@ -316,9 +322,18 @@ export function drawPlanSymbol(
   // front tick (helps users see which way an item faces)
   if (
     !overhead &&
-    !['door', 'window', 'water', 'outlet', 'stool', 'table', 'chair', 'backsplash', 'woodPlane', 'rug'].includes(
-      kind
-    )
+    ![
+      'door',
+      'window',
+      'water',
+      'outlet',
+      'stool',
+      'table',
+      'chair',
+      'backsplash',
+      'woodPlane',
+      'rug',
+    ].includes(kind)
   ) {
     ctx.strokeStyle = ink;
     ctx.lineWidth = hair * 1.5;

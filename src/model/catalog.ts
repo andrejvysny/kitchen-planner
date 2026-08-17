@@ -16,7 +16,15 @@ export const FLOOR_COLORS = ['#cfccc6', '#d9c4a0', '#b7b4ad', '#8f8b83', '#e3e0d
 export const WALL_COLORS = ['#f4f1ea', '#e9e4d8', '#dfe4de', '#d8dee3', '#efe2d2'];
 export const COUNTER_COLORS = ['#c9a87c', '#e8e5de', '#3a3835', '#8b6748', '#f2f1ec'];
 /** fixture light colours: warm white → neutral → cool → amber / tints */
-export const LIGHT_COLORS = ['#ffb46b', '#ffd9a0', '#fff4e0', '#ffffff', '#dfeaff', '#ff7a3c', '#7ec8ff'];
+export const LIGHT_COLORS = [
+  '#ffb46b',
+  '#ffd9a0',
+  '#fff4e0',
+  '#ffffff',
+  '#dfeaff',
+  '#ff7a3c',
+  '#7ec8ff',
+];
 
 /**
  * Cabinets live in src/model/presets.ts as zone-tree part defs; the catalog
@@ -562,4 +570,3 @@ export function isWallMounted(def: CatalogDef): boolean {
 export function isDecorative(def: CatalogDef): boolean {
   return def.noCollide === true;
 }
-

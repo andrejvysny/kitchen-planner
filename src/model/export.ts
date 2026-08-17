@@ -149,8 +149,15 @@ function panelDims(p: Panel): Dims {
   if (p.shape.kind === 'prism') {
     const b = polygonBounds(p.shape.outline);
     const [l, w, t] = sorted3(b.maxX - b.minX, b.maxY - b.minY, p.shape.h);
-    const area = polyArea(p.shape.outline) - (p.shape.holes ?? []).reduce((s, h) => s + polyArea(h), 0);
-    return { lengthMm: mm(l), widthMm: mm(w), thicknessMm: mm(t), areaM2: Math.max(0, area), shape: 'prism' };
+    const area =
+      polyArea(p.shape.outline) - (p.shape.holes ?? []).reduce((s, h) => s + polyArea(h), 0);
+    return {
+      lengthMm: mm(l),
+      widthMm: mm(w),
+      thicknessMm: mm(t),
+      areaM2: Math.max(0, area),
+      shape: 'prism',
+    };
   }
   if (p.shape.kind === 'cyl') {
     // a rod, not sheet goods: sorted like everything else, Ø goes in the notes
@@ -200,7 +207,10 @@ function panelFinish(design: Design, item: Item, part: CustomPartDef, p: Panel):
     return { colorHex: fin.color, materialLabel: labelOf(fin.material) };
   }
   if (p.slot === 'accent') {
-    return { colorHex: resolveColor(design, item.accentColor ?? part.accentColor), materialLabel: '' };
+    return {
+      colorHex: resolveColor(design, item.accentColor ?? part.accentColor),
+      materialLabel: '',
+    };
   }
   if (p.slot === 'plinth') {
     return { colorHex: PLINTH_COLOR, materialLabel: '' };
@@ -263,7 +273,13 @@ export function cutRows(design: Design): CutRow[] {
   return out;
 }
 
-function cutRow(design: Design, item: Item, part: CustomPartDef, room: Room | undefined, p: Panel): CutRow {
+function cutRow(
+  design: Design,
+  item: Item,
+  part: CustomPartDef,
+  room: Room | undefined,
+  p: Panel
+): CutRow {
   const fin = panelFinish(design, item, part, p);
   const d = panelDims(p);
   const notes = panelNotes(p);
@@ -306,7 +322,10 @@ function cutRow(design: Design, item: Item, part: CustomPartDef, room: Room | un
 /* ---------------- shopping list ---------------- */
 
 /** `Bowls: 2; Zones: 4` — every declared param at its effective value. */
-function paramOptions(item: Item, params: { key: string; label: string; def: number }[] | undefined): string {
+function paramOptions(
+  item: Item,
+  params: { key: string; label: string; def: number }[] | undefined
+): string {
   if (!params?.length) return '';
   return params.map((p) => `${p.label}: ${item.params?.[p.key] ?? p.def}`).join('; ');
 }
@@ -449,7 +468,9 @@ function hingeCount(leaf: number): number {
 /** Nearest stocked slide length to the cavity depth the travel was derived from. */
 function slideLength(travel: number): number {
   const target = (travel / SLIDE_TRAVEL_RATIO) * 1000;
-  return SLIDE_LENGTHS.reduce((best, v) => (Math.abs(v - target) < Math.abs(best - target) ? v : best));
+  return SLIDE_LENGTHS.reduce((best, v) =>
+    Math.abs(v - target) < Math.abs(best - target) ? v : best
+  );
 }
 
 /**

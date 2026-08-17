@@ -182,7 +182,12 @@ src/
     ui.ts             catalog, properties panel, toolbar, shortcuts
     partstudio/       Part Studio: type picker, zone canvas, polygon canvas,
                       freeform board editor, live 3D preview
-  main.ts           bootstrapping
+    react/            React shell (App root + StoreBridge adapter)
+  editor/
+    editorState.ts    ephemeral tool / armed def / checks layer
+  app/
+    bootstrap.ts      singleton construction (store, views, UI, window.__kp)
+    main.tsx          entry point: bootstrap, then mount the React root
 ```
 
 Decisions worth knowing:

@@ -19,8 +19,8 @@ const FLOOR = '#d8d5ce';
  * shared properties panel edits it.
  */
 export class ElevationView {
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
+  private canvas!: HTMLCanvasElement;
+  private ctx!: CanvasRenderingContext2D;
   private store: Store;
   private onWallChange: () => void;
 
@@ -33,45 +33,103 @@ export class ElevationView {
   private cssW = 100;
   private cssH = 100;
   private raf = 0;
-  private drag: { sx: number; sy: number; panX0: number; panY0: number; moved: boolean } | null = null;
+  private drag: { sx: number; sy: number; panX0: number; panY0: number; moved: boolean } | null =
+    null;
   private pinch = new PinchGesture(); // two-finger pinch-zoom / pan (touch)
   private pinching = false; // separate from `drag` (which only ever holds a pan)
 
-  constructor(canvas: HTMLCanvasElement, store: Store, onWallChange: () => void) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d')!;
+  /* ---------------- lifecycle ---------------- */
+
+  /** Aborts every DOM listener registered by the CURRENT attach(); null while detached. */
+  private ac: AbortController | null = null;
+  private ro: ResizeObserver | null = null;
+  /** store.on() disposers of the current attach(), run and cleared by detach(). */
+  private subs: (() => void)[] = [];
+  private attached = false;
+
+  /**
+   * Constructed DETACHED: the canvas arrives from `attach()`, which is what a
+   * React ref effect calls once the element is in the document. Nothing here
+   * touches the DOM, so the view can be built before the shell renders.
+   */
+  constructor(store: Store, onWallChange: () => void) {
     this.store = store;
     this.onWallChange = onWallChange;
+  }
 
-    new ResizeObserver(() => this.resize()).observe(canvas.parentElement!);
+  /**
+   * Bind to `canvas`: DOM listeners, its ResizeObserver and the store
+   * subscriptions. Re-attaching the canvas already held is a no-op, so a
+   * double-mount (React StrictMode) double-subscribes nothing.
+   */
+  attach(canvas: HTMLCanvasElement): void {
+    if (this.attached && canvas === this.canvas) return;
+    if (this.attached) this.detach();
 
-    store.on('change', () => this.requestDraw());
-    // the nav cycles the ACTIVE room's walls, so a room switch re-resolves it
-    store.on('activeRoom', () => {
-      this.ensureWall();
-      this.onWallChange();
-      if (this.active) {
-        this.fit();
-        this.requestDraw();
-      }
-    });
-    store.on('selection', () => {
-      // follow a wall picked in the plan; otherwise just repaint the highlight
-      const sel = this.store.selection;
-      if (sel.kind === 'wall' && sel.id !== this.wallId) this.setWall(sel.id);
-      else this.requestDraw();
-    });
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d')!;
+    this.attached = true;
+    this.ac = new AbortController();
+    const { signal } = this.ac;
 
-    canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
-    canvas.addEventListener('pointermove', (e) => this.onPointerMove(e));
-    canvas.addEventListener('pointerup', (e) => this.onPointerUp(e));
-    canvas.addEventListener('pointercancel', (e) => {
-      this.pinch.up(e.pointerId);
-      this.pinching = false;
-      this.drag = null;
-      this.canvas.style.cursor = 'default';
-    });
-    canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+    this.ro = new ResizeObserver(() => this.resize());
+    this.ro.observe(canvas.parentElement!);
+
+    this.subs.push(
+      this.store.on('change', () => this.requestDraw()),
+      // the nav cycles the ACTIVE room's walls, so a room switch re-resolves it
+      this.store.on('activeRoom', () => {
+        this.ensureWall();
+        this.onWallChange();
+        if (this.active) {
+          this.fit();
+          this.requestDraw();
+        }
+      }),
+      this.store.on('selection', () => {
+        // follow a wall picked in the plan; otherwise just repaint the highlight
+        const sel = this.store.selection;
+        if (sel.kind === 'wall' && sel.id !== this.wallId) this.setWall(sel.id);
+        else this.requestDraw();
+      })
+    );
+
+    canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e), { signal });
+    canvas.addEventListener('pointermove', (e) => this.onPointerMove(e), { signal });
+    canvas.addEventListener('pointerup', (e) => this.onPointerUp(e), { signal });
+    canvas.addEventListener(
+      'pointercancel',
+      (e) => {
+        this.pinch.up(e.pointerId);
+        this.pinching = false;
+        this.drag = null;
+        this.canvas.style.cursor = 'default';
+      },
+      { signal }
+    );
+    canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false, signal });
+  }
+
+  /**
+   * Release everything attach() wired: listeners, observer, subscriptions and
+   * any pending frame. Idempotent; the wall selection and viewport survive.
+   */
+  detach(): void {
+    if (!this.attached) return;
+    this.attached = false;
+    this.ac?.abort();
+    this.ac = null;
+    this.ro?.disconnect();
+    this.ro = null;
+    for (const off of this.subs) off();
+    this.subs = [];
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
+  }
+
+  /** Permanent teardown. Nothing here is GPU-backed, so it is exactly detach(). */
+  dispose(): void {
+    this.detach();
   }
 
   /* ---------------- wall selection ---------------- */
@@ -276,7 +334,7 @@ export class ElevationView {
   /* ---------------- drawing ---------------- */
 
   requestDraw(): void {
-    if (this.raf || !this.active) return;
+    if (this.raf || !this.active || !this.attached) return;
     this.raf = requestAnimationFrame(() => {
       this.raf = 0;
       this.draw();
@@ -381,7 +439,11 @@ export class ElevationView {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillStyle = '#8a877f';
-    ctx.fillText(`${fmtCm(data.len)} · ceiling ${fmtCm(data.height)}`, p0.x + (data.len * this.zoom) / 2, p0.y + 0.14 * this.zoom);
+    ctx.fillText(
+      `${fmtCm(data.len)} · ceiling ${fmtCm(data.height)}`,
+      p0.x + (data.len * this.zoom) / 2,
+      p0.y + 0.14 * this.zoom
+    );
   }
 
   private drawEmpty(msg: string): void {

@@ -195,8 +195,30 @@ describe('sanitizeDesign', () => {
       rooms: [{ id: 'r', name: 'A', corners: RECT() }],
       items: [
         // no sane position fallback exists — dropped outright
-        { id: 'nan-x', defId: 'nightstand', x: NaN, y: 1, rotation: 0, w: 0.45, d: 0.4, h: 0.52, elevation: 0, color: '#fff' },
-        { id: 'inf-rot', defId: 'nightstand', x: 1, y: 1, rotation: Infinity, w: 0.45, d: 0.4, h: 0.52, elevation: 0, color: '#fff' },
+        {
+          id: 'nan-x',
+          defId: 'nightstand',
+          x: NaN,
+          y: 1,
+          rotation: 0,
+          w: 0.45,
+          d: 0.4,
+          h: 0.52,
+          elevation: 0,
+          color: '#fff',
+        },
+        {
+          id: 'inf-rot',
+          defId: 'nightstand',
+          x: 1,
+          y: 1,
+          rotation: Infinity,
+          w: 0.45,
+          d: 0.4,
+          h: 0.52,
+          elevation: 0,
+          color: '#fff',
+        },
         // kept: every size/elevation field corrupt in a different way
         {
           id: 'corrupt',
@@ -211,7 +233,18 @@ describe('sanitizeDesign', () => {
           color: '#fff',
         },
         // boundary: exactly zero is also "not positive"
-        { id: 'zero-w', defId: 'nightstand', x: 2, y: 1, rotation: 0, w: 0, d: 0.4, h: 0.52, elevation: 0, color: '#fff' },
+        {
+          id: 'zero-w',
+          defId: 'nightstand',
+          x: 2,
+          y: 1,
+          rotation: 0,
+          w: 0,
+          d: 0.4,
+          h: 0.52,
+          elevation: 0,
+          color: '#fff',
+        },
       ],
     };
     const d = sanitizeDesign(raw)!;
@@ -227,7 +260,9 @@ describe('sanitizeDesign', () => {
   it('drops a self-intersecting (bowtie) room ring', () => {
     // a-b and d-e are the crossing diagonals of the same rectangle
     const bowtie = [c('a', 0, 0), c('b', 4, 3), c('d', 4, 0), c('e', 0, 3)];
-    expect(sanitizeDesign({ version: 6, rooms: [{ id: 'r', name: 'A', corners: bowtie }] })).toBeNull();
+    expect(
+      sanitizeDesign({ version: 6, rooms: [{ id: 'r', name: 'A', corners: bowtie }] })
+    ).toBeNull();
   });
 
   it('collapses a near-duplicate adjacent corner (including wrap-around) without breaking a valid ring', () => {
@@ -238,12 +273,24 @@ describe('sanitizeDesign', () => {
       c('d', 4, 3),
       c('e', 0, 3),
     ];
-    const forward = sanitizeDesign({ version: 6, rooms: [{ id: 'r', name: 'A', corners: withForwardDupe }] })!;
+    const forward = sanitizeDesign({
+      version: 6,
+      rooms: [{ id: 'r', name: 'A', corners: withForwardDupe }],
+    })!;
     expect(forward).not.toBeNull();
     expect(forward.rooms[0].corners.map((k) => k.id)).toEqual(['a', 'b', 'd', 'e']);
 
-    const withWrapDupe = [c('a', 0, 0), c('b', 4, 0), c('d', 4, 3), c('e', 0, 3), c('f', 1e-9, 1e-9)];
-    const wrapped = sanitizeDesign({ version: 6, rooms: [{ id: 'r', name: 'A', corners: withWrapDupe }] })!;
+    const withWrapDupe = [
+      c('a', 0, 0),
+      c('b', 4, 0),
+      c('d', 4, 3),
+      c('e', 0, 3),
+      c('f', 1e-9, 1e-9),
+    ];
+    const wrapped = sanitizeDesign({
+      version: 6,
+      rooms: [{ id: 'r', name: 'A', corners: withWrapDupe }],
+    })!;
     expect(wrapped).not.toBeNull();
     expect(wrapped.rooms[0].corners.map((k) => k.id)).toHaveLength(4);
     expect(wrapped.rooms[0].corners.map((k) => k.id)).not.toContain('f');
@@ -251,9 +298,21 @@ describe('sanitizeDesign', () => {
 
   it('keeps a valid underlay transform and drops a malformed one', () => {
     const withUnderlay = (underlay: unknown) =>
-      sanitizeDesign({ ...emptyDesign(), rooms: [{ id: 'r', name: 'A', corners: RECT() }], underlay })!;
+      sanitizeDesign({
+        ...emptyDesign(),
+        rooms: [{ id: 'r', name: 'A', corners: RECT() }],
+        underlay,
+      })!;
 
-    const good = { x: -1.5, y: 0.25, scale: 0.005, rotation: 0.2, opacity: 0.4, visible: true, locked: false };
+    const good = {
+      x: -1.5,
+      y: 0.25,
+      scale: 0.005,
+      rotation: 0.2,
+      opacity: 0.4,
+      visible: true,
+      locked: false,
+    };
     expect(withUnderlay({ ...good }).underlay).toEqual(good);
     // out-of-range opacity is clamped (a fixable slider value)…
     expect(withUnderlay({ ...good, opacity: 9 }).underlay!.opacity).toBe(1);
@@ -269,7 +328,15 @@ describe('sanitizeDesign', () => {
     const d = sanitizeDesign({
       ...emptyDesign(),
       rooms: [{ id: 'r', name: 'A', corners: RECT() }],
-      underlay: { x: 0, y: 0, scale: 0.01, rotation: 0, opacity: 0.5, visible: true, locked: false },
+      underlay: {
+        x: 0,
+        y: 0,
+        scale: 0.01,
+        rotation: 0,
+        opacity: 0.5,
+        visible: true,
+        locked: false,
+      },
       underlaySrc: 'data:image/jpeg;base64,AAAA',
     })!;
     expect(d.underlay).toBeDefined();
@@ -373,7 +440,9 @@ describe('persistence (localStorage)', () => {
     fake.setItem = () => {
       throw new Error('quota exceeded');
     };
-    expect(store.setUnderlay('data:image/jpeg;base64,AAAA', initialUnderlay(10, 10, { x: 0, y: 0 }))).toBe(false);
+    expect(
+      store.setUnderlay('data:image/jpeg;base64,AAAA', initialUnderlay(10, 10, { x: 0, y: 0 }))
+    ).toBe(false);
     expect(store.design.underlay).toBeUndefined();
     expect(store.savingFailed()).toBe(true);
   });
@@ -398,7 +467,15 @@ describe('v5 → v6 migration', () => {
     version: 5,
     corners: [c('c0', 0, 0), c('c1', 4.2, 0), c('c2', 4.2, 3.4), c('c3', 0, 3.4)],
     openings: [
-      { id: 'w1', wallId: 'c0', type: 'window', offset: 1.25, width: 1.3, height: 1.15, sill: 0.95 },
+      {
+        id: 'w1',
+        wallId: 'c0',
+        type: 'window',
+        offset: 1.25,
+        width: 1.3,
+        height: 1.15,
+        sill: 0.95,
+      },
       {
         id: 'd1',
         wallId: 'c2',
@@ -439,7 +516,13 @@ describe('v5 → v6 migration', () => {
       },
     ],
     variables: [{ id: 'v1', name: 'Sage', color: '#8a9683' }],
-    room: { wallColor: 'var:v1', floorColor: '#cfccc6', counterColor: '#c9a87c', wallHeight: 2.6, wallThickness: 0.1 },
+    room: {
+      wallColor: 'var:v1',
+      floorColor: '#cfccc6',
+      counterColor: '#c9a87c',
+      wallHeight: 2.6,
+      wallThickness: 0.1,
+    },
     wallVisibility: { c0: 'hide' },
     ceilingVisibility: 'show',
     scene: { sunAzimuth: 100, sunElevation: 40, brightness: 0.8, night: true },
@@ -613,7 +696,11 @@ describe('active room', () => {
   it('emits on change and is not serialized or undoable', () => {
     const store = new Store(rectDesign());
     const d = store.design;
-    d.rooms.push({ ...d.rooms[0], id: 'second', corners: d.rooms[0].corners.map((k) => ({ ...k })) });
+    d.rooms.push({
+      ...d.rooms[0],
+      id: 'second',
+      corners: d.rooms[0].corners.map((k) => ({ ...k })),
+    });
     const seen: string[] = [];
     store.on('activeRoom', (id) => seen.push(id));
     store.setActiveRoom('second');
@@ -836,9 +923,7 @@ describe('rooms CRUD', () => {
     expect(round.rooms.map((r) => r.corners.map((c) => c.id))).toEqual(
       store.design.rooms.map((r) => r.corners.map((c) => c.id))
     );
-    expect(round.openings.map((o) => o.wallId)).toEqual(
-      store.design.openings.map((o) => o.wallId)
-    );
+    expect(round.openings.map((o) => o.wallId)).toEqual(store.design.openings.map((o) => o.wallId));
   });
 
   it('duplicateRoom takes an explicit offset and rejects unknown ids', () => {
@@ -979,7 +1064,12 @@ describe('addRoom({polygon})', () => {
     const store = new Store(rectDesign());
     // clicked clockwise on screen — the ring is reversed for us
     const r = store.addRoom({
-      polygon: ring([[6, 0], [6, 3], [10, 3], [10, 0]]),
+      polygon: ring([
+        [6, 0],
+        [6, 3],
+        [10, 3],
+        [10, 0],
+      ]),
       name: 'Drawn',
     })!;
     expect(r.name).toBe('Drawn');
@@ -993,7 +1083,14 @@ describe('addRoom({polygon})', () => {
   it('keeps an L-shaped ring as drawn, and welds it onto a neighbour', () => {
     const store = new Store(rectDesign());
     const r = store.addRoom({
-      polygon: ring([[4, 0], [8, 0], [8, 4], [6, 4], [6, 3], [4, 3]]),
+      polygon: ring([
+        [4, 0],
+        [8, 0],
+        [8, 4],
+        [6, 4],
+        [6, 3],
+        [4, 3],
+      ]),
     })!;
     expect(r.corners).toHaveLength(6);
     expect(store.floorArea(r.id)).toBeCloseTo(14);
@@ -1003,7 +1100,14 @@ describe('addRoom({polygon})', () => {
   it('collapses clicks closer together than a wall segment', () => {
     const store = new Store(rectDesign());
     const r = store.addRoom({
-      polygon: ring([[6, 0], [6.02, 0], [10, 0], [10, 3], [6, 3], [6, 0.01]]),
+      polygon: ring([
+        [6, 0],
+        [6.02, 0],
+        [10, 0],
+        [10, 3],
+        [6, 3],
+        [6, 0.01],
+      ]),
     })!;
     expect(r.corners).toHaveLength(4); // the doubled click and the closing point go
     expect(rectangleSizeOf(r)).toEqual({ w: 4, d: 3 });
@@ -1013,11 +1117,32 @@ describe('addRoom({polygon})', () => {
     const store = new Store(rectDesign());
     const before = JSON.stringify(store.design);
     const bad: Point[][] = [
-      ring([[0, 0], [1, 0]]), // too few corners
-      ring([[6, 0], [10, 0], [6, 3], [10, 3]]), // bow tie: self-intersecting
-      ring([[6, 0], [6.5, 0], [6.5, 0.5], [6, 0.5]]), // 0.25 m², a stray click
-      ring([[6, 0], [7, 0], [8, 0]]), // collinear: no area at all
-      [{ x: 6, y: 0 }, { x: NaN, y: 0 }, { x: 8, y: 2 }],
+      ring([
+        [0, 0],
+        [1, 0],
+      ]), // too few corners
+      ring([
+        [6, 0],
+        [10, 0],
+        [6, 3],
+        [10, 3],
+      ]), // bow tie: self-intersecting
+      ring([
+        [6, 0],
+        [6.5, 0],
+        [6.5, 0.5],
+        [6, 0.5],
+      ]), // 0.25 m², a stray click
+      ring([
+        [6, 0],
+        [7, 0],
+        [8, 0],
+      ]), // collinear: no area at all
+      [
+        { x: 6, y: 0 },
+        { x: NaN, y: 0 },
+        { x: 8, y: 2 },
+      ],
     ];
     for (const polygon of bad) expect(store.addRoom({ polygon })).toBeNull();
     expect(JSON.stringify(store.design)).toBe(before);
@@ -1027,7 +1152,12 @@ describe('addRoom({polygon})', () => {
   it('wins over at/against and still lands on the drawn spot', () => {
     const store = new Store(rectDesign());
     const r = store.addRoom({
-      polygon: ring([[6, 0], [9, 0], [9, 2], [6, 2]]),
+      polygon: ring([
+        [6, 0],
+        [9, 0],
+        [9, 2],
+        [6, 2],
+      ]),
       at: { x: -9, y: -9 },
       against: { wallId: 'c1' },
       w: 1,
@@ -1232,7 +1362,7 @@ describe('snapItem', () => {
 });
 
 describe('setShapePreset', () => {
-  it('anchors the preset at the room\'s own min-corner instead of teleporting to the origin', () => {
+  it("anchors the preset at the room's own min-corner instead of teleporting to the origin", () => {
     const store = new Store(rectDesign());
     const r2 = store.addRoom({ at: { x: 6, y: 1 }, w: 5, d: 4 })!;
     store.setShapePreset('rect', r2.id);

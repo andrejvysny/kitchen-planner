@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { DESIGN_VERSION, MIN_MIGRATABLE_VERSION, migrate5to6, migrateDesign } from '../../src/model/migrate';
+import {
+  DESIGN_VERSION,
+  MIN_MIGRATABLE_VERSION,
+  migrate5to6,
+  migrateDesign,
+} from '../../src/model/migrate';
 
 type Raw = Record<string, unknown>;
 

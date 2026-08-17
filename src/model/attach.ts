@@ -84,7 +84,10 @@ function plinthOffset(part: CabinetPartDef, host: Item): number {
 }
 
 /** the appliance zone rect (face-local) an attachment points at, or null */
-function zoneRectOf(design: Design, attach: Extract<Attachment, { kind: 'zone' }>): {
+function zoneRectOf(
+  design: Design,
+  attach: Extract<Attachment, { kind: 'zone' }>
+): {
   host: Item;
   part: CabinetPartDef;
   rect: ZoneRect;
@@ -214,7 +217,12 @@ export interface HostHit {
 }
 
 /** Find a host for an armed/dragged appliance near plan point `p`. */
-export function findHost(design: Design, def: CatalogDef, p: Point, excludeId: string | null): HostHit | null {
+export function findHost(
+  design: Design,
+  def: CatalogDef,
+  p: Point,
+  excludeId: string | null
+): HostHit | null {
   const spec = def.appliance;
   if (!spec || (spec.mount !== 'counter' && spec.mount !== 'zone')) return null;
   const hosting = applianceHosting(design);
@@ -231,7 +239,10 @@ export function findHost(design: Design, def: CatalogDef, p: Point, excludeId: s
       const dist = Math.hypot(du, dv);
       if (dist > HOST_REACH) continue;
       if (!best || dist < best.dist) {
-        best = { hit: { hostId: host.id, attach: { kind: 'counter', hostId: host.id, u, v } }, dist };
+        best = {
+          hit: { hostId: host.id, attach: { kind: 'counter', hostId: host.id, u, v } },
+          dist,
+        };
       }
       continue;
     }
@@ -246,7 +257,10 @@ export function findHost(design: Design, def: CatalogDef, p: Point, excludeId: s
       const dist = Math.hypot(zc.x - p.x, zc.y - p.y);
       if (dist > HOST_REACH + host.d) continue;
       if (!best || dist < best.dist) {
-        best = { hit: { hostId: host.id, attach: { kind: 'zone', hostId: host.id, path: r.path } }, dist };
+        best = {
+          hit: { hostId: host.id, attach: { kind: 'zone', hostId: host.id, path: r.path } },
+          dist,
+        };
       }
     }
   }

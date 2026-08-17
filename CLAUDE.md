@@ -251,6 +251,133 @@ may legally share space — lights, sockets, rugs, wall panels — set
 itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
 `snapsToWall`/`isWallMounted`/`isOverhead`.
 
+## Editor infrastructure contracts (Phase A — baseline lock)
+
+- `Store.on()` returns a disposer; calling it twice is a no-op, and `emit`
+  dispatches over a snapshot so unsubscribing mid-dispatch never skips a
+  sibling. `store.handlerCount(evt)` is a read-only test seam — a view that
+  attaches and detaches must leave it at its baseline.
+- Plan2D, ElevationView and View3D share one lifecycle contract:
+  `attach(canvas)` (idempotent for the held canvas) / `detach()` (idempotent;
+  aborts listeners, disconnects the ResizeObserver, runs store-subscription
+  disposers, cancels rAF loops) / `dispose()` (detach + permanent teardown).
+  All three are constructed DETACHED — `new Plan2D(store, editor, onHint)`,
+  `new ElevationView(store, onWallChange)`, `new View3D(store, opts)` never
+  touch the DOM — and the React shell hands each one its canvas from a ref
+  effect (src/ui/react/Workspace.tsx). View3D therefore starts rebuild-dirty
+  and frames the design (`setPreset('corner')`) on its FIRST attach only. It
+  keeps its WebGLRenderer when re-attached to the SAME canvas (StrictMode
+  remounts) and marks itself rebuild-dirty while detached so it catches up on
+  attach. Never call `forceContextLoss()`. e2e/lifecycle.spec.ts is the leak
+  gate.
+- React owns the application DOM: index.html is `<div id="react-root">` plus
+  the module script, and src/ui/react/App.tsx renders the former markup
+  node-for-node (Topbar / Sidebar / Workspace / PropsPanel / StatusBar are
+  organizational splits — the rendered tree is identical, and
+  e2e/layout.spec.ts pins the boot geometry). The shell holds NO state and
+  never re-renders. **src/ui/ui.ts is down to the global keyboard map** — one
+  `keydown` listener on `window`, released by `dispose()` through an
+  AbortController — and subscribes to no store event at all; `mountLegacyUI()`
+  (src/app/bootstrap.ts) still constructs it once behind a module guard, from
+  an App-level effect that runs after the canvas effects.
+- The whole left sidebar is React's (src/ui/react/Sidebar.tsx + CatalogPanel /
+  OutlinePanel / VariablesPanel): which tab is open is component state, and the
+  panels carry BOTH `.active` and `hidden` because style.css hides on
+  `[hidden]` while test/interact.mjs asserts the class. **src/ui/outlineModel.ts
+  `outlineGroups(source)` is the grouping truth** — CATALOG_GROUP (defId →
+  catalog section), OUTLINE_ORDER and the 'Other'-leftovers rule live there,
+  pure and unit-tested; OutlinePanel only formats and wires clicks. CatalogPanel
+  keeps the old renderCatalogIfPartsChanged signature (JSON of
+  `design.customParts`) as a `useMemo` key, so tile defs keep their identity and
+  memoized <CatalogTile/>s skip the thumbnail redraw on arming ticks. The Part
+  Studio is a bootstrap singleton (`studio`) with a no-op close callback: save
+  and delete both `store.commit()`, so the 'history' channel is the refresh.
+- **Fields commit on the DOM's native `change` event, never React's onChange**
+  — src/ui/react/fields/ is the shared set (SwatchRow, MaterialRow, VarChips,
+  ChoiceRow, ToggleRow, SliderRow, StepperRow, RotToggle, Number/Length/Angle
+  fields) every panel builds from, and `useNativeChange` is how each one takes
+  its undo step. React's onChange on an input is the per-keystroke `input`
+  event, so committing there would push one undo step per character;
+  eslint.config.js enforces this with a `no-restricted-syntax` rule over
+  fields/** and props/**, and SliderRow — which genuinely wants the live input
+  while dragging — is the one inline-disabled exception. The inputs stay
+  UNCONTROLLED: `useSyncedValue` mirrors the model into them after each render
+  and `useLiveValue` during a drag ('transient' channel), both refusing to write
+  into `document.activeElement` — that check is what replaced ui.ts's
+  isEditingVariableName guard around its innerHTML rebuilds. `wrapAngle`
+  (convert.ts) and the multi-selection rule (`useMixedValue`) are pure and
+  pinned by test/unit/fields.test.ts.
+- **The properties inspector is keyed by the selection, and never renders
+  mid-gesture.** src/ui/react/PropsPanel.tsx mounts `<PropsBody/>` under
+  `` `${sel.kind}:${sel.id}` `` (or `room:<activeRoomId>` when nothing is
+  selected), so picking a DIFFERENT object remounts the whole body — the React
+  spelling of ui.ts's `innerHTML = ''`, and what lets every field stay
+  uncontrolled — while an edit to the SAME object is an ordinary re-render that
+  keeps nodes, focus and caret. PropsBody subscribes to 'selection', 'history'
+  and 'activeRoom' and to NOTHING else: a drag fires 'transient' at pointer
+  rate, and the six dragged fields (pos-x, pos-y, rot, corner-x, corner-y,
+  opening-off) follow it themselves through `useLiveValue`, writing into their
+  own node. That is a hard contract, not an optimisation — PropsBody counts its
+  committed renders into `window.__kp.debug.renderCounts`
+  (src/ui/react/debugCounters.ts) and e2e/transient-perf.spec.ts fails on a
+  single one during a drag. Panels are one file each under
+  src/ui/react/props/ (Room / Item / Wall / Opening / Corner, plus the shared
+  Checks / Underlay / Lighting sections); e2e/inspector.spec.ts pins each
+  one's ordered section titles, because test/interact.mjs reaches into this
+  panel by ordinal (`.prop-section` index, the room panel's first numeric
+  field) and those couplings are invisible from the code they constrain.
+- **A length or angle box is `type=text` with `data-unit`, not a spinner.**
+  src/model/units.ts parses and formats it, in the unit src/model/prefs.ts
+  holds (mm, 0 decimals, by default, on its own 'units' bridge channel), so
+  the value can be an expression — '600-18*2', '1.2m', '90+45'. NumericRow
+  (fields/NumberField.tsx) re-implements what the browser used to give for
+  free, once: clamping to `min`/`max` (which are MODEL units — metres and
+  radians — since the display unit is a preference), ArrowUp/Down stepping by
+  `step` in the DISPLAY unit (×10 with Shift), and restoring the model's own
+  value when the input parses to nothing.
+- **`EditorState` (src/editor/editorState.ts) is the single source of tool
+  truth**: `tool` (`select | place | measure | calibrate | room | drawRoom`),
+  `armedDefId` (only meaningful under `place`, and `setTool` nulls it on every
+  other switch) and the orthogonal `checksOn` display layer. Ephemeral like
+  `store.openFronts` — never serialized, never undone. Plan2D's six public tool
+  fields (`armedDef/measureOn/calibrateOn/roomToolOn/drawRoomOn/checksOn`) are
+  READ-ONLY MIRRORS written only by its `syncFromEditor()`, which the
+  constructor subscribes (not `attach()` — a detached view still tracks the
+  tool). A tool change there runs the **leaving-tool cleanup** — calibrate →
+  `resetCalibrate`, place → ghosts, measure → `resetMeasure`, room →
+  `roomGhost`, drawRoom → `resetDrawRing` — which is what replaced
+  `closeOtherTools(keep)`. `syncFromEditor` NEVER writes the editor back
+  (re-entrancy), and `resolveArmed` is null-safe on purpose: `store.defOf`
+  THROWS, so a stale armed id must resolve to null, not an exception. The
+  `setX()` methods are delegates that keep their ENTRY reset (re-arming the
+  live tool is a no-op upstream, so that reset is the only effect) and then
+  call `editor.setTool`. React's tool buttons call the editor directly.
+- Chrome state that is neither design nor tool lives in
+  src/ui/shellState.ts — the status-bar hint text and the catalog drawer's
+  open flag, a module singleton shaped like src/model/prefs.ts. Everything
+  that used to write `#status-hint` calls `setHint()`; `<StatusHint/>` renders
+  it. StoreBridge carries all three upstreams as channels: Store, `'editor'`
+  and `'shell'`.
+- Tests drive Plan2D ONLY through its façade: `viewport()/setViewport()/
+  toolState()/overlayState()/debug()`. `debug().drawCount/gestureCount` are
+  monotonic counters — the no-sleep assertion seam. If a test needs a private
+  field, the façade is wrong: fix the façade, not the test.
+- E2E waits POLL, never sleep: `waitUntil`/`resetReady`/`flushView`/
+  `waitForPose` + the debug counters. `test/interact.mjs` has exactly ONE
+  `waitForTimeout` (an annotated dblclick-folding pacing beat); do not add
+  more. Suite must stay green at `KP_CPU_THROTTLE=6`.
+- e2e/*.ts is covered by lint AND typecheck (eslint block + tsconfig.test.json
+  include) — a selector or API drift breaks the build, not just the specs.
+- e2e/dom-contract.spec.ts pins every DOM id/class/data-attr the suites use.
+  Renaming one means updating the contract table AND both suites in the same
+  change. e2e/tools.spec.ts is the gate for the EditorState seam (mirror
+  parity, leaving-tool cleanup, entry resets, Escape order, stale armed ids);
+  test/unit/planTools.test.ts covers the DOM-free half of it — Plan2D
+  constructs headless, so the mirrors are unit-testable without a canvas.
+  e2e/catalog-outline.spec.ts does the same for the sidebar's two ported
+  panels (arm/disarm marker, place, ＋/✎ into the studio, group order and
+  counts, row + room-row activation by click and by Enter).
+
 ## Gotchas
 
 - Lights: emissive "bulb" meshes are tagged `userData.bulb = true`; View3D
@@ -304,8 +431,18 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   plan (`footprintPolygon` + `pointInPolygon`) but SNAP by bounding box —
   intentional simplification; a diagonal corner unit's square back still
   hugs both walls correctly.
-- Date/format: all lengths meters internally; UI shows cm (ints) everywhere,
-  including wall lengths and canvas dimension labels.
+- Units: all lengths are meters internally, and **src/model/units.ts is the
+  single conversion authority** — nothing outside it multiplies a length by
+  100. The properties inspector and the Part Studio DISPLAY and PARSE through
+  it, in the unit `src/model/prefs.ts` holds (**mm, 0 decimals, by default**;
+  the pref is per-device, never design data). Inspector length/angle boxes are
+  `type=text` + `inputMode=decimal` + `data-unit`, not spinners, because they
+  take EXPRESSIONS — '600-18*2', '1.2m', '90+45' — and a rejected one restores
+  the model's value instead of committing. `min`/`max` on those fields are
+  MODEL units and the field clamps to them, since a text box has no browser
+  range to lean on. The plan and elevation CANVASES still label in cm (wall
+  lengths, dimension lines): they draw their own text and were deliberately
+  left alone.
 
 ## graphify (knowledge graph)
 
