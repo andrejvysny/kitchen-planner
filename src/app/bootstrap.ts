@@ -4,6 +4,7 @@ import { demoDesign, Store } from '../model/store';
 import { Plan2D } from '../plan2d/plan2d';
 import { ElevationView } from '../plan2d/elevation';
 import { UI } from '../ui/ui';
+import { PartStudio } from '../ui/partstudio';
 import { View3D } from '../view3d/view3d';
 import { setMacOverride } from '../view3d/wheelInput';
 import { EditorState } from '../editor/editorState';
@@ -93,6 +94,20 @@ export const view = new View3D(store, {
   getArmed: () => plan.armedDef,
   clearArmed: () => plan.setArmed(null),
 });
+
+/**
+ * The Part Studio modal — one instance for the whole app, reached by the
+ * catalog's ＋/✎ tiles, the props panel's "Edit part template…" and Escape.
+ * Its constructor is DOM-free (only `open()` touches the document), so it
+ * belongs here with the other singletons.
+ *
+ * Its close callback is a no-op: the only paths that change the parts library
+ * (save / delete part) both `store.commit()`, so the 'history' channel already
+ * wakes <CatalogPanel/>. Cancelling changes nothing, so there is nothing to
+ * refresh — which is exactly what the old renderCatalogIfPartsChanged
+ * signature check worked out for itself.
+ */
+export const studio = new PartStudio(store, () => {});
 
 /** UI has no dispose() yet, so it may only ever be constructed once. */
 let uiMounted = false;

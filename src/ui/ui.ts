@@ -1,21 +1,18 @@
 import {
-  CATALOG,
   COUNTER_COLORS,
   FLOOR_COLORS,
   FRONT_COLORS,
   LIGHT_COLORS,
   WALL_COLORS,
-  type CatalogDef,
 } from '../model/catalog';
 import { polygonBounds } from '../model/geometry';
-import { footprintPolygon, toCatalogDef } from '../model/parts';
 import {
   initialUnderlay,
   UNDERLAY_JPEG_Q,
   UNDERLAY_MAX_PX,
   underlayScaleFrom,
 } from '../model/underlay';
-import { hasPreset, PRESETS } from '../model/presets';
+import { hasPreset } from '../model/presets';
 import {
   COUNTER_MATERIALS,
   FLOOR_MATERIALS,
@@ -28,24 +25,15 @@ import {
 import type { Warning } from '../model/checks';
 import { SUN_ELEV_MAX, SUN_ELEV_MIN } from '../model/sky';
 import { demoDesign, Store } from '../model/store';
-import type { Item, Selection, Underlay, WallVisMode } from '../model/types';
+import type { Item, Underlay, WallVisMode } from '../model/types';
 import { isVarRef, refId, resolveColor, toVarRef } from '../model/variables';
-import { renderThumbnail } from '../plan2d/symbols';
 import type { Plan2D } from '../plan2d/plan2d';
 import type { EditorState } from '../editor/editorState';
 import { materialSwatch } from '../view3d/textures';
 import { setHint } from './shellState';
-import { PartStudio } from './partstudio';
+import { studio } from '../app/bootstrap';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T => document.querySelector(sel) as T;
-
-/** defId → catalog section title, so placed items list under the same type group they were placed from. */
-const CATALOG_GROUP = new Map<string, string>();
-for (const s of CATALOG) for (const d of s.items) CATALOG_GROUP.set(d.id, s.title);
-for (const e of PRESETS) CATALOG_GROUP.set(e.part.id, e.section);
-
-/** Display order of the components-outline groups. */
-const OUTLINE_ORDER = ['Doors & windows', ...CATALOG.map((s) => s.title), 'My parts'];
 
 /** radians → whole degrees in [0, 360) for display; the model keeps radians unbounded */
 function displayDeg(rad: number): number {
@@ -56,48 +44,38 @@ export class UI {
   private store: Store;
   private plan: Plan2D;
   private editor: EditorState;
-  private studio: PartStudio;
 
   // The 3D view left this class in step B2 with the topbar buttons that drove
   // it (snapshot / GLB / camera presets / pane visibility); B3 took the tool
-  // buttons, the 2D/elev toggle, the wall nav and the catalog drawer, and T3
-  // the sidebar tabs plus the whole Variables panel. What is left is the
-  // catalog, the outline, the props panel and the keyboard map.
+  // buttons, the 2D/elev toggle, the wall nav and the catalog drawer, T3 the
+  // sidebar tabs plus the whole Variables panel, and T4 the catalog and the
+  // components outline. What is left is the props panel and the keyboard map.
   constructor(store: Store, plan: Plan2D, editor: EditorState) {
     this.store = store;
     this.plan = plan;
     this.editor = editor;
-    this.studio = new PartStudio(store, () => this.renderCatalogIfPartsChanged());
 
-    this.renderCatalog();
-    this.renderOutline();
     this.renderProps();
     this.wireUnderlay();
     this.wireKeyboard();
 
-    // TRANSITIONAL (dies with T3/T4): two bits of legacy DOM still mirror tool
-    // state by hand — the armed catalog tile and the calibrate button inside
-    // the props panel. Both become components once the catalog and the props
-    // panel are React's; until then this is the one subscription that keeps
-    // them honest, in place of the onArmedChange/onCalibrateChange callbacks.
+    // TRANSITIONAL (dies with T5): one bit of legacy DOM still mirrors tool
+    // state by hand — the calibrate button inside the props panel. It becomes
+    // a component once the props panel is React's; until then this is the one
+    // subscription that keeps it honest, in place of an onCalibrateChange
+    // callback.
     editor.subscribe(() => {
-      this.markArmedTile();
       document
         .querySelector('#props-inner .underlay-calibrate')
         ?.classList.toggle('active', editor.isTool('calibrate'));
     });
 
-    store.on('selection', () => {
-      this.renderProps();
-      this.renderOutline();
-    });
+    store.on('selection', () => this.renderProps());
     store.on('history', () => {
       // skip the full panel rebuild while the user is interacting inside it —
       // steppers, choice rows and inputs keep themselves current
       const active = document.activeElement;
       if (!active || !$('#props').contains(active)) this.renderProps();
-      this.renderCatalogIfPartsChanged();
-      this.renderOutline();
     });
     store.on('change', (info) => {
       if (info.transient) this.refreshTransientInputs();
@@ -105,230 +83,7 @@ export class UI {
     // ephemeral, but it retargets every room-scoped panel and the elevation
     store.on('activeRoom', () => {
       if (!this.isEditingRoomName(document.activeElement)) this.renderProps();
-      this.renderOutline();
     });
-  }
-
-  /* ================= catalog ================= */
-
-  private lastPartsSig = '';
-
-  /** The catalog only changes when the parts library does — skip pointless rebuilds. */
-  private renderCatalogIfPartsChanged(): void {
-    const sig = JSON.stringify(this.store.design.customParts);
-    if (sig === this.lastPartsSig) return;
-    this.renderCatalog();
-  }
-
-  private renderCatalog(): void {
-    this.lastPartsSig = JSON.stringify(this.store.design.customParts);
-    const root = $('#catalog-inner');
-    root.innerHTML = '';
-
-    const addSection = (title: string): HTMLElement => {
-      const s = document.createElement('div');
-      s.className = 'cat-section';
-      s.innerHTML = `<div class="cat-title">${title}</div><div class="cat-grid"></div>`;
-      root.appendChild(s);
-      return s.querySelector('.cat-grid') as HTMLElement;
-    };
-
-    const addTile = (grid: HTMLElement, def: CatalogDef, editable = false): void => {
-      const wrap = document.createElement('div');
-      wrap.className = 'cat-item-wrap';
-      const tile = document.createElement('div');
-      tile.className = 'cat-item';
-      tile.dataset.defId = def.id;
-      tile.role = 'button';
-      tile.tabIndex = 0;
-      tile.title = `Click, then click in the plan to place — ${def.label.toLowerCase()}`;
-      const canvas = document.createElement('canvas');
-      const tilePart = this.store.partOf(def.id);
-      renderThumbnail(
-        canvas,
-        def.kind,
-        def.w,
-        def.d,
-        def.color,
-        tilePart ? (footprintPolygon(tilePart, def.w, def.d) ?? undefined) : undefined
-      );
-      tile.appendChild(canvas);
-      const label = document.createElement('span');
-      label.textContent = def.label;
-      tile.appendChild(label);
-      const arm = () => this.plan.setArmed(this.editor.armedDefId === def.id ? null : def);
-      tile.addEventListener('click', arm);
-      tile.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          arm();
-        }
-      });
-      wrap.appendChild(tile);
-      if (editable) {
-        const edit = document.createElement('button');
-        edit.className = 'cat-edit';
-        edit.textContent = '✎';
-        edit.title = 'Edit this part';
-        edit.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.plan.setArmed(null);
-          this.studio.open(this.store.customPartById(def.id));
-        });
-        wrap.appendChild(edit);
-      }
-      grid.appendChild(wrap);
-    };
-
-    let first = true;
-    for (const section of CATALOG) {
-      const grid = addSection(section.title);
-      // built-in cabinet presets lead their sections; legacy defs follow
-      for (const e of PRESETS) {
-        if (e.section === section.title) addTile(grid, toCatalogDef(e.part));
-      }
-      for (const def of section.items) addTile(grid, def);
-      if (first) {
-        first = false;
-        // "My parts" right after the room tools: create → sketch → furnish
-        const grid2 = addSection('My parts');
-        const newTile = document.createElement('div');
-        newTile.className = 'cat-item cat-new';
-        newTile.role = 'button';
-        newTile.tabIndex = 0;
-        newTile.innerHTML = `<span style="font-size:20px">＋</span><span>New part</span>`;
-        const openStudio = () => {
-          this.plan.setArmed(null);
-          this.studio.open();
-        };
-        newTile.addEventListener('click', openStudio);
-        newTile.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            openStudio();
-          }
-        });
-        grid2.appendChild(newTile);
-        // group tiles by part type: cabinets, then boards, then freeform
-        const order = { cabinet: 0, board: 1, freeform: 2 };
-        const parts = [...this.store.design.customParts].sort(
-          (a, b) => order[a.type] - order[b.type]
-        );
-        for (const part of parts) {
-          addTile(grid2, toCatalogDef(part), true);
-        }
-      }
-    }
-    this.markArmedTile();
-  }
-
-  private markArmedTile(): void {
-    const armedId = this.editor.armedDefId;
-    document.querySelectorAll<HTMLElement>('.cat-item').forEach((el) => {
-      el.classList.toggle('armed', !!armedId && el.dataset.defId === armedId);
-    });
-  }
-
-  /* ================= components outline ================= */
-
-  /** Left-sidebar list of every placed object/opening, grouped by type; rows select. */
-  private renderOutline(): void {
-    const root = $('#outline');
-    root.innerHTML = '';
-
-    type Row = { label: string; sel: Selection; active: boolean };
-    const groups = new Map<string, Row[]>();
-    const add = (group: string, row: Row) => {
-      const list = groups.get(group) ?? (groups.set(group, []).get(group) as Row[]);
-      list.push(row);
-    };
-    const sel = this.store.selection;
-
-    for (const o of this.store.design.openings) {
-      add('Doors & windows', {
-        label: o.type === 'door' ? 'Door' : 'Window',
-        sel: { kind: 'opening', id: o.id },
-        active: sel.kind === 'opening' && sel.id === o.id,
-      });
-    }
-    for (const it of this.store.design.items) {
-      const def = this.store.defOf(it.defId);
-      // preset ids group under their catalog section, not "My parts" —
-      // checked first because presets also read as kind 'custom'
-      const group = CATALOG_GROUP.get(it.defId) ?? (def.kind === 'custom' ? 'My parts' : 'Other');
-      add(group, {
-        label: def.label,
-        sel: { kind: 'item', id: it.id },
-        active: sel.kind === 'item' && sel.id === it.id,
-      });
-    }
-
-    // the total counts placed components; rooms are the container, not content
-    const total = this.store.design.items.length + this.store.design.openings.length;
-    const head = this.el(
-      `<div class="ol-head">Components<span class="ol-total">${total}</span></div>`
-    );
-    root.appendChild(head);
-
-    // Rooms lead the outline: it is the primary room switcher
-    const activeRoomId = this.store.activeRoomId;
-    const roomsGroup = this.el(
-      `<div class="ol-group"><div class="ol-group-title"><span class="ol-label">Rooms</span><span class="ol-count">${this.store.design.rooms.length}</span></div></div>`
-    );
-    for (const r of this.store.design.rooms) {
-      const row = this.el(
-        `<div class="ol-row room-row${r.id === activeRoomId ? ' active' : ''}"><span class="room-row-name"></span><span class="room-row-area"></span></div>`
-      );
-      row.role = 'button';
-      row.tabIndex = 0;
-      (row.querySelector('.room-row-name') as HTMLElement).textContent = r.name;
-      (row.querySelector('.room-row-area') as HTMLElement).textContent =
-        `${this.store.floorArea(r.id).toFixed(1)} m²`;
-      const pick = () => this.activateRoom(r.id);
-      row.addEventListener('click', pick);
-      row.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          pick();
-        }
-      });
-      roomsGroup.appendChild(row);
-    }
-    root.appendChild(roomsGroup);
-
-    if (total === 0) {
-      root.appendChild(this.el(`<div class="ol-empty">Nothing placed yet</div>`));
-      return;
-    }
-
-    // known groups in catalog order, then any leftover ('Other') alphabetically
-    const known = OUTLINE_ORDER.filter((g) => groups.has(g));
-    const extra = [...groups.keys()].filter((g) => !OUTLINE_ORDER.includes(g)).sort();
-    for (const group of [...known, ...extra]) {
-      const rows = groups.get(group);
-      if (!rows?.length) continue;
-      const section = this.el(
-        `<div class="ol-group"><div class="ol-group-title"><span class="ol-label"></span><span class="ol-count">${rows.length}</span></div></div>`
-      );
-      (section.querySelector('.ol-label') as HTMLElement).textContent = group;
-      for (const r of rows) {
-        const row = document.createElement('div');
-        row.className = `ol-row${r.active ? ' active' : ''}`;
-        row.role = 'button';
-        row.tabIndex = 0;
-        row.textContent = r.label;
-        const pick = () => this.store.select(r.sel);
-        row.addEventListener('click', pick);
-        row.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            pick();
-          }
-        });
-        section.appendChild(row);
-      }
-      root.appendChild(section);
-    }
   }
 
   /* ================= properties panel ================= */
@@ -1291,7 +1046,7 @@ export class UI {
       );
       editRow.querySelector('button')!.addEventListener('click', () => {
         const part = this.store.customPartById(item.defId);
-        if (part) this.studio.open(part);
+        if (part) studio.open(part);
       });
       actions.appendChild(editRow);
     } else if (hasPreset(item.defId)) {
@@ -1303,7 +1058,7 @@ export class UI {
         const fork = this.store.forkPartForItem(item.id);
         if (!fork) return;
         this.store.commit();
-        this.studio.open(fork);
+        studio.open(fork);
       });
       actions.appendChild(custRow);
     }
@@ -1531,7 +1286,7 @@ export class UI {
       // list for the studio-vs-tool-vs-selection question, not a cascade
       if (e.key === 'Escape') {
         const tool = this.editor.tool;
-        if (this.studio.isOpen()) this.studio.handleEscape();
+        if (studio.isOpen()) studio.handleEscape();
         else if (tool === 'place') this.plan.setArmed(null);
         else if (tool === 'calibrate') this.plan.setCalibrate(false);
         else if (tool === 'measure') this.plan.setMeasure(false);
@@ -1541,7 +1296,7 @@ export class UI {
         else this.store.select({ kind: 'none' });
         return;
       }
-      if (typing || this.studio.isOpen()) return;
+      if (typing || studio.isOpen()) return;
 
       // Enter closes the ring the draw-room tool is building
       if (e.key === 'Enter' && this.editor.isTool('drawRoom')) {

@@ -1,6 +1,8 @@
 import { useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
 import { catalogOpen } from '../shellState';
+import { CatalogPanel } from './CatalogPanel';
 import { useChannel } from './hooks/useStore';
+import { OutlinePanel } from './OutlinePanel';
 import { VariablesPanel } from './VariablesPanel';
 
 const TABS = ['library', 'components', 'variables'] as const;
@@ -21,11 +23,9 @@ const LABELS: Record<Tab, string> = {
  * the open one, `hidden` on the others — because style.css hides on `[hidden]`
  * while test/interact.mjs asserts the class.
  *
- * The Library and Components panels are still EMPTY shells: src/ui/ui.ts
- * renders the catalog into #catalog-inner and the outline into #outline. Those
- * runtime children survive a re-render here because React only writes props
- * that CHANGED and manages no children of its own inside them. The Variables
- * panel is React's as of T3.
+ * All three panels are React's now: the Variables panel landed in T3, the
+ * catalog and the components outline in T4. Nothing in the sidebar is written
+ * by src/ui/ui.ts any more.
  *
  * `.open` is the off-canvas drawer state on narrow screens, driven by the
  * topbar's ☰ (src/ui/react/Topbar.tsx) through the shell singleton.
@@ -77,7 +77,9 @@ export function Sidebar(): ReactElement {
         aria-labelledby="tab-btn-library"
         hidden={tab !== 'library'}
       >
-        <div id="catalog-inner"></div>
+        <div id="catalog-inner">
+          <CatalogPanel />
+        </div>
       </div>
       <div
         id="tab-components"
@@ -86,7 +88,9 @@ export function Sidebar(): ReactElement {
         aria-labelledby="tab-btn-components"
         hidden={tab !== 'components'}
       >
-        <div id="outline"></div>
+        <div id="outline">
+          <OutlinePanel />
+        </div>
       </div>
       <div
         id="tab-variables"

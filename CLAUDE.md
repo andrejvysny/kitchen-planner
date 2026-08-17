@@ -275,15 +275,23 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   node-for-node (Topbar / Sidebar / Workspace / PropsPanel / StatusBar are
   organizational splits — the rendered tree is identical, and
   e2e/layout.spec.ts pins the boot geometry). The shell holds NO state and
-  never re-renders, so src/ui/ui.ts keeps filling #catalog-inner, #outline and
-  #props-inner exactly as before. `UI` itself has no
-  dispose(), so `mountLegacyUI()` (src/app/bootstrap.ts) constructs it once
-  behind a module guard, from an App-level effect that runs after the canvas
-  effects; the guard goes away when ui.ts is dissolved into components.
-- The sidebar tabs and the Variables panel are React's (src/ui/react/Sidebar.tsx
-  + VariablesPanel.tsx): which tab is open is component state, and the panels
-  carry BOTH `.active` and `hidden` because style.css hides on `[hidden]` while
-  test/interact.mjs asserts the class.
+  never re-renders, so src/ui/ui.ts keeps filling #props-inner exactly as
+  before. `UI` itself has no dispose(), so `mountLegacyUI()`
+  (src/app/bootstrap.ts) constructs it once behind a module guard, from an
+  App-level effect that runs after the canvas effects; the guard goes away when
+  ui.ts is dissolved into components.
+- The whole left sidebar is React's (src/ui/react/Sidebar.tsx + CatalogPanel /
+  OutlinePanel / VariablesPanel): which tab is open is component state, and the
+  panels carry BOTH `.active` and `hidden` because style.css hides on
+  `[hidden]` while test/interact.mjs asserts the class. **src/ui/outlineModel.ts
+  `outlineGroups(source)` is the grouping truth** — CATALOG_GROUP (defId →
+  catalog section), OUTLINE_ORDER and the 'Other'-leftovers rule live there,
+  pure and unit-tested; OutlinePanel only formats and wires clicks. CatalogPanel
+  keeps the old renderCatalogIfPartsChanged signature (JSON of
+  `design.customParts`) as a `useMemo` key, so tile defs keep their identity and
+  memoized <CatalogTile/>s skip the thumbnail redraw on arming ticks. The Part
+  Studio is a bootstrap singleton (`studio`) with a no-op close callback: save
+  and delete both `store.commit()`, so the 'history' channel is the refresh.
 - **Fields commit on the DOM's native `change` event, never React's onChange**
   — src/ui/react/fields/ is the shared set (SwatchRow, MaterialRow, VarChips,
   ChoiceRow, ToggleRow, SliderRow, StepperRow, RotToggle, Number/Length/Angle
@@ -338,6 +346,9 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   parity, leaving-tool cleanup, entry resets, Escape order, stale armed ids);
   test/unit/planTools.test.ts covers the DOM-free half of it — Plan2D
   constructs headless, so the mirrors are unit-testable without a canvas.
+  e2e/catalog-outline.spec.ts does the same for the sidebar's two ported
+  panels (arm/disarm marker, place, ＋/✎ into the studio, group order and
+  counts, row + room-row activation by click and by Enter).
 
 ## Gotchas
 
