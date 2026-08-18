@@ -1,0 +1,60 @@
+name: Render worker
+
+# Separate from deploy.yml on purpose: this workflow only touches render/ and
+# must not gate (or be gated by) the app's own build/deploy pipeline.
+on:
+  push:
+    paths: ['render/**']
+  pull_request:
+    paths: ['render/**']
+  workflow_dispatch:
+
+jobs:
+  lint-test:
+    name: ruff + pytest (bpy-free half)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Lint (ruff)
+        working-directory: render/worker
+        run: uv run ruff check .
+
+      - name: Test (pytest)
+        working-directory: render/worker
+        run: uv run pytest
+
+  bpy-smoke:
+    name: Blender smoke render (manual)
+    needs: lint-test
+    runs-on: ubuntu-latest
+    # Opt-in only: downloads a ~300 MB Blender build and renders a real frame,
+    # so it does not run on every push/PR — only on demand from the Actions tab.
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Blender (pinned, same version as render/setup.sh)
+        # setup.sh already knows the pinned version, the Linux download URL,
+        # and sha256 verification — reuse it instead of re-deriving any of
+        # that here. It also tries to fetch CC0 textures; a failure there is
+        # a non-fatal warning (materials fall back to flat OpenPBR params),
+        # so it never breaks this step.
+        run: render/setup.sh
+
+      - name: Generate synthetic package
+        run: python3 render/worker/tests/make_synthetic_package.py /tmp/synth.zip
+
+      - name: Render smoke frame (CPU, preview tier)
+        continue-on-error: false
+        run: render/render.sh /tmp/synth.zip --out /tmp/out.png --tier preview --device cpu
+
+      - name: Assert PNG output
+        run: |
+          test -f /tmp/out.png
+          size=$(stat -c%s /tmp/out.png)
+          echo "out.png: ${size} bytes"
+          [ "$size" -gt 1024 ]

@@ -154,6 +154,28 @@ older or unknown (callers fall back to a fresh/demo design).
   part; `motion` carries hinge sides + slide travel; drawer boxes are real
   boards.
 
+**Render pipeline** (Export ▾ → "Render package (.zip)…"): every material is
+stamped with a `kp:` name + `userData.kp` at creation (`stampMaterial` in
+src/view3d/textures.ts, grammar in src/model/materialName.ts, mirrored
+byte-for-byte by render/worker/kprender/matnames.py — NEVER change one
+without the other), because glTF carries a material's baked shape but not
+which library entry it came from. `View3D.exportRenderGLB` canonicalizes the
+per-instance glTF materials down to one clone per `kp:` name (materials are
+minted per surface, so plain `exportGLB` would otherwise emit the same oak a
+few hundred times) and strips the canonical clones' procedural canvas maps
+(never the live scene's materials — the worker rebuilds the real texture set
+from the name). `buildRenderManifest` (src/model/renderManifest.ts, pure)
+derives camera/sky/lights/window portals mirroring the exact transforms
+View3D applies, golden-tested at render/manifest/examples/kitchen-min.json —
+the SAME file vitest and the worker's pytest both read, so app and worker
+cannot drift (regenerate deliberately with `UPDATE_GOLDEN=1 npx vitest run
+test/unit/renderManifest.test.ts`, never to make a red test green).
+`buildRenderPackage` (src/model/renderPackage.ts) zips manifest + GLB + raw
+design JSON into one `interior-render.zip`. render/ holds the OpenPBR
+material library (ids locked 1:1 to src/model/materials.ts) and a native
+Blender/Cycles worker — macOS/Apple Silicon first, since Docker on macOS has
+no Metal passthrough (render/docker/ is the Linux+NVIDIA-only alternative).
+
 Room model: `design.rooms` is an array of `Room`s, each owning a corner
 polygon normalized counter-clockwise (`normalizeRoom`, applied to every room
 by `normalizeDesign`) plus its own `RoomStyle`. Corner ids are unique
@@ -443,6 +465,13 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   range to lean on. The plan and elevation CANVASES still label in cm (wall
   lengths, dimension lines): they draw their own text and were deliberately
   left alone.
+- The `kp:` material-name grammar and the 19 material ids are a cross-language
+  contract spanning three files that must move together: src/model/
+  materialName.ts (TS), render/worker/kprender/matnames.py (Python) and
+  render/materials/openpbr.materials.json (data). test/unit/materialName.test.ts
+  + render/worker/tests/test_matnames.py pin the grammar; test/unit/
+  openpbrLibrary.test.ts pins the library against src/model/materials.ts (id
+  set, `tileMeters`, `tintable`, texture-set refs).
 
 ## graphify (knowledge graph)
 

@@ -79,7 +79,13 @@ and a rough effort estimate (S < half a day, M ≈ 1–2 days, L ≈ 3+ days).
 15. **Blender export upgrades** (S) — optional: include `KHR_lights_punctual`
     lights (flag in the export dialog), split materials by name
     (`front_sage`, `worktop_oak`) so batch-assigning materials in Blender is
-    one click per material.
+    one click per material. **Half shipped:** every material is now stamped
+    with a semantic `kp:` name at creation (`src/model/materialName.ts`,
+    mirrored by `render/worker/kprender/matnames.py`) — the async render
+    pipeline's worker reads it to rebuild real OpenPBR materials, and it
+    already gives the manual Blender workflow above one name per material
+    instead of GLTFExporter's per-instance defaults. `KHR_lights_punctual`
+    in the plain `.glb` export remains open.
 
 ## Tier 4 — bigger bets
 

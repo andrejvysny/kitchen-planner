@@ -116,6 +116,7 @@ one place, never guessed back out of a mesh.
 | **Export ▾ → Shopping list (CSV)** | `interior-shopping-list.csv` — bought appliances/furniture/lighting, wall openings, and hardware (hinges, drawer slides) implied by the cabinets |
 | **Export ▾ → Printable sheet…** | A self-contained A4 HTML bill of materials (cut list + shopping list + hardware, grouped by room) opened in a new tab, ready to print or save as PDF |
 | **Export ▾ → Plan sheet…** | A self-contained A4 **landscape** sheet: the dimensioned floor plan drawn at true scale (1:50, stepping down for large apartments) plus the item schedule — print at 100% and the walls measure correctly off the paper |
+| **Export ▾ → Render package (.zip)…** | `interior-render.zip` — manifest + GLB + design for the Blender render worker |
 
 ### Blender workflow
 
@@ -131,6 +132,20 @@ materials and lighting:
 3. Assign proper materials (wood grain, stone, metal) by object name.
 4. Add lights (area lights in place of the strip/pendant geometry works well)
    and render with Cycles.
+
+### Realistic renders
+
+For a fully automated, photoreal render instead of the manual Blender
+workflow above, use **Export ▾ → "Render package (.zip)…"** together with the
+`render/` directory's Blender/Cycles worker: `render/setup.sh` downloads a
+pinned Blender build, then `render/render.sh interior-render.zip --out
+out.png --tier preview|final` turns the exported package into a PNG — no
+manual material or light setup required, since the package carries the
+semantic identity of every material plus the sun/sky, fixture lights and
+window apertures. Apple Silicon runs natively (no Docker — macOS containers
+get no Metal passthrough); `preview` is the seconds-scale iteration loop,
+`final` is full manifest resolution. See `render/README.md` for the full
+walkthrough and flag reference.
 
 ## Keyboard
 
