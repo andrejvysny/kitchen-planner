@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kitchen-planner.local/render/manifest/manifest.schema.json",
+  "title": "RenderManifest v1",
+  "description": "Package payload built by src/model/renderManifest.ts (buildRenderManifest) and consumed by the render/worker Blender pipeline. Field-for-field twin of the RenderManifest TS interface in that file — keep both in sync. Ships inside interior-render.zip alongside scene.glb and design.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifestVersion",
+    "designVersion",
+    "appVersion",
+    "exportedAt",
+    "units",
+    "axis",
+    "files",
+    "camera",
+    "sky",
+    "lights",
+    "portals",
+    "materials",
+    "render",
+    "rooms"
+  ],
+  "properties": {
+    "manifestVersion": {
+      "const": 1
+    },
+    "designVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Design.version at export time (see src/model/migrate.ts DESIGN_VERSION, 6 today)."
+    },
+    "appVersion": {
+      "type": "string",
+      "description": "package.json version of the app that wrote it (src/app/version.ts __APP_VERSION__)."
+    },
+    "exportedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 export timestamp."
+    },
+    "units": {
+      "type": "string",
+      "enum": ["m"]
+    },
+    "axis": {
+      "type": "string",
+      "enum": ["gltf-y-up"],
+      "description": "The frame every vector in this file is expressed in."
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["glb", "design"],
+      "properties": {
+        "glb": { "type": "string", "description": "Scene GLB filename inside the package (e.g. scene.glb)." },
+        "design": { "type": "string", "description": "Raw JSON.stringify(design) filename inside the package (e.g. design.json)." }
+      }
+    },
+    "camera": { "$ref": "#/$defs/ManifestCamera" },
+    "sky": { "$ref": "#/$defs/ManifestSky" },
+    "lights": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ManifestLight" }
+    },
+    "portals": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ManifestPortal" }
+    },
+    "materials": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ManifestMaterial" }
+    },
+    "render": { "$ref": "#/$defs/ManifestRender" },
+    "rooms": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ManifestRoom" }
+    }
+  },
+  "$defs": {
+    "Vec3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    },
+    "HexColor": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "ManifestCamera": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position", "target", "up", "fovYDeg", "viewportAspect", "nearM", "farM"],
+      "properties": {
+        "position": { "$ref": "#/$defs/Vec3", "description": "glTF/three world frame: x right, y UP, z toward the viewer." },
+        "target": { "$ref": "#/$defs/Vec3" },
+        "up": { "$ref": "#/$defs/Vec3" },
+        "fovYDeg": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 180,
+          "description": "VERTICAL fov in degrees (three PerspectiveCamera.fov). Worker fits the sensor vertically (render.sensorFit) so this survives any output aspect."
+        },
+        "viewportAspect": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Aspect (w/h) of the viewport the pose was captured from."
+        },
+        "nearM": { "type": "number", "exclusiveMinimum": 0 },
+        "farM": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "ManifestSky": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "azimuthDeg",
+        "elevationDeg",
+        "night",
+        "brightness",
+        "sunDirection",
+        "daylight",
+        "lampBoost",
+        "viewport"
+      ],
+      "properties": {
+        "azimuthDeg": { "type": "number", "description": "Scene.sunAzimuth — degrees, 0 = +z, increasing toward +x." },
+        "elevationDeg": { "type": "number", "description": "Scene.sunElevation — degrees above the horizon." },
+        "night": { "type": "boolean" },
+        "brightness": { "type": "number", "minimum": 0, "maximum": 2, "description": "Scene.brightness, 0..2 — the single master level." },
+        "sunDirection": {
+          "$ref": "#/$defs/Vec3",
+          "description": "Unit vector FROM the scene TOWARD the sun, world frame."
+        },
+        "daylight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "1 at full day, 0 at night: min(1, ambientIntensity / AMBIENT_DAY)."
+        },
+        "lampBoost": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Fixture-lamp gate the viewport applies: 1.44 * (1 - daylight)."
+        },
+        "viewport": {
+          "type": "object",
+          "description": "What the viewport shows — parity diagnostics only (src/model/sky.ts skyState() colour/intensity fields); the worker derives its own physical sky from azimuthDeg/elevationDeg. Extra fields are allowed as SkyState evolves.",
+          "additionalProperties": true,
+          "required": ["sunColor", "sunIntensity", "ambientColor", "ambientIntensity", "background"],
+          "properties": {
+            "sunColor": { "$ref": "#/$defs/HexColor" },
+            "sunIntensity": { "type": "number" },
+            "ambientColor": { "$ref": "#/$defs/HexColor" },
+            "ambientIntensity": { "type": "number" },
+            "background": { "$ref": "#/$defs/HexColor" }
+          }
+        }
+      }
+    },
+    "ManifestLight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["itemId", "defId", "kind", "on", "intensity", "warmth", "position", "direction", "yawRad"],
+      "properties": {
+        "itemId": { "type": "string" },
+        "defId": { "type": "string" },
+        "kind": { "type": "string", "enum": ["point", "spot", "bar"] },
+        "on": { "type": "boolean" },
+        "intensity": { "type": "number", "minimum": 0, "maximum": 1, "description": "0..1 UI slider (LightProps.intensity)." },
+        "warmth": { "type": "number", "minimum": 0, "maximum": 1, "description": "0 = cool white, 1 = warm candle." },
+        "colorHex": {
+          "$ref": "#/$defs/HexColor",
+          "description": "Explicit hex; wins over warmth-derived colour."
+        },
+        "position": { "$ref": "#/$defs/Vec3", "description": "Emitter position, world frame: itemBaseY + lightLocalY, item yaw applied." },
+        "direction": { "$ref": "#/$defs/Vec3", "description": "Unit aim direction, world frame ((0,-1,0) for point/bar)." },
+        "coneAngleRad": { "type": "number", "exclusiveMinimum": 0, "description": "Spot only: FULL cone angle, mirroring the viewport SpotLight." },
+        "coneBlend": { "type": "number", "minimum": 0, "maximum": 1, "description": "Spot only: penumbra blend 0..1." },
+        "sizeX": { "type": "number", "exclusiveMinimum": 0, "description": "Bar only: emitter rectangle width (m) = the item's width axis." },
+        "sizeY": { "type": "number", "exclusiveMinimum": 0, "description": "Bar only: emitter rectangle depth (m)." },
+        "yawRad": { "type": "number", "description": "World yaw of the item group (= -item.rotation), for rectangle emitters." }
+      }
+    },
+    "ManifestPortal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "openingId",
+        "wallId",
+        "roomId",
+        "type",
+        "center",
+        "width",
+        "height",
+        "normal",
+        "tangent",
+        "wallThickness",
+        "sill",
+        "interior"
+      ],
+      "properties": {
+        "openingId": { "type": "string" },
+        "wallId": { "type": "string" },
+        "roomId": { "type": "string" },
+        "type": { "type": "string", "enum": ["door", "window"] },
+        "center": { "$ref": "#/$defs/Vec3", "description": "Aperture centre on the wall mid-thickness plane, world frame." },
+        "width": { "type": "number", "exclusiveMinimum": 0, "description": "Raw aperture size (m) — frame NOT subtracted; the worker insets its own frame." },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "normal": { "$ref": "#/$defs/Vec3", "description": "Room-inward unit normal (y = 0)." },
+        "tangent": { "$ref": "#/$defs/Vec3", "description": "Unit vector along the wall a->b (y = 0)." },
+        "wallThickness": { "type": "number", "exclusiveMinimum": 0 },
+        "sill": { "type": "number", "minimum": 0, "description": "Sill height above the floor, metres." },
+        "interior": {
+          "type": "boolean",
+          "description": "True on a shared partition (interior opening — no daylight portal emitted by the worker)."
+        }
+      }
+    },
+    "ManifestMaterial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "baseColorHex", "rot", "meshCount"],
+      "properties": {
+        "name": { "type": "string", "description": "Exact glTF material name; Blender may append '.001' (see src/model/materialName.ts)." },
+        "kind": { "type": "string", "enum": ["library", "plain", "shell", "product"] },
+        "matId": { "type": "string", "description": "kind 'library' / 'shell': src/model/materials.ts id." },
+        "baseColorHex": { "$ref": "#/$defs/HexColor", "description": "Final sRGB hex shown in the viewport (tint already folded in)." },
+        "rot": { "type": "boolean" },
+        "fallback": { "type": "string", "enum": ["matte", "wood"], "description": "kind 'plain': which flat finish it stood in for." },
+        "surface": { "type": "string", "enum": ["wall", "floor", "ceiling"], "description": "kind 'shell'." },
+        "product": {
+          "type": "string",
+          "enum": [
+            "steel",
+            "appliance-glass",
+            "appliance-black",
+            "appliance-ring",
+            "handle",
+            "bulb",
+            "window-glass",
+            "window-frame",
+            "door-leaf",
+            "door-knob",
+            "groove",
+            "ground"
+          ],
+          "description": "kind 'product' (src/model/materialName.ts ProductSlug)."
+        },
+        "meshCount": { "type": "integer", "minimum": 0, "description": "Meshes in the GLB carrying it (diagnostics)." }
+      }
+    },
+    "ManifestRender": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["widthPx", "heightPx", "tier", "sensorFit"],
+      "properties": {
+        "widthPx": { "type": "integer", "exclusiveMinimum": 0 },
+        "heightPx": { "type": "integer", "exclusiveMinimum": 0 },
+        "tier": { "type": "string", "enum": ["preview", "final"] },
+        "sensorFit": { "type": "string", "enum": ["vertical"], "description": "The worker fits the sensor VERTICALLY, so fovYDeg survives any aspect." }
+      }
+    },
+    "ManifestRoom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "wallHeight", "wallThickness", "floorAreaM2", "centroid"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "wallHeight": { "type": "number", "exclusiveMinimum": 0 },
+        "wallThickness": { "type": "number", "exclusiveMinimum": 0 },
+        "floorAreaM2": { "type": "number", "minimum": 0 },
+        "centroid": { "$ref": "#/$defs/Vec3", "description": "Plan centroid in world frame, y = 0 — an 'aim here' hint." }
+      }
+    }
+  }
+}

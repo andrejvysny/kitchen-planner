@@ -1,0 +1,369 @@
+{
+  "schema": "kp.openpbr.library/1",
+  "openpbrVersion": "1.1",
+  "_comment": [
+    "Mirrors the 19 MaterialDefs in src/model/materials.ts (never rename an id",
+    "— it is persisted in designs). `appColor` is the def's own `color` hex;",
+    "`tileMeters` mirrors src/view3d/textures.ts TILE_M (null for pattern",
+    "'none'). `openpbr` lists only params that deviate from the OpenPBR 1.1",
+    "spec defaults, plus base_color and specular_roughness which are always",
+    "present. `textureSet.tint` is the multiplier applied ON TOP of the",
+    "sampled texture, as a float triple: baseColorMode 'multiply' uses the",
+    "material's own appColor-derived tone as tint, so several species can",
+    "share one photographed grain/roughness/normal set and still land on the",
+    "right hue (`base_color = texture_sample * tint`); baseColorMode 'asis'",
+    "means the texture's own colour is used unmodified and tint is the",
+    "neutral [1,1,1] no-op (kept for shape uniformity). 'replace' is reserved",
+    "for a future case where a flat tint should override the sampled colour",
+    "entirely; no entry below uses it yet. Glass and the two plastics have no",
+    "textureSet — they render from flat OpenPBR params only, same as the",
+    "procedural three.js path for pattern 'none'."
+  ],
+  "materials": [
+    {
+      "id": "oak",
+      "label": "Oak",
+      "appColor": "#c9a87c",
+      "tintable": false,
+      "tileMeters": 1.0,
+      "openpbr": {
+        "base_color": [0.788, 0.659, 0.486],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.46,
+        "coat_weight": 0.25,
+        "coat_roughness": 0.18
+      },
+      "textureSet": {
+        "ref": "ambientcg:Wood051",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "multiply",
+        "tint": [0.788, 0.659, 0.486]
+      }
+    },
+    {
+      "id": "walnut",
+      "label": "Walnut",
+      "appColor": "#8b6748",
+      "tintable": false,
+      "tileMeters": 1.0,
+      "openpbr": {
+        "base_color": [0.545, 0.404, 0.282],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.43,
+        "coat_weight": 0.3,
+        "coat_roughness": 0.15
+      },
+      "textureSet": {
+        "ref": "ambientcg:Wood062",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "multiply",
+        "tint": [0.545, 0.404, 0.282]
+      }
+    },
+    {
+      "id": "ash",
+      "label": "Ash",
+      "appColor": "#d8c7a6",
+      "tintable": false,
+      "tileMeters": 1.0,
+      "openpbr": {
+        "base_color": [0.847, 0.780, 0.651],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.49,
+        "coat_weight": 0.2,
+        "coat_roughness": 0.2
+      },
+      "textureSet": {
+        "ref": "ambientcg:Wood067",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "multiply",
+        "tint": [0.847, 0.780, 0.651]
+      }
+    },
+    {
+      "id": "beech",
+      "label": "Beech",
+      "appColor": "#d6b08a",
+      "tintable": false,
+      "tileMeters": 1.0,
+      "openpbr": {
+        "base_color": [0.839, 0.690, 0.541],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.46,
+        "coat_weight": 0.25,
+        "coat_roughness": 0.18
+      },
+      "textureSet": {
+        "ref": "ambientcg:Wood051",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "multiply",
+        "tint": [0.839, 0.690, 0.541]
+      }
+    },
+    {
+      "id": "birch",
+      "label": "Birch",
+      "appColor": "#e7d4b0",
+      "tintable": false,
+      "tileMeters": 1.0,
+      "openpbr": {
+        "base_color": [0.906, 0.831, 0.690],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.49,
+        "coat_weight": 0.25,
+        "coat_roughness": 0.18
+      },
+      "textureSet": {
+        "ref": "ambientcg:Wood051",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "multiply",
+        "tint": [0.906, 0.831, 0.690]
+      }
+    },
+    {
+      "id": "maple",
+      "label": "Maple",
+      "appColor": "#e3c493",
+      "tintable": false,
+      "tileMeters": 1.0,
+      "openpbr": {
+        "base_color": [0.890, 0.769, 0.576],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.43,
+        "coat_weight": 0.25,
+        "coat_roughness": 0.18
+      },
+      "textureSet": {
+        "ref": "ambientcg:Wood051",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "multiply",
+        "tint": [0.890, 0.769, 0.576]
+      }
+    },
+    {
+      "id": "cherry",
+      "label": "Cherry",
+      "appColor": "#a05c3c",
+      "tintable": false,
+      "tileMeters": 1.0,
+      "openpbr": {
+        "base_color": [0.627, 0.361, 0.235],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.40,
+        "coat_weight": 0.3,
+        "coat_roughness": 0.15
+      },
+      "textureSet": {
+        "ref": "ambientcg:Wood062",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "multiply",
+        "tint": [0.627, 0.361, 0.235]
+      }
+    },
+    {
+      "id": "pine",
+      "label": "Pine",
+      "appColor": "#ddb787",
+      "tintable": false,
+      "tileMeters": 1.0,
+      "openpbr": {
+        "base_color": [0.867, 0.718, 0.529],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.55,
+        "coat_weight": 0.2,
+        "coat_roughness": 0.2
+      },
+      "textureSet": {
+        "ref": "ambientcg:Wood067",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "multiply",
+        "tint": [0.867, 0.718, 0.529]
+      }
+    },
+    {
+      "id": "wenge",
+      "label": "Wenge",
+      "appColor": "#4c3a2a",
+      "tintable": false,
+      "tileMeters": 1.0,
+      "openpbr": {
+        "base_color": [0.298, 0.227, 0.165],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.43,
+        "coat_weight": 0.3,
+        "coat_roughness": 0.15
+      },
+      "textureSet": {
+        "ref": "ambientcg:Wood062",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "multiply",
+        "tint": [0.298, 0.227, 0.165]
+      }
+    },
+    {
+      "id": "marble-light",
+      "label": "Marble",
+      "appColor": "#e9e6df",
+      "tintable": false,
+      "tileMeters": 1.6,
+      "openpbr": {
+        "base_color": [0.914, 0.902, 0.875],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.10
+      },
+      "textureSet": {
+        "ref": "ambientcg:Marble012",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "asis",
+        "tint": [1, 1, 1]
+      }
+    },
+    {
+      "id": "marble-dark",
+      "label": "Dark marble",
+      "appColor": "#3c3f44",
+      "tintable": false,
+      "tileMeters": 1.6,
+      "openpbr": {
+        "base_color": [0.235, 0.247, 0.267],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.12
+      },
+      "textureSet": {
+        "ref": "ambientcg:Marble006",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "asis",
+        "tint": [1, 1, 1]
+      }
+    },
+    {
+      "id": "concrete",
+      "label": "Concrete",
+      "appColor": "#9d9c97",
+      "tintable": false,
+      "tileMeters": 1.6,
+      "openpbr": {
+        "base_color": [0.616, 0.612, 0.592],
+        "specular_roughness": 0.7,
+        "base_diffuse_roughness": 0.3
+      },
+      "textureSet": {
+        "ref": "ambientcg:Concrete034",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "asis",
+        "tint": [1, 1, 1]
+      }
+    },
+    {
+      "id": "floor-oak",
+      "label": "Oak planks",
+      "appColor": "#c9a87c",
+      "tintable": false,
+      "tileMeters": 2.0,
+      "openpbr": {
+        "base_color": [0.788, 0.659, 0.486],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.5
+      },
+      "textureSet": {
+        "ref": "ambientcg:WoodFloor041",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "asis",
+        "tint": [1, 1, 1]
+      }
+    },
+    {
+      "id": "floor-walnut",
+      "label": "Walnut planks",
+      "appColor": "#8b6748",
+      "tintable": false,
+      "tileMeters": 2.0,
+      "openpbr": {
+        "base_color": [0.545, 0.404, 0.282],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.52
+      },
+      "textureSet": {
+        "ref": "ambientcg:WoodFloor051",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "asis",
+        "tint": [1, 1, 1]
+      }
+    },
+    {
+      "id": "tiles-grey",
+      "label": "Grey tiles",
+      "appColor": "#b3b1ab",
+      "tintable": false,
+      "tileMeters": 1.2,
+      "openpbr": {
+        "base_color": [0.702, 0.694, 0.671],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.18
+      },
+      "textureSet": {
+        "ref": "ambientcg:Tiles101",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "asis",
+        "tint": [1, 1, 1]
+      }
+    },
+    {
+      "id": "tiles-terracotta",
+      "label": "Terracotta tiles",
+      "appColor": "#b57755",
+      "tintable": false,
+      "tileMeters": 1.2,
+      "openpbr": {
+        "base_color": [0.710, 0.467, 0.333],
+        "base_metalness": 0.02,
+        "specular_roughness": 0.22
+      },
+      "textureSet": {
+        "ref": "ambientcg:Tiles074",
+        "maps": { "base_color": "Color", "specular_roughness": "Roughness", "geometry_normal": "NormalGL" },
+        "baseColorMode": "asis",
+        "tint": [1, 1, 1]
+      }
+    },
+    {
+      "id": "glass",
+      "label": "Glass",
+      "appColor": "#bcd2d8",
+      "tintable": false,
+      "tileMeters": null,
+      "openpbr": {
+        "base_color": [0.737, 0.824, 0.847],
+        "specular_roughness": 0.02,
+        "transmission_weight": 1.0,
+        "geometry_thin_walled": true
+      },
+      "textureSet": null
+    },
+    {
+      "id": "plastic-matte",
+      "label": "Matte plastic",
+      "appColor": "#f2f1ec",
+      "tintable": true,
+      "tileMeters": null,
+      "openpbr": {
+        "base_color": [0.949, 0.945, 0.925],
+        "specular_roughness": 0.5
+      },
+      "textureSet": null
+    },
+    {
+      "id": "plastic-gloss",
+      "label": "Gloss plastic",
+      "appColor": "#f2f1ec",
+      "tintable": true,
+      "tileMeters": null,
+      "openpbr": {
+        "base_color": [0.949, 0.945, 0.925],
+        "specular_roughness": 0.1,
+        "coat_weight": 0.3
+      },
+      "textureSet": null
+    }
+  ]
+}
