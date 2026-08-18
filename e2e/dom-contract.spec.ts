@@ -232,6 +232,17 @@ const WORKSHOP_PANE: readonly ContractEntry[] = [
   vis('#wsp-back'),
 ];
 
+/**
+ * src/ui/react/OutputPane.tsx — the Output workspace's canvas pane (WP 1.8):
+ * six export cards over #canvases, the Output sibling of WORKSHOP_PANE above.
+ */
+const OUTPUT_PANE: readonly ContractEntry[] = [
+  vis('#pane-output'),
+  vis('#out-card-plan'),
+  vis('#out-card-cut'),
+  vis('#out-card-glb'),
+];
+
 /** src/ui/partstudio/index.ts + typePicker.ts — the type-picker stage. */
 const STUDIO_PICKER: readonly ContractEntry[] = [
   vis('#pane-workshop .studio-hosted'),
@@ -334,7 +345,10 @@ test('DOM contract: selector table stays present across every pinned app state',
 
     await app.click('#ws-tab-output');
     await assertContract(app, OUTPUT_SIDEBAR);
+    await assertContract(app, OUTPUT_PANE);
     await expect(app.locator('#sidebar-tabs')).toHaveCount(0);
+    await expect(app.locator('#view-toggle')).toHaveCount(0);
+    await expect(app.locator('#btn-daynight')).toHaveCount(0);
 
     await app.click('#ws-tab-furnish');
     await expect(app.locator('#sidebar-tabs')).toBeVisible();

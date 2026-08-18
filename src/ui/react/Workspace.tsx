@@ -6,6 +6,7 @@ import { wallLabel } from '../shellState';
 import { workspace } from '../workspaceState';
 import { SceneOverlay, ViewOverlay } from './CanvasOverlays';
 import { useChannel } from './hooks/useStore';
+import { OutputPane } from './OutputPane';
 import { PropsPanel } from './PropsPanel';
 import { Sidebar } from './Sidebar';
 import { WorkshopPane } from './WorkshopPane';
@@ -35,7 +36,8 @@ import { WorkshopPane } from './WorkshopPane';
  * conditional here: this component renders once and never reconciles it. The
  * two canvas overlays WS-SPEC §2.3 moved off the top bar (<ViewOverlay/> over
  * #canvases, <SceneOverlay/> in #pane3d) arrive the same way, from
- * src/ui/react/CanvasOverlays.tsx.
+ * src/ui/react/CanvasOverlays.tsx. <OutputPane/> (WP 1.8) is the same shape,
+ * one workspace over.
  */
 export function Workspace(): ReactElement {
   const { plan, elevation, view3d } = useAppServices();
@@ -85,6 +87,7 @@ export function Workspace(): ReactElement {
         </div>
         <ViewOverlay />
         <WorkshopPane />
+        <OutputPane />
       </section>
 
       <PropsPanel />

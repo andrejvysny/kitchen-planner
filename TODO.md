@@ -82,7 +82,7 @@ green gate above runs per WP.
       (follow-up noted: openInWorkshop skips setTool('select')/drawer close;
       declined re-open confirm leaves workshopTarget naming the other part)
 - [x] WP 1.7 topbar slimming + settings menu + canvas overlays
-- [ ] WP 1.8 output pane (six export cards)
+- [x] WP 1.8 output pane (six export cards)
 - [ ] WP 1.9 test + docs migration sweep; Phase 1 exit criteria walk
 
 ## Phase 2 — discoverability + onboarding
