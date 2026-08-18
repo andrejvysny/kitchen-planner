@@ -34,6 +34,7 @@ import { buildCustomPart } from './partMeshes';
  */
 
 export { shade } from './meshKit';
+export { lightLocalY } from '../model/catalog';
 
 interface Ctx {
   item: Item;
@@ -647,16 +648,4 @@ export function buildItemGroup(
   if (builder) builder(g, { item, def, design, room, part, host, finish });
   else box(g, item.w, item.h, item.d, surfMat(finish), 0, 0, 0);
   return g;
-}
-
-/** Where the actual light source sits, in item-local coordinates. */
-export function lightLocalY(def: CatalogDef, item: Item): number {
-  switch (def.kind) {
-    case 'pendant':
-      return item.h * 0.18;
-    case 'spot':
-      return -0.04;
-    default:
-      return -0.02;
-  }
 }

@@ -3,13 +3,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import type { CatalogDef } from '../model/catalog';
+import { itemBaseY, SPOT_AIM, type CatalogDef } from '../model/catalog';
 import { polygonCentroid, wallPoint } from '../model/geometry';
 import { findHost } from '../model/attach';
 import { hostContexts } from '../model/worktops';
 import type { HostContext } from '../model/panels';
 import { snapItem } from '../model/snapping';
-import { openingsOfWall, roomById, styleOfItem, wallJoints, type RoomWall } from '../model/rooms';
+import { openingsOfWall, roomById, wallJoints, type RoomWall } from '../model/rooms';
 import type { Store } from '../model/store';
 import type { Corner, Item, Opening, Point } from '../model/types';
 import { AMBIENT_DAY, skyState } from '../model/sky';
@@ -792,7 +792,7 @@ export class View3D {
         const s = new THREE.SpotLight('#ffffff', 0, 8, 0.75, 0.45, 1.4);
         s.position.y = lightLocalY(def, item);
         const target = new THREE.Object3D();
-        target.position.set(0, -2.5, 0.35);
+        target.position.set(SPOT_AIM.x, SPOT_AIM.y, SPOT_AIM.z);
         s.target = target;
         group.add(target);
         light = s;
@@ -868,8 +868,7 @@ export class View3D {
     const entry = this.itemEntries.get(item.id);
     if (!entry) return;
     const def = this.store.defOf(item.defId);
-    const H = styleOfItem(this.store.design, item).wallHeight;
-    const y = def.kind === 'spot' ? H - 0.02 : item.elevation;
+    const y = itemBaseY(this.store.design, item, def);
     entry.group.position.set(item.x, y, item.y);
     entry.group.rotation.y = -item.rotation;
   }
