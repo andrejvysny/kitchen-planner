@@ -96,11 +96,15 @@ Preview = the iteration loop (low sample count, half resolution); final =
 full manifest resolution. Numbers are wall-clock, Cycles + OIDN denoise,
 single render — actuals depend on scene complexity and window/portal count.
 
-| Hardware | Preview | Final |
+| Hardware | Preview | Final (1080p) |
 |---|---|---|
-| Apple M1 / M2 Pro | ~20–45 s | ~5–12 min |
-| Apple M3 / M4 Max | ~10–20 s | ~1.5–4 min |
-| CPU fallback (no GPU device) | — | ~20–60 min |
+| Apple M4 Pro (measured, demo kitchen, 419 objects) | ~2–6 s | ~65–100 s |
+| Apple M1 / M2 Pro (estimate) | ~10–30 s | ~3–8 min |
+| CPU fallback, M4 Pro (measured, preview only) | ~4 s | untested |
+
+The FIRST Metal render on a machine compiles the Cycles Metal kernels —
+~2.5 min one-off (measured, M4 Pro), cached by Blender afterwards. Time
+`--tier preview` twice before believing any number.
 
 ## Texture licensing
 

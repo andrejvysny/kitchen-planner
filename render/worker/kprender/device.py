@@ -48,10 +48,16 @@ def _cycles_prefs():
 
 
 def _available_backends(cprefs) -> list[str]:
-    """Backend enum values this build exposes, in this build's own order."""
+    """Backend enum values this build exposes, in this build's own order.
+
+    ``compute_device_type`` is a DYNAMIC enum: ``enum_items`` is empty on those
+    (observed on the official 5.2.0 macOS build), so an empty answer means
+    "unknown", never "none" — callers must then probe by assignment instead.
+    """
     try:
         prop = cprefs.bl_rna.properties["compute_device_type"]
-        return [item.identifier for item in prop.enum_items]
+        items = list(prop.enum_items) or list(getattr(prop, "enum_items_static", []))
+        return [item.identifier for item in items]
     except (AttributeError, KeyError):  # pragma: no cover - defensive
         return []
 
@@ -121,10 +127,15 @@ def configure(force: str | None = None, scene=None) -> str:
         return "CPU"
 
     available = _available_backends(cprefs)
-    candidates = [wanted] if wanted else [b for b in DEVICE_ORDER if b in available]
-    if wanted and wanted not in available:
-        print(f"kprender/device: this build has no {wanted} backend (has: {available or 'none'})")
-        candidates = []
+    if available:
+        candidates = [wanted] if wanted else [b for b in DEVICE_ORDER if b in available]
+        if wanted and wanted not in available:
+            print(f"kprender/device: this build has no {wanted} backend (has: {available})")
+            candidates = []
+    else:
+        # Unknown (dynamic enum): probe by assignment — an unsupported backend
+        # raises TypeError/ValueError below and the loop moves on.
+        candidates = [wanted] if wanted else list(DEVICE_ORDER)
 
     for backend in candidates:
         try:

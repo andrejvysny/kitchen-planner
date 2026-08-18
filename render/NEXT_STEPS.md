@@ -18,6 +18,34 @@ every material carries a semantic `kp:` name (grammar in
 tests on the bpy-free math. Not yet done: anything that needs a GPU, a real
 Blender run, or the ambientCG network — that is this checklist.
 
+## Validation run, 2026-08-18 (M4 Pro) — §A done, §B mostly done
+
+- Blender 5.2.0 pinned via `setup.sh`; **Metal needed a worker fix**:
+  `compute_device_type` is a dynamic enum whose `enum_items` is empty on the
+  official build, so `device.py` now probes by assignment when the enum list
+  is unknown. Warm Metal preview ~2–6 s, final 1080p ~65–100 s; first-ever
+  Metal render pays ~2.5 min of kernel compilation once. README table updated
+  with measured numbers.
+- All 10 texture sets downloaded, sha256-pinned and `verified: true` in
+  `textures.lock.json` (re-fetch against the pins passes).
+- `--probe` bbox/axis check passes against the plan; 44 canonical materials
+  (dozens, not hundreds) and the `kp` glTF-extras custom property SURVIVES
+  into the .blend — both channels of the contract work.
+- Findings still open, in priority order:
+  1. **Worktop prism side-face UVs stretch** (top face fine) — grain smears on
+     the front edge vs a clean `--uv-box` render. Real fix in
+     `src/view3d/meshKit.ts` `prism()` side UVs.
+  2. **Portals A/B inconclusive at preview tier** — OIDN flattens both to the
+     same noise. Re-test in §C with denoise off before milestone 2 bakes
+     portals in.
+  3. Blender 5.2 has no NISHITA sky — worker falls back to
+     MULTIPLE_SCATTERING (fine), but the log first says "keeping default";
+     cosmetic contradiction.
+  4. Textured oak (`baseColorMode: multiply`) renders much darker than the
+     app's oak — §C calibration (tint × already-brown Wood051 color map).
+- Not exercised: `.blend` hand-inspection in the Blender UI, golden-hour
+  reference comparison (§C needs reference photos).
+
 ## A. First render (the spike validation) — do this first
 
 1. `render/setup.sh` — downloads the pinned Blender 5.2 LTS (macOS arm64 dmg,
