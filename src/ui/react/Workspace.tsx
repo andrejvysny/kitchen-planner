@@ -6,6 +6,7 @@ import { wallLabel } from '../shellState';
 import { workspace } from '../workspaceState';
 import { SceneOverlay, ViewOverlay } from './CanvasOverlays';
 import { ContextMenu } from './ContextMenu';
+import { FurnishNudge, PlanStarterCard } from './EmptyState';
 import { HintChip } from './HintChip';
 import { useChannel } from './hooks/useStore';
 import { OutputPane } from './OutputPane';
@@ -46,6 +47,10 @@ import { WorkshopPane } from './WorkshopPane';
  * <HintChip/> (WP 2.2) is the same shape once more: a cursor-follow label
  * shown while a tool is armed, mounted only in #pane2d — see its own doc
  * comment for why the 3D pane gets no instance today.
+ *
+ * <PlanStarterCard/> and <FurnishNudge/> (WP 2.4, src/ui/react/EmptyState.tsx)
+ * are the last two: both also live in #pane2d, subscribing to 'workspace' so
+ * only one of them ever shows for a given task.
  */
 export function Workspace(): ReactElement {
   const { plan, elevation, view3d } = useAppServices();
@@ -87,6 +92,8 @@ export function Workspace(): ReactElement {
           <ToolButtons />
           <WallNav />
           <HintChip paneId="pane2d" />
+          <PlanStarterCard />
+          <FurnishNudge />
         </div>
         <div id="pane3d" className="pane">
           <canvas id="canvas3d" ref={viewCanvas}></canvas>

@@ -1,0 +1,99 @@
+import { useState, type ReactElement } from 'react';
+import type { Design } from '../../model/types';
+import { workspace } from '../workspaceState';
+import { useChannel } from './hooks/useStore';
+import { useEditor, useStore } from './services';
+
+/**
+ * The three empty-state aids (WS-SPEC §5.4, WP 2.4): help for a brand-new
+ * design before there is anything on the canvas to click on.
+ *
+ * SPEC CORRECTION: WS-SPEC's "Plan, no rooms (possible after New)" trigger is
+ * unreachable in this codebase — `emptyDesign()` (store.ts) always ships one
+ * room and `store.deleteRoom` refuses to remove the last one. The real "just
+ * started" state is a PRISTINE design: exactly what `onNew` in Topbar.tsx
+ * produces — one room, no items, no openings — so <PlanStarterCard/> renders
+ * on that condition instead.
+ *
+ * Both components mount as children of #pane2d in Workspace.tsx, after
+ * <HintChip/> — see that component's shape and Workspace.tsx's doc comment
+ * for why a subscribing overlay arrives as a child rather than a conditional
+ * on the stateless parent. Plan and Furnish never show both at once: the
+ * card is Plan-only, the nudge is Furnish-only.
+ */
+
+function isPristine(d: Design): boolean {
+  return d.rooms.length === 1 && d.items.length === 0 && d.openings.length === 0;
+}
+
+/**
+ * Plan's "nothing here yet" card: three ways to get a room on the canvas.
+ * Gated on the resting tool as well as the pristine design, so arming any
+ * tool — the card's own buttons included — hides it immediately rather than
+ * blocking the click that follows (e.g. placing the room itself).
+ */
+export function PlanStarterCard(): ReactElement | null {
+  const store = useStore();
+  const editor = useEditor();
+  useChannel('workspace');
+  useChannel('design');
+  useChannel('editor');
+
+  const show = workspace() === 'plan' && editor.isTool('select') && isPristine(store.design);
+  if (!show) return null;
+
+  return (
+    <div id="plan-starter" className="pane-empty-card">
+      <div className="pane-empty-title">Start with a room</div>
+      <p className="pane-empty-sub">
+        Drop a ready room, draw your own, or trace a photo of your floor plan.
+      </p>
+      <div className="pane-empty-actions">
+        <button className="btn" onClick={() => editor.setTool('room')}>
+          Add a room
+        </button>
+        <button className="btn" onClick={() => editor.setTool('drawRoom')}>
+          Draw a room
+        </button>
+        <button className="btn" onClick={() => document.getElementById('underlay-input')!.click()}>
+          Import a floor plan photo…
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Furnish's "nothing placed yet" nudge, dismissible for the rest of the
+ * session. `nudgeDismissed` is a plain module `let` — real onboarding storage
+ * is Phase 2.5's job; this is scoped to one visit, the same lifetime as
+ * src/ui/workspaceState.ts's `workshopTarget`. The container stays
+ * pointer-events:none (it sits over the bottom of the pane, where
+ * test/interact.mjs clicks the canvas by world coordinate) and only the ✕
+ * turns pointer events back on.
+ */
+let nudgeDismissed = false;
+
+export function FurnishNudge(): ReactElement | null {
+  const store = useStore();
+  useChannel('workspace');
+  useChannel('design');
+  const [dismissed, setDismissed] = useState(nudgeDismissed);
+
+  const show = workspace() === 'furnish' && store.design.items.length === 0 && !dismissed;
+  if (!show) return null;
+
+  const dismiss = (): void => {
+    nudgeDismissed = true;
+    setDismissed(true);
+  };
+
+  return (
+    <div id="furnish-nudge" className="pane-nudge">
+      Pick something from the library, then click in the room to place it
+      <button aria-label="Dismiss" onClick={dismiss}>
+        ✕
+      </button>
+    </div>
+  );
+}

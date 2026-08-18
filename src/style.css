@@ -938,6 +938,93 @@ body {
   box-shadow: var(--shadow);
 }
 
+/* ---------- Empty-state aids (WS-SPEC §5.4, WP 2.4) ---------- */
+
+/* Plan's "nothing here yet" starter card: a small centred panel, not a
+   full-pane overlay, so the rest of the pane (and its own corner clusters)
+   stays reachable around it. z-index 15 sits below `.canvas-overlay` (20)
+   and the pane's own badges/clusters (z-index auto), same ordering rule as
+   the hint chip above. */
+.pane-empty-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 15;
+  width: calc(100% - 48px);
+  max-width: 300px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  text-align: center;
+}
+
+.pane-empty-title {
+  font-size: 15px;
+  font-weight: 650;
+  margin: 0 0 4px;
+}
+
+.pane-empty-sub {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin: 0 0 14px;
+}
+
+.pane-empty-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pane-empty-actions .btn {
+  flex: none;
+  width: 100%;
+}
+
+/* Furnish's dismissible nudge, bottom-centre like `#wall-nav`. pointer-events
+   is off on the container — it sits over the bottom of the pane, where
+   test/interact.mjs clicks the canvas by world coordinate — and back on only
+   for the ✕, which is the one thing in it a user can act on. */
+.pane-nudge {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  pointer-events: none;
+  background: var(--ink);
+  color: #fff;
+  font-size: 12px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.pane-nudge button {
+  pointer-events: auto;
+  flex: none;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.pane-nudge button:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
 /* ---------- Canvas context menu (WS-SPEC §5.1) ---------- */
 
 /* Fixed, not absolute: it is positioned from the pointer's VIEWPORT coordinates

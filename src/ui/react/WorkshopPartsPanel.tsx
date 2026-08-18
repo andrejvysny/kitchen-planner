@@ -40,7 +40,12 @@ export function WorkshopPartsPanel(): ReactElement {
           ＋ New part
         </button>
         {parts.length === 0 ? (
-          <p className="cat-empty">Nothing here yet — start from a preset below or a blank part.</p>
+          <>
+            <p className="cat-empty">
+              Nothing here yet — start from a preset below or a blank part.
+            </p>
+            <p className="cat-empty">Cabinets here are fully yours — fronts, drawers, interiors.</p>
+          </>
         ) : (
           parts.map((p) => (
             <button
