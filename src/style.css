@@ -176,6 +176,19 @@ body {
   white-space: nowrap;
 }
 
+/* the settings gear reads as an icon, not a word */
+#btn-settings {
+  font-size: 15px;
+  line-height: 1;
+  padding: 5px 9px;
+}
+
+/* a row the platform gate hides (#navinput-group off macOS) must not leave a
+   flex slot behind in the column */
+.topbar-menu [hidden] {
+  display: none;
+}
+
 /* ---------- Workspace ---------- */
 
 #workspace {
@@ -633,6 +646,14 @@ body {
   pointer-events: none;
 }
 
+/* The 3D badge's left edge IS the pane seam, which is where the centred view
+   overlay lands in Split view, so it takes the pane's free top-right corner
+   instead. Purely a label — pointer-events are off either way. */
+#pane3d .pane-badge {
+  left: auto;
+  right: 12px;
+}
+
 #zoom-controls,
 #cam-controls,
 #measure-controls {
@@ -709,10 +730,13 @@ body {
   display: flex;
 }
 
+/* Bottom-left, opposite the zoom/measure clusters — the top-right corner it
+   used to hold is under the centred view overlay in Split view, and this also
+   pairs it with the 3D pane's scene toggles in the same corner. */
 .pane-modes {
   position: absolute;
-  top: 10px;
-  right: 12px;
+  bottom: 12px;
+  left: 12px;
   display: flex;
   gap: 2px;
   background: rgba(255, 255, 255, 0.92);
@@ -738,6 +762,62 @@ body {
 .pane-modes button.active {
   background: var(--ink);
   color: #fff;
+}
+
+/* ---------- Canvas overlays (WS-SPEC §2.3) ---------- */
+
+/* Controls that steer the DRAWING, floating over it instead of over in the top
+   bar: the 2D/Split/3D toggle above #canvases, the day-night / open-fronts pair
+   in #pane3d. Below `.workspace-pane` (z-index 30), which is meant to cover
+   them, and above the panes' own badges and button clusters (z-index auto). */
+.canvas-overlay {
+  position: absolute;
+  z-index: 20;
+}
+
+/* the same floating surface the pane clusters wear — these sit on the canvas,
+   so they need a ground of their own, unlike the flat topbar segments */
+.canvas-overlay-group {
+  display: flex;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 2px;
+  box-shadow: var(--shadow);
+}
+
+.canvas-overlay-group button {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.canvas-overlay-group button:hover {
+  background: #eceae6;
+}
+
+.canvas-overlay-group button.active {
+  background: var(--ink);
+  color: #fff;
+}
+
+/* centred over the whole canvas area: it switches BOTH panes, so it belongs to
+   neither */
+.canvas-overlay-top {
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.canvas-overlay-scene {
+  left: 12px;
+  bottom: 12px;
 }
 
 #wall-nav {

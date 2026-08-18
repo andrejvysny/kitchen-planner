@@ -48,25 +48,15 @@ const ALWAYS: readonly ContractEntry[] = [
   vis('#ws-tab-furnish.active'), // Furnish is the default workspace, and the fixture clears storage
   vis('#ws-tab-workshop'),
   vis('#ws-tab-output'),
-  vis('#view-toggle'),
-  vis('button[data-view="2d"]'),
-  vis('button[data-view="split"].active'), // Split is the default view
-  vis('button[data-view="3d"]'),
   vis('#btn-undo'),
   vis('#btn-redo'),
-  vis('#btn-daynight'),
-  vis('#btn-openfronts'),
-  // the app fixture forces window.__kpForceMac = true, so the mac-gated
-  // nav-input control is visible for every spec run regardless of CI OS
-  vis('#navinput-group'),
-  vis('#btn-navinput'),
   vis('#btn-new'),
   vis('#btn-save'),
   vis('#btn-load'),
-  vis('#btn-png'),
-  vis('#btn-glb'),
   vis('#btn-export'),
   present('#export-menu'), // display:none until .open
+  vis('#btn-settings'), // WS-SPEC §2.3: device preferences moved behind the gear
+  present('#settings-menu'), // display:none until .open
   present('#file-input'),
   present('#underlay-input'),
 
@@ -89,6 +79,16 @@ const ALWAYS: readonly ContractEntry[] = [
   vis('#mode2d-toggle'),
   vis('button[data-2dmode="plan"].active'),
   vis('button[data-2dmode="elev"]'),
+
+  // canvas overlays — WS-SPEC §2.3 moved these off the top bar. The view
+  // toggle floats over #canvases, the scene toggles inside #pane3d; both are
+  // on screen at boot (Furnish + Split) and both unmount in Workshop/Output.
+  vis('#view-toggle'),
+  vis('button[data-view="2d"]'),
+  vis('button[data-view="split"].active'), // Split is the default view
+  vis('button[data-view="3d"]'),
+  vis('#btn-daynight'),
+  vis('#btn-openfronts'),
 
   // plan overlays
   vis('#zoom-controls'),
@@ -259,13 +259,28 @@ const STUDIO_EDITOR: readonly ContractEntry[] = [
   vis('.studio-save'),
 ];
 
-/** The export menu, toggled open by <ExportMenu/> in src/ui/react/Topbar.tsx. */
+/**
+ * The export menu, toggled open by <ExportMenu/> in src/ui/react/Topbar.tsx.
+ * `#btn-png`/`#btn-glb` kept their ids when WS-SPEC §2.3 folded them in here as
+ * the last two entries — same buttons, one level deeper.
+ */
 const EXPORT_MENU: readonly ContractEntry[] = [
   vis('#export-menu.open'),
   vis('[data-export="cut"]'),
   vis('[data-export="buy"]'),
   vis('[data-export="sheet"]'),
   vis('[data-export="plan"]'),
+  vis('#btn-png[data-export="png"]'),
+  vis('#btn-glb[data-export="glb"]'),
+];
+
+/** The settings menu, toggled open by <SettingsMenu/> in src/ui/react/Topbar.tsx.
+ *  The app fixture forces window.__kpForceMac = true, so the mac-gated nav-input
+ *  row is there for every spec run regardless of CI OS. */
+const SETTINGS_MENU: readonly ContractEntry[] = [
+  vis('#settings-menu.open'),
+  vis('#navinput-group'),
+  vis('#btn-navinput'),
 ];
 
 /** Runs every entry in a group; a failure names the exact missing selector. */
@@ -312,6 +327,10 @@ test('DOM contract: selector table stays present across every pinned app state',
     await app.click('#ws-tab-workshop');
     await assertContract(app, WORKSHOP_SIDEBAR);
     await expect(app.locator('#sidebar-tabs')).toHaveCount(0);
+    // the canvas overlays belong to the two workspaces that draw on the
+    // canvases; a workspace pane covers them here (WS-SPEC §2.3)
+    await expect(app.locator('#view-toggle')).toHaveCount(0);
+    await expect(app.locator('#btn-daynight')).toHaveCount(0);
 
     await app.click('#ws-tab-output');
     await assertContract(app, OUTPUT_SIDEBAR);
@@ -319,6 +338,7 @@ test('DOM contract: selector table stays present across every pinned app state',
 
     await app.click('#ws-tab-furnish');
     await expect(app.locator('#sidebar-tabs')).toBeVisible();
+    await expect(app.locator('#view-toggle')).toBeVisible();
   });
 
   await test.step('catalog', async () => {
@@ -457,6 +477,17 @@ test('DOM contract: selector table stays present across every pinned app state',
   await test.step('close export menu', async () => {
     await app.click('#btn-export');
     await expect(app.locator('#export-menu.open')).toHaveCount(0);
+  });
+
+  // ---- settings menu ----
+  await test.step('open settings menu', async () => {
+    await app.click('#btn-settings');
+    await assertContract(app, SETTINGS_MENU);
+  });
+
+  await test.step('close settings menu', async () => {
+    await app.click('#btn-settings');
+    await expect(app.locator('#settings-menu.open')).toHaveCount(0);
   });
 
   // itemSelected/wallSelected/openingSelected/cornerSelected all target the

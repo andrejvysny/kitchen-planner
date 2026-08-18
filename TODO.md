@@ -81,7 +81,7 @@ green gate above runs per WP.
 - [x] WP 1.6 hosted Part Studio (WorkshopPane) + caption fix
       (follow-up noted: openInWorkshop skips setTool('select')/drawer close;
       declined re-open confirm leaves workshopTarget naming the other part)
-- [ ] WP 1.7 topbar slimming + settings menu + canvas overlays
+- [x] WP 1.7 topbar slimming + settings menu + canvas overlays
 - [ ] WP 1.8 output pane (six export cards)
 - [ ] WP 1.9 test + docs migration sweep; Phase 1 exit criteria walk
 

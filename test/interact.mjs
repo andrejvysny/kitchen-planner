@@ -1002,12 +1002,17 @@ results.push([
   Math.abs(t1.panY - t0.panY) > 0.5 && Math.abs(t1.zoom - t0.zoom) < 1e-6,
 ]);
 
-// the toggle cycles and persists
+// the toggle cycles and persists — WS-SPEC §2.3 moved it behind the topbar gear,
+// so the row has to be on screen before it can be clicked
 await setNav('auto');
+await page.click('#btn-settings');
+await waitUntil(() => document.getElementById('settings-menu')?.classList.contains('open'));
 await page.click('#btn-navinput');
 const navLabel = await page.textContent('#btn-navinput');
 const navStored = await page.evaluate(() => localStorage.getItem('interior-planner-nav-v1'));
 results.push(['nav toggle cycles + persists', navLabel === 'Nav: Mouse' && navStored === 'mouse']);
+await page.click('#btn-settings'); // the cycler keeps the menu open; close it
+await waitUntil(() => !document.getElementById('settings-menu')?.classList.contains('open'));
 await setNav('auto');
 
 // 17b. per-item worktop material: chip in the "Worktop" props section paints the counter slab
@@ -1195,8 +1200,18 @@ results.push(['no texture leak across rebuilds', tex.after - tex.before <= 2]);
 const pngLen = await page.evaluate(() => window.__kp.view.snapshotPNG().length);
 results.push(['snapshot PNG non-blank', pngLen > 20000]);
 
+// Every file the app produces now hangs off the Export ▾ menu (WS-SPEC §2.3),
+// including the two 3D exports that used to be bare topbar buttons — so every
+// export scenario below opens it first. Each entry closes the menu on its way
+// out, so the next open is always a fresh toggle.
+const openExportMenu = async () => {
+  await page.click('#btn-export');
+  await waitUntil(() => document.getElementById('export-menu')?.classList.contains('open'));
+};
+
 // 20. GLB export for Blender
 await page.keyboard.press('Escape');
+await openExportMenu();
 const [download] = await Promise.all([
   page.waitForEvent('download', { timeout: 20000 }),
   page.click('#btn-glb'),
@@ -1209,10 +1224,6 @@ results.push(['glb export magic', buf.length > 2000 && buf.toString('ascii', 0, 
 // 20a/20b. Export ▾ menu: cut list CSV (KITCHENP milestone 1 BOM export).
 // One download covers both the header contract and a content check — a
 // base cabinet was placed for the stacking test (13) and is still alive.
-const openExportMenu = async () => {
-  await page.click('#btn-export');
-  await waitUntil(() => document.getElementById('export-menu')?.classList.contains('open'));
-};
 await openExportMenu();
 const [cutDownload] = await Promise.all([
   page.waitForEvent('download', { timeout: 20000 }),
@@ -1592,6 +1603,8 @@ results.push([
     Math.abs(Math.abs(opened.rot - openScenario.baseRot) - OPEN_ANGLE) < 0.05,
 ]);
 
+// the master toggle lives on the 3D pane now (WS-SPEC §2.3), which is on
+// screen here: the run never leaves Split view
 await page.click('#btn-openfronts'); // master open
 await waitForPose(openScenario.itemId, true);
 const masterOpen = await page.evaluate(() => {
@@ -1608,7 +1621,7 @@ await page.click('#btn-openfronts'); // close again
 await waitForPose(openScenario.itemId, false);
 const masterClosed = await page.evaluate(() => !window.__kp.store.openFronts.allOpen);
 results.push([
-  'topbar Open fronts master toggle works',
+  'Open fronts master toggle works',
   masterOpen.all && masterOpen.anyOpen && masterClosed,
 ]);
 await page.evaluate((id) => {

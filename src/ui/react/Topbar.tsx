@@ -1,14 +1,29 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type KeyboardEvent,
+  type ReactElement,
+  type RefObject,
+  type SetStateAction,
+} from 'react';
 import { useAppServices, useEditor, useStore } from './services';
-import { buildBom } from '../../model/export';
-import { bomHtml, cutListCsv, shoppingListCsv } from '../../model/exportFormats';
 import { navInput, setNavInput } from '../../model/navPref';
 import { emptyDesign, sanitizeDesign } from '../../model/store';
-import { openPrintSheet } from '../../print/sheet';
 import { isMac, NAV_INPUTS, type NavInput } from '../../view3d/wheelInput';
 import { catalogOpen, setCatalogOpen, setHint } from '../shellState';
 import { applyCalibration, importUnderlay } from '../underlayImport';
 import { workspace, type WorkspaceId } from '../workspaceState';
+import {
+  download,
+  exportBomSheet,
+  exportBuyCsv,
+  exportCutCsv,
+  exportGlb,
+  exportPlanSheet,
+  exportSnapshotPng,
+} from './exportActions';
 import { useChannel } from './hooks/useStore';
 
 /**
@@ -22,8 +37,11 @@ import { useChannel } from './hooks/useStore';
  * <Topbar/> itself stays stateless and never re-renders. That matters: the DOM
  * ui.ts still writes to must never be reconciled out from under it.
  *
- * Nothing in the top bar is legacy-wired any more: T5 took the last of it, the
- * reference-photo input, off ui.ts's wireUnderlay.
+ * WS-SPEC §2.3 slimmed it to the document level — workspaces, history, files.
+ * What steers the DRAWING went onto the canvases (src/ui/react/CanvasOverlays.tsx:
+ * the 2D/Split/3D toggle and the day-night / open-fronts pair), what is a device
+ * preference went behind the gear (<SettingsMenu/>), and the two one-shot 3D
+ * exports became <ExportMenu/> entries beside the ones that were already there.
  */
 export function Topbar(): ReactElement {
   return (
@@ -34,31 +52,12 @@ export function Topbar(): ReactElement {
       </div>
       <CatalogButton />
       <WorkspaceTabs />
-      <ViewToggle />
       <HistoryButtons />
-      <SceneToggles />
-      <NavInputControl />
       <div className="topbar-spacer"></div>
       <FileGroup />
+      <SettingsMenu />
     </header>
   );
-}
-
-/* ================= helpers shared by the ported handlers ================= */
-
-/** Moved verbatim from ui.ts: click a synthetic <a download>, then free the blob. */
-function download(url: string, name: string): void {
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.click();
-  // the click consumed the URL synchronously; hand the blob's memory back
-  if (url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-function downloadText(text: string, name: string, type: string): void {
-  const blob = new Blob([text], { type });
-  download(URL.createObjectURL(blob), name);
 }
 
 /* ================= catalog drawer ================= */
@@ -212,54 +211,6 @@ function UnderlayInput(): ReactElement {
   );
 }
 
-/* ================= view toggle ================= */
-
-type ViewMode = '2d' | 'split' | '3d';
-
-/**
- * 2D / Split / 3D. React owns the buttons' own `.active` class; the panes stay
- * imperative because the 2D/elev sub-toggle (Workspace.tsx) writes
- * `.elev-mode` on the same class list — so this is the old setView, unchanged,
- * minus the part React now renders.
- */
-function ViewToggle(): ReactElement {
-  const { view3d } = useAppServices();
-  const [mode, setMode] = useState<ViewMode>('split');
-
-  const pick = (next: ViewMode): void => {
-    document.getElementById('pane2d')!.classList.toggle('hidden', next === '3d');
-    document.getElementById('pane3d')!.classList.toggle('hidden', next === '2d');
-    view3d.setActive(next !== '2d'); // a hidden 3D pane renders nothing
-    setMode(next);
-  };
-
-  const cls = (m: ViewMode): string | undefined => (mode === m ? 'active' : undefined);
-
-  return (
-    <div className="topbar-group" id="view-toggle">
-      <button
-        data-view="2d"
-        className={cls('2d')}
-        title="2D floor plan only"
-        onClick={() => pick('2d')}
-      >
-        2D
-      </button>
-      <button
-        data-view="split"
-        className={cls('split')}
-        title="2D + 3D side by side"
-        onClick={() => pick('split')}
-      >
-        Split
-      </button>
-      <button data-view="3d" className={cls('3d')} title="3D view only" onClick={() => pick('3d')}>
-        3D
-      </button>
-    </div>
-  );
-}
-
 /* ================= undo / redo ================= */
 
 /** Enablement tracks the undo stacks, which only ever move on 'history'. */
@@ -288,43 +239,33 @@ function HistoryButtons(): ReactElement {
   );
 }
 
-/* ================= day/night + open fronts ================= */
+/* ================= dropdown plumbing ================= */
 
 /**
- * Two toggles, two sources: night is design data (committed, so it lands on
- * 'history'), the open-front pose is ephemeral view state on the 'pose'
- * channel — never in the Design, never in an undo step.
+ * Click-away close, shared by the two topbar dropdowns. Pointerdown, not click:
+ * it must fire before a menu item's own click — and must NOT close when the
+ * press lands on the button (that would fight its toggle) or inside the menu
+ * (the item still needs its click). Cleanup keeps a StrictMode double mount
+ * from stacking listeners.
  */
-function SceneToggles(): ReactElement {
-  const store = useStore();
-  useChannel('history');
-  useChannel('pose');
-
-  const night = store.design.scene.night;
-
-  const toggleNight = (): void => {
-    store.setNight(!store.design.scene.night);
-    store.commit();
-  };
-
-  return (
-    <div className="topbar-group">
-      <button id="btn-daynight" title="Toggle day / night" onClick={toggleNight}>
-        {night ? '☾ Night' : '☀ Day'}
-      </button>
-      <button
-        id="btn-openfronts"
-        className={store.openFronts.allOpen ? 'active' : undefined}
-        title="Preview all doors and drawers open (3D only, never saved)"
-        onClick={() => store.openFronts.setAll(!store.openFronts.allOpen)}
-      >
-        Open fronts
-      </button>
-    </div>
-  );
+function useMenuDismiss(
+  open: boolean,
+  setOpen: Dispatch<SetStateAction<boolean>>,
+  btn: RefObject<HTMLElement | null>,
+  menu: RefObject<HTMLElement | null>
+): void {
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent): void => {
+      const t = e.target as Node;
+      if (!menu.current!.contains(t) && !btn.current!.contains(t)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [open, setOpen, btn, menu]);
 }
 
-/* ================= nav input ================= */
+/* ================= settings ================= */
 
 const NAV_LABELS: Record<NavInput, string> = {
   auto: 'Nav: Auto',
@@ -339,16 +280,50 @@ const NAV_HINTS: Record<NavInput, string> = {
 };
 
 /**
+ * Device preferences, behind a gear at the far right (WS-SPEC §2.3): things
+ * that are neither the document nor the drawing, and that a user sets once.
+ * Same open/close plumbing as <ExportMenu/> below.
+ */
+function SettingsMenu(): ReactElement {
+  const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  useMenuDismiss(open, setOpen, btn, menu);
+
+  return (
+    <div className="topbar-menu-wrap">
+      <button
+        id="btn-settings"
+        title="Settings"
+        ref={btn}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+      >
+        ⚙
+      </button>
+      <div id="settings-menu" className={open ? 'topbar-menu open' : 'topbar-menu'} ref={menu}>
+        <NavInputRow />
+        {/* WS-SPEC: units picker lands here later */}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Wheel-reading preference (KITCHENP-13). Mouse-vs-trackpad cannot be decided
  * from the DOM in every case — a high-resolution wheel is indistinguishable
  * from a two-finger swipe — so "Auto" is a good guess and this is the manual
  * override. macOS-only: elsewhere the wheel always zooms, so it would be a
- * no-op control and the group stays hidden.
+ * no-op control and the row stays hidden.
  *
  * The preference is a module singleton in navPref.ts with no change event, so
- * the label re-reads it after a click, exactly as ui.ts's refresh() did.
+ * the label re-reads it after a click, exactly as ui.ts's refresh() did. The
+ * row stays a CYCLER rather than becoming three menu entries: the settings menu
+ * is where it moved to, not a redesign of what it does.
  */
-function NavInputControl(): ReactElement {
+function NavInputRow(): ReactElement {
   const [, bump] = useState(0);
   const mac = isMac(navigator.platform, navigator.userAgent);
   const pref = navInput();
@@ -359,7 +334,7 @@ function NavInputControl(): ReactElement {
   };
 
   return (
-    <div className="topbar-group" id="navinput-group" hidden={!mac}>
+    <div id="navinput-group" hidden={!mac}>
       <button id="btn-navinput" title={NAV_HINTS[pref]} onClick={cycle}>
         {NAV_LABELS[pref]}
       </button>
@@ -370,9 +345,8 @@ function NavInputControl(): ReactElement {
 /* ================= file operations ================= */
 
 function FileGroup(): ReactElement {
-  const { store, plan, view3d } = useAppServices();
+  const { store, plan } = useAppServices();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [glbBusy, setGlbBusy] = useState(false);
 
   const onNew = (): void => {
     if (!confirm('Start a new design? Your current design will be replaced (Undo can restore it).'))
@@ -414,19 +388,6 @@ function FileGroup(): ReactElement {
     }
   };
 
-  const onGlb = async (): Promise<void> => {
-    setGlbBusy(true);
-    try {
-      const blob = await view3d.exportGLB();
-      download(URL.createObjectURL(blob), 'interior.glb');
-      setHint('interior.glb exported — in Blender: File → Import → glTF 2.0');
-    } catch {
-      setHint('GLB export failed — try again after a reload.');
-    } finally {
-      setGlbBusy(false);
-    }
-  };
-
   return (
     <div className="topbar-group">
       <button id="btn-new" title="Start a new empty design" onClick={onNew}>
@@ -441,21 +402,6 @@ function FileGroup(): ReactElement {
         onClick={() => fileInput.current!.click()}
       >
         Load
-      </button>
-      <button
-        id="btn-png"
-        title="Export 3D snapshot as PNG"
-        onClick={() => download(view3d.snapshotPNG(), 'interior-3d.png')}
-      >
-        Snapshot
-      </button>
-      <button
-        id="btn-glb"
-        title="Export the modelled interior as .glb for Blender"
-        disabled={glbBusy}
-        onClick={() => void onGlb()}
-      >
-        Blender
       </button>
       <ExportMenu />
       <input
@@ -473,71 +419,45 @@ function FileGroup(): ReactElement {
 
 /* ================= export menu ================= */
 
-/** Cut list / shopping list CSVs, the BOM sheet, the plan sheet. */
+/**
+ * Everything that produces a file: the two CSVs, the two printable sheets, and
+ * — since WS-SPEC §2.3 took them out of the bar — the 3D snapshot and the GLB.
+ *
+ * The handlers themselves live in src/ui/react/exportActions.ts, because the
+ * Output workspace's pane (WP 1.8) runs the same ones; this component owns only
+ * what a MENU owns, which is when to close and whether the long-running entry is
+ * busy. GLB is the one entry that can take seconds, so it says so in place
+ * rather than leaving a dead-looking menu behind.
+ */
 function ExportMenu(): ReactElement {
-  const store = useStore();
+  const { store, view3d } = useAppServices();
   const [open, setOpen] = useState(false);
+  const [glbBusy, setGlbBusy] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  useMenuDismiss(open, setOpen, btn, menu);
 
-  // click-away close. Pointerdown, not click: it must fire before a menu
-  // item's own click — and must NOT close when the press lands on the button
-  // (that would fight its toggle) or inside the menu (the item still needs its
-  // click). Cleanup keeps a StrictMode double mount from stacking listeners.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent): void => {
-      const t = e.target as Node;
-      if (!menu.current!.contains(t) && !btn.current!.contains(t)) setOpen(false);
-    };
-    document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
-  }, [open]);
-
-  const onCut = (): void => {
-    const bom = buildBom(store.design);
-    downloadText(cutListCsv(bom), 'interior-cutlist.csv', 'text/csv;charset=utf-8');
-    setHint('interior-cutlist.csv exported');
+  /** Every entry closes the menu; only the GLB one keeps running after it does. */
+  const run = (fn: () => void) => (): void => {
     setOpen(false);
+    fn();
   };
 
-  const onBuy = (): void => {
-    const bom = buildBom(store.design);
-    downloadText(shoppingListCsv(bom), 'interior-shopping-list.csv', 'text/csv;charset=utf-8');
-    setHint('interior-shopping-list.csv exported');
+  const onGlb = async (): Promise<void> => {
     setOpen(false);
-  };
-
-  const onSheet = (): void => {
-    const bom = buildBom(store.design);
-    const url = URL.createObjectURL(new Blob([bomHtml(bom)], { type: 'text/html' }));
-    const w = window.open(url, '_blank');
-    if (!w) download(url, 'interior-bom.html');
-    // the opened tab keeps reading the URL while it loads — outlive that, then free it
-    else setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    setHint(
-      w
-        ? 'Printable sheet opened in a new tab'
-        : 'Pop-ups are blocked — interior-bom.html downloaded instead'
-    );
-    setOpen(false);
-  };
-
-  const onPlan = (): void => {
-    const opened = openPrintSheet(store);
-    setHint(
-      opened
-        ? 'Plan sheet opened in a new tab — print it at 100% on A4 landscape'
-        : 'Pop-ups are blocked — interior-plan-sheet.html downloaded instead'
-    );
-    setOpen(false);
+    setGlbBusy(true);
+    try {
+      await exportGlb(view3d);
+    } finally {
+      setGlbBusy(false);
+    }
   };
 
   return (
     <div className="topbar-menu-wrap">
       <button
         id="btn-export"
-        title="Cut list, shopping list and printable sheets"
+        title="Cut list, shopping list, printable sheets and 3D exports"
         ref={btn}
         onClick={(e) => {
           e.stopPropagation();
@@ -547,17 +467,34 @@ function ExportMenu(): ReactElement {
         Export ▾
       </button>
       <div id="export-menu" className={open ? 'topbar-menu open' : 'topbar-menu'} ref={menu}>
-        <button data-export="cut" onClick={onCut}>
+        <button data-export="cut" onClick={run(() => exportCutCsv(store))}>
           Cut list (CSV)
         </button>
-        <button data-export="buy" onClick={onBuy}>
+        <button data-export="buy" onClick={run(() => exportBuyCsv(store))}>
           Shopping list (CSV)
         </button>
-        <button data-export="sheet" onClick={onSheet}>
+        <button data-export="sheet" onClick={run(() => exportBomSheet(store))}>
           Printable sheet…
         </button>
-        <button data-export="plan" onClick={onPlan}>
+        <button data-export="plan" onClick={run(() => exportPlanSheet(store))}>
           Plan sheet…
+        </button>
+        <button
+          id="btn-png"
+          data-export="png"
+          title="Export the 3D view as a PNG image"
+          onClick={run(() => exportSnapshotPng(view3d))}
+        >
+          Snapshot (PNG)
+        </button>
+        <button
+          id="btn-glb"
+          data-export="glb"
+          title="Export the modelled interior as .glb for Blender"
+          disabled={glbBusy}
+          onClick={() => void onGlb()}
+        >
+          {glbBusy ? 'Exporting…' : 'Blender (GLB)…'}
         </button>
       </div>
     </div>

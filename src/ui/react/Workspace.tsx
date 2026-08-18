@@ -4,6 +4,7 @@ import type { ToolId } from '../../editor/editorState';
 import type { CamPreset } from '../../view3d/view3d';
 import { wallLabel } from '../shellState';
 import { workspace } from '../workspaceState';
+import { SceneOverlay, ViewOverlay } from './CanvasOverlays';
 import { useChannel } from './hooks/useStore';
 import { PropsPanel } from './PropsPanel';
 import { Sidebar } from './Sidebar';
@@ -31,7 +32,10 @@ import { WorkshopPane } from './WorkshopPane';
  *
  * That is also why <WorkshopPane/> — the overlay pane that hosts the Part
  * Studio — is a CHILD holding its own 'workspace' subscription rather than a
- * conditional here: this component renders once and never reconciles it.
+ * conditional here: this component renders once and never reconciles it. The
+ * two canvas overlays WS-SPEC §2.3 moved off the top bar (<ViewOverlay/> over
+ * #canvases, <SceneOverlay/> in #pane3d) arrive the same way, from
+ * src/ui/react/CanvasOverlays.tsx.
  */
 export function Workspace(): ReactElement {
   const { plan, elevation, view3d } = useAppServices();
@@ -77,7 +81,9 @@ export function Workspace(): ReactElement {
           <canvas id="canvas3d" ref={viewCanvas}></canvas>
           <div className="pane-badge">3D view</div>
           <CamControls />
+          <SceneOverlay />
         </div>
+        <ViewOverlay />
         <WorkshopPane />
       </section>
 
