@@ -341,6 +341,14 @@ test('DOM contract: selector table stays present across every pinned app state',
     await app.click('#ws-tab-plan');
     await assertContract(app, PLAN_TOOLS);
     await assertContract(app, CATALOG_PLAN); // WS-SPEC §4.3: door/window live here now
+
+    // hint chip (WS-SPEC §5.2, WP 2.2): mounted as soon as a tool is armed,
+    // gone as soon as it isn't — no pointer move needed for DOM presence.
+    await app.click('#btn-measure');
+    await assertContract(app, [present('#hint-chip-2d')]);
+    await app.click('#btn-measure');
+    await expect(app.locator('#hint-chip-2d')).toHaveCount(0);
+
     await app.click('#ws-tab-furnish');
     await expect(app.locator('#ws-tab-furnish')).toHaveClass(/active/);
   });

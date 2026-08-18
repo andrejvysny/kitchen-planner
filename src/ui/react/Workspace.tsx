@@ -6,6 +6,7 @@ import { wallLabel } from '../shellState';
 import { workspace } from '../workspaceState';
 import { SceneOverlay, ViewOverlay } from './CanvasOverlays';
 import { ContextMenu } from './ContextMenu';
+import { HintChip } from './HintChip';
 import { useChannel } from './hooks/useStore';
 import { OutputPane } from './OutputPane';
 import { PropsPanel } from './PropsPanel';
@@ -41,6 +42,10 @@ import { WorkshopPane } from './WorkshopPane';
  * one workspace over. <ContextMenu/> (WP 2.1) is the same shape again: it holds
  * the open popup's state and finds the two canvases from its own effect, which
  * runs after this component's children are in the document.
+ *
+ * <HintChip/> (WP 2.2) is the same shape once more: a cursor-follow label
+ * shown while a tool is armed, mounted only in #pane2d — see its own doc
+ * comment for why the 3D pane gets no instance today.
  */
 export function Workspace(): ReactElement {
   const { plan, elevation, view3d } = useAppServices();
@@ -81,12 +86,14 @@ export function Workspace(): ReactElement {
           <ZoomControls />
           <ToolButtons />
           <WallNav />
+          <HintChip paneId="pane2d" />
         </div>
         <div id="pane3d" className="pane">
           <canvas id="canvas3d" ref={viewCanvas}></canvas>
           <div className="pane-badge">3D view</div>
           <CamControls />
           <SceneOverlay />
+          <HintChip paneId="pane3d" />
         </div>
         <ViewOverlay />
         <WorkshopPane />

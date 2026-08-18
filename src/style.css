@@ -909,6 +909,35 @@ body {
   text-align: center;
 }
 
+/* ---------- Cursor hint chip (WS-SPEC §5.2, WP 2.2) ---------- */
+
+/* Deliberately redundant with #status-hint's richer text — short, static copy
+   that follows the pointer while a tool is armed. Position/opacity are
+   written directly onto the node by HintChip.tsx's rAF loop, never through
+   React state, so this rule only sets up the LOOK, not the layout: top/left:0
+   plus a translate() is the whole positioning contract. pointer-events:none
+   is CRITICAL — it must never steal a canvas click (test/interact.mjs drives
+   every gesture by mouse position). z-index 25 sits above the pane's own
+   badges/clusters (z-index auto) and `.canvas-overlay` (20), below
+   `.workspace-pane` (30) which already covers the canvases where this has
+   nothing to say. */
+.hint-chip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 25;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  background: var(--ink);
+  color: #fff;
+  font-size: 11px;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
 /* ---------- Canvas context menu (WS-SPEC §5.1) ---------- */
 
 /* Fixed, not absolute: it is positioned from the pointer's VIEWPORT coordinates

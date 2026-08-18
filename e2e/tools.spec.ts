@@ -290,3 +290,22 @@ test('the status hint renders from the shell store', async ({ app }) => {
   await app.keyboard.press('Escape');
   await expect(app.locator('#status-hint')).toContainText('Drag corners');
 });
+
+// WP 2.2: the floating cursor chip, deliberately redundant with #status-hint.
+test('the hint chip follows the pointer while a tool is armed', async ({ app }) => {
+  await pinViewport(app);
+  await app.click('#btn-room');
+
+  const p = await at(app, 6, 5); // mid-canvas, clear of the corner clusters
+  await app.mouse.move(p.x, p.y);
+
+  const chip = app.locator('#hint-chip-2d');
+  await expect(chip).toContainText('drop a room');
+  await expect(chip).toHaveCSS('opacity', '1');
+  // pointer-events:none is what keeps this from ever stealing a canvas click
+  await expect(chip).toHaveCSS('pointer-events', 'none');
+
+  await app.keyboard.press('Escape');
+  expect(await editorTool(app)).toBe('select');
+  await expect(app.locator('#hint-chip-2d')).toHaveCount(0);
+});
