@@ -155,12 +155,17 @@ def configure(
     _set(cycles, "caustics_refractive", tier.caustics_refractive)
     _set(cycles, "use_light_tree", True)
 
-    # performance
-    _set(cycles, "use_persistent_data", True)
+    # performance — persistent data lives on scene.render (older builds had it
+    # under cycles; try both so the "unavailable" log stays honest)
+    if not _set(scene.render, "use_persistent_data", True) and _set(
+        cycles, "use_persistent_data", True
+    ):
+        _missing.remove("use_persistent_data")
     _set(cycles, "tile_size", 2048)
 
-    # denoising
-    _set(cycles, "use_denoising", True)
+    # denoising (--no-denoise = benchmarking: measure raw per-sample noise)
+    no_denoise = bool(getattr(opts, "no_denoise", False))
+    _set(cycles, "use_denoising", not no_denoise)
     _set(cycles, "denoiser", "OPENIMAGEDENOISE")
     _set(cycles, "denoising_prefilter", tier.denoise_prefilter)
     denoise_gpu = device == "METAL" and not bool(getattr(opts, "denoise_cpu", False))
@@ -187,7 +192,7 @@ def configure(
         "resolution": f"{width}x{height}",
         "samples": tier.samples,
         "view_transform": view_transform,
-        "denoise": "gpu" if denoise_gpu else "cpu",
+        "denoise": "off" if no_denoise else ("gpu" if denoise_gpu else "cpu"),
         "unavailable_settings": sorted(set(_missing)),
     }
     print(f"kprender/render: {report}")

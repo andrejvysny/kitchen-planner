@@ -265,6 +265,77 @@ export function softSlab(
   return prism(g, roundedRectPoly(w, d, r, cx, cz), h, mat, y);
 }
 
+/** One contour edge with its start offset along the contour's arc length. */
+interface UVSeg {
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+  s0: number;
+  len: number;
+}
+
+function segDist(px: number, py: number, s: UVSeg): number {
+  const dx = s.bx - s.ax;
+  const dy = s.by - s.ay;
+  const t = Math.max(0, Math.min(1, ((px - s.ax) * dx + (py - s.ay) * dy) / (s.len * s.len)));
+  return Math.hypot(px - (s.ax + t * dx), py - (s.ay + t * dy));
+}
+
+/**
+ * Rewrite ExtrudeGeometry SIDE-wall UVs to (arc length along the contour,
+ * extrusion depth) in METERS — the scaleBoxUV convention. Three's default
+ * WorldUVGenerator projects u onto whichever axis moves most, which compresses
+ * diagonal edges by cos(angle) and jitters across the segments of an arc. Cap
+ * UVs are already shape-space metres and stay untouched. Each contour restarts
+ * at u = 0, so the one texture seam per ring lands on a corner vertex.
+ */
+function prismSideUV(geo: THREE.ExtrudeGeometry, contours: Point[][]): void {
+  if (geo.index) return; // ExtrudeGeometry is non-indexed; bail if that drifts
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const uv = geo.attributes.uv as THREE.BufferAttribute;
+
+  const segs: UVSeg[] = [];
+  for (const c of contours) {
+    let s = 0;
+    for (let i = 0; i < c.length; i++) {
+      const a = c[i];
+      const b = c[(i + 1) % c.length];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < 1e-9) continue;
+      segs.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, s0: s, len });
+      s += len;
+    }
+  }
+  if (!segs.length) return;
+
+  for (let t = 0; t < pos.count; t += 3) {
+    const zs = [pos.getZ(t), pos.getZ(t + 1), pos.getZ(t + 2)];
+    if (Math.max(...zs) - Math.min(...zs) < 1e-6) continue; // cap: constant z
+    // a wall quad lies on exactly one contour edge — the centroid finds it
+    const cx = (pos.getX(t) + pos.getX(t + 1) + pos.getX(t + 2)) / 3;
+    const cy = (pos.getY(t) + pos.getY(t + 1) + pos.getY(t + 2)) / 3;
+    let best = segs[0];
+    let bestD = Infinity;
+    for (const sg of segs) {
+      const d = segDist(cx, cy, sg);
+      if (d < bestD) {
+        bestD = d;
+        best = sg;
+      }
+    }
+    const dx = best.bx - best.ax;
+    const dy = best.by - best.ay;
+    for (let k = t; k < t + 3; k++) {
+      const frac =
+        ((pos.getX(k) - best.ax) * dx + (pos.getY(k) - best.ay) * dy) / (best.len * best.len);
+      const u = best.s0 + Math.max(0, Math.min(1, frac)) * best.len;
+      uv.setXY(k, u, pos.getZ(k));
+    }
+  }
+  uv.needsUpdate = true;
+}
+
 /**
  * Vertical prism extruded from a plan-local polygon (+y = front). The mesh
  * spans y0..y0+h and plan (x, y) lands on world (x, z) — front toward +z.
@@ -280,11 +351,14 @@ export function prism(
 ): THREE.Mesh {
   const outline = signedArea(poly) < 0 ? [...poly].reverse() : poly;
   const shape = new THREE.Shape(outline.map((p) => new THREE.Vector2(p.x, p.y)));
+  const contours: Point[][] = [outline];
   for (const hpts of holes ?? []) {
     const hole = signedArea(hpts) > 0 ? [...hpts].reverse() : hpts;
     shape.holes.push(new THREE.Path(hole.map((p) => new THREE.Vector2(p.x, p.y))));
+    contours.push(hole);
   }
   const geo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
+  prismSideUV(geo, contours);
   const m = new THREE.Mesh(geo, mat);
   // shape (x, y) → world (x, z); extrusion +z → world -y, so lift by h
   m.rotation.x = Math.PI / 2;

@@ -104,6 +104,11 @@ PORTAL_INSET = 0.05
 #: World strength for the flat night sky.
 NIGHT_WORLD_STRENGTH = 0.15
 
+#: The viewport's lamp gate is ``1.44 × (1 − daylight)``, so 1.44 is the full
+#: night-time boost. ``--lights on`` uses it regardless of daylight — the
+#: staged-interior look (lamps lit in a daytime shot).
+LAMP_BOOST_FULL = 1.44
+
 
 def _enum_ids(rna_owner: Any, prop: str) -> list[str]:
     """Identifiers of an enum property on this Blender build, or ``[]``."""
@@ -162,10 +167,16 @@ def _build_world(manifest: Manifest, scene: Any) -> str:
     node = node_tree.nodes.new("ShaderNodeTexSky")
     node.location = (-300.0, 0.0)
     types = _enum_ids(node, "sky_type")
-    if "NISHITA" in types:
-        node.sky_type = "NISHITA"
-    elif types:  # pragma: no cover - very old build
-        print(f"kprender/lighting: no NISHITA sky on this build (has {types}); keeping default")
+    # Preference order: NISHITA (≤ 4.x) → MULTIPLE_SCATTERING (its 5.x
+    # successor) → HOSEK_WILKIE. Selected EXPLICITLY — relying on the build's
+    # default sky_type would make the sun/sky balance depend on Blender's
+    # defaults instead of ours.
+    for sky_type in ("NISHITA", "MULTIPLE_SCATTERING", "HOSEK_WILKIE"):
+        if sky_type in types:
+            node.sky_type = sky_type
+            break
+    else:  # pragma: no cover - very old build
+        print(f"kprender/lighting: no known sky model on this build (has {types}); keeping default")
     if hasattr(node, "sun_disc"):
         node.sun_disc = False
     if hasattr(node, "sun_elevation"):
@@ -268,11 +279,12 @@ def _add_portal(portal: Portal, scene: Any) -> Any | None:
 def apply(manifest: Manifest, opts: Any = None, scene: Any = None) -> dict[str, Any]:
     """Build sun, world, fixtures and portals.  Returns a report dict.
 
-    ``opts`` is duck-typed: only ``no_portals`` is read.
+    ``opts`` is duck-typed: ``no_portals`` and ``lights`` are read.
     """
     scene = scene or bpy.context.scene
     no_portals = bool(getattr(opts, "no_portals", False))
-    boost = manifest.sky.lamp_boost
+    lights_mode = str(getattr(opts, "lights", "scene") or "scene")
+    boost = LAMP_BOOST_FULL if lights_mode == "on" else manifest.sky.lamp_boost
 
     _, sun_watts = _add_sun(manifest, scene)
     world_note = _build_world(manifest, scene)
@@ -292,7 +304,8 @@ def apply(manifest: Manifest, opts: Any = None, scene: Any = None) -> dict[str, 
         # because "my pendant is dark" is otherwise a confusing render.
         print(
             f"kprender/lighting: {fixtures} fixture(s) at 0 W — sky.lampBoost is 0 "
-            "(full daylight). Lower the sun or switch to night in the app to see them."
+            "(full daylight). Lower the sun or switch to night in the app to see them, "
+            "or render with --lights on."
         )
 
     portals = 0
@@ -310,6 +323,7 @@ def apply(manifest: Manifest, opts: Any = None, scene: Any = None) -> dict[str, 
         "sun_watts": round(sun_watts, 4),
         "world": world_note,
         "lamp_boost": boost,
+        "lights": lights_mode,
         "fixtures": fixtures,
         "fixtures_off": skipped_off,
         "portals": portals,

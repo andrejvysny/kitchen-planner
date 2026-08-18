@@ -31,20 +31,74 @@ Blender run, or the ambientCG network — that is this checklist.
 - `--probe` bbox/axis check passes against the plan; 44 canonical materials
   (dozens, not hundreds) and the `kp` glTF-extras custom property SURVIVES
   into the .blend — both channels of the contract work.
-- Findings still open, in priority order:
-  1. **Worktop prism side-face UVs stretch** (top face fine) — grain smears on
-     the front edge vs a clean `--uv-box` render. Real fix in
-     `src/view3d/meshKit.ts` `prism()` side UVs.
-  2. **Portals A/B inconclusive at preview tier** — OIDN flattens both to the
-     same noise. Re-test in §C with denoise off before milestone 2 bakes
-     portals in.
-  3. Blender 5.2 has no NISHITA sky — worker falls back to
-     MULTIPLE_SCATTERING (fine), but the log first says "keeping default";
-     cosmetic contradiction.
-  4. Textured oak (`baseColorMode: multiply`) renders much darker than the
-     app's oak — §C calibration (tint × already-brown Wood051 color map).
 - Not exercised: `.blend` hand-inspection in the Blender UI, golden-hour
   reference comparison (§C needs reference photos).
+
+## Quality track (photorealism expert pass, 2026-08-18) — R1 done, R2/R3 next
+
+Decisions taken with the user: quality track BEFORE milestone 2; calibration
+against synthetic targets (no reference photos); a "physical lights" mode so
+lamps can be on in daylight renders. Full analysis lives in the R1 commit
+message and below.
+
+### R1 — correctness fixes (DONE, committed)
+
+- `src/view3d/meshKit.ts` `prism()` side-wall UVs rewritten to (arc length
+  along the contour, extrusion depth) in metres — three's stock
+  ExtrudeGeometry UVs project u onto the dominant axis (cos-compressed on
+  diagonals, jittery on arcs). Caps untouched (already shape-space metres).
+  Pinned by `test/unit/prismUV.test.ts` (diagonal wall now spans √2, hole
+  contours parameterize independently, v = extrusion depth).
+- `worker/kprender/lighting.py`: sky model selected EXPLICITLY —
+  NISHITA → MULTIPLE_SCATTERING → HOSEK_WILKIE — instead of trusting the
+  build's default; contradictory log line gone. **Sun-disc double-count risk
+  cleared by API probe**: the 5.2 MULTIPLE_SCATTERING node still has
+  `sun_disc` (plus sun_elevation/rotation/size/intensity) and the worker
+  already sets it False, so the KP Sun lamp stays the only direct sun.
+- `use_persistent_data` lives on `scene.render` (not `cycles`) — fixed, the
+  "unavailable_settings" log is clean again.
+- New worker CLI flags: `--no-denoise` (benchmarking: raw per-sample noise)
+  and `--lights scene|on` (`on` = LAMP_BOOST_FULL 1.44 wattage regardless of
+  daylight — the staged-interior look; `scene` = viewport-faithful gate).
+- Gates at commit time: worker ruff + 164 pytest green; app tsc/eslint/
+  753 unit/build green; interact runs against a tree that ALSO carries
+  unrelated app WIP (see the WIP commit) — its one red,
+  "wall-snap placement on a migrated design", pre-exists that WIP and is NOT
+  render-related (clean HEAD + UV fix alone was being verified when the
+  session was stopped; finish that check or fix the WIP first).
+
+### R2 — material realism pass (NEXT, worker + assets only)
+
+1. `fetch_textures.py`: compute each set's mean RGB of the Color map, write
+   `meanColor` into `textures.lock.json` (backfill all 10 by re-running with
+   `--force`).
+2. Normalized multiply: effective tint = `appColor_linear / meanColor`
+   (component-clamped to [0, 4]) wherever `baseColorMode: "multiply"` — kills
+   the "tint × already-brown map = mud" darkening on all 9 woods. Pure math
+   in a bpy-free helper + pytest.
+3. `openpbr.materials.json`: `base_metalness` → 0 on all woods/tiles/marble/
+   concrete (dielectrics; the 0.02 is a viewport carry-over).
+
+### R3 — calibration harness + light calibration (synthetic targets)
+
+1. `render/bench/`: script renders a fixed package list (kitchen day / golden
+   hour / night / all-lights-on via `--lights on` / small room) and reports
+   mean/median luminance, % clipped, RMS high-frequency noise, render time.
+   Packages export headlessly via playwright (pattern: drive
+   `window.__kp.view.setPreset('inside')`, mutate `design.scene`, click
+   `[data-export="render"]`, save the download).
+2. Portal A/B with `--no-denoise` at fixed 64 spp — keep/drop verdict on RMS
+   noise + time, recorded here. (OIDN flattened the first A/B; denoise-off is
+   the honest test.)
+3. Calibrate `SUN_W` (lighting.py, currently 3.0 — day interiors measurably
+   too dark) so the day scene's median display luminance lands ~0.35–0.55
+   under AgX; then the fixture watt tables + warmth endpoints
+   (`convert.watts_for`) against the night scene. Freeze in one commit.
+
+### Continuation prompt for a clean session
+
+"Continue the render quality track per render/NEXT_STEPS.md — R2 then R3.
+R1 is committed; verify its interact gate on a clean tree first."
 
 ## A. First render (the spike validation) — do this first
 

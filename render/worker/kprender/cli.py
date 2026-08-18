@@ -41,11 +41,13 @@ class Options:
     tier: str
     device: str
     denoise_cpu: bool
+    no_denoise: bool
     no_portals: bool
     no_ceiling: bool
     save_blend: bool
     uv_box: bool
     probe: bool
+    lights: str
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -75,7 +77,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="run OpenImageDenoise on the CPU (escape hatch for MetalRT + GPU-OIDN crashes)",
     )
     parser.add_argument(
+        "--no-denoise",
+        action="store_true",
+        help="disable denoising entirely (benchmarking: raw per-sample noise)",
+    )
+    parser.add_argument(
         "--no-portals", action="store_true", help="skip window light portals (A/B the sampling win)"
+    )
+    parser.add_argument(
+        "--lights",
+        choices=("scene", "on"),
+        default="scene",
+        help=(
+            "scene: fixture wattage follows the app's daylight gate (lamps dark at midday, "
+            "exactly like the viewport). on: full night-time wattage regardless of daylight — "
+            "the staged-interior look photographers use."
+        ),
     )
     parser.add_argument(
         "--no-ceiling", action="store_true", help="delete Ceiling* objects before rendering"
@@ -103,11 +120,13 @@ def _options(args: argparse.Namespace) -> Options:
         tier=args.tier,
         device=args.device,
         denoise_cpu=args.denoise_cpu,
+        no_denoise=args.no_denoise,
         no_portals=args.no_portals,
         no_ceiling=args.no_ceiling,
         save_blend=args.save_blend,
         uv_box=args.uv_box,
         probe=args.probe,
+        lights=args.lights,
     )
 
 
