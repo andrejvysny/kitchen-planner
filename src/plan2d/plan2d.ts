@@ -28,6 +28,7 @@ import {
   sortedItems,
   underlayImage,
   type DrawRing,
+  type HoverOverlay,
   type ItemGhost,
   type Measure,
   type OpeningGhost,
@@ -115,6 +116,14 @@ export class Plan2D {
 
   private ghost: ItemGhost | null = null;
   private ghostOpening: OpeningGhost | null = null;
+  /**
+   * WP 2.3 (WS-SPEC §5.3): what the cursor sits over in select mode, so
+   * renderPlan can grow/fill a handle or pre-highlight a wall. Pure paint —
+   * set only from hit testers onPointerMove already runs, never drives a
+   * store write. Must not go stale once the pointer leaves it (see
+   * clearHover()'s callers).
+   */
+  private hover: HoverOverlay = { handle: null, wallId: null };
   private drag: Drag = { type: 'none' };
   private pinch = new PinchGesture(); // two-finger pinch-zoom / pan (touch)
   private guides: Guide[] = [];
@@ -202,6 +211,7 @@ export class Plan2D {
     canvas.addEventListener(
       'pointerleave',
       () => {
+        this.clearHover();
         if (this.drag.type === 'none') {
           this.ghost = null;
           this.ghostOpening = null;
@@ -321,6 +331,9 @@ export class Plan2D {
   private syncFromEditor(): void {
     const tool = this.editor.tool;
     if (tool !== this.lastTool) {
+      // hover is select-mode-only paint; any tool switch (in or out of
+      // select) must not leave it behind
+      this.clearHover();
       // drop whatever the tool we are leaving had in flight
       switch (this.lastTool) {
         case 'calibrate':
@@ -786,11 +799,32 @@ export class Plan2D {
   }
 
   /** Snapshot of the in-flight overlay state — the measure span, room-tool ghost and draw ring. */
-  overlayState(): { measure: Measure; roomGhost: RoomGhost | null; drawRing: DrawRing | null } {
-    return { measure: this.measure, roomGhost: this.roomGhost, drawRing: this.drawRing() };
+  overlayState(): {
+    measure: Measure;
+    roomGhost: RoomGhost | null;
+    drawRing: DrawRing | null;
+    hover: HoverOverlay;
+  } {
+    return {
+      measure: this.measure,
+      roomGhost: this.roomGhost,
+      drawRing: this.drawRing(),
+      hover: { ...this.hover },
+    };
   }
 
   /* ---------------- pointer handling ---------------- */
+
+  /**
+   * Drop the hover affordance and repaint once, iff something was actually
+   * showing. Called on gesture start, on pointerleave and on a tool switch —
+   * a stale glow after the pointer moved on is the bug this exists to avoid.
+   */
+  private clearHover(): void {
+    if (this.hover.handle === null && this.hover.wallId === null) return;
+    this.hover = { handle: null, wallId: null };
+    this.requestDraw();
+  }
 
   private hitCorner(s: Point): string | null {
     for (const c of this.store.activeRoom().corners) {
@@ -929,6 +963,10 @@ export class Plan2D {
   }
 
   private onPointerDown(e: PointerEvent): void {
+    // a gesture starting freezes the hover branch below (its updates are
+    // skipped mid-drag), so leaving a stale handle/wall glow painted is the
+    // failure mode clearHover() exists to prevent
+    this.clearHover();
     const s = { x: e.offsetX, y: e.offsetY };
     if (e.pointerType === 'touch') {
       if (this.pinch.down(e.pointerId, s)) {
@@ -1328,18 +1366,44 @@ export class Plan2D {
       return;
     }
 
+    // select mode, nothing armed, no drag: cursor feedback AND the WP 2.3
+    // hover affordance share one hit-test pass — same testers, same priority
+    // order the cursor logic already used, results reused rather than
+    // re-run. The rotate handle has no hover paint of its own (it only ever
+    // shows on the current selection), so it still only affects the cursor.
     const s2 = { x: e.offsetX, y: e.offsetY };
-    const hover =
-      this.hitCorner(s2) || this.hitRotateHandle(s2) || this.hitMidpoint(s2)
-        ? 'pointer'
-        : this.hitOpening(w) || this.hitItem(w)
-          ? 'move'
-          : this.hitWall(w)
-            ? 'pointer'
-            : this.hitUnderlay(w)
-              ? 'grab'
-              : 'default';
-    this.canvas.style.cursor = hover;
+    const cornerId = this.hitCorner(s2);
+    const rotateId = cornerId ? null : this.hitRotateHandle(s2);
+    const midpointId = cornerId || rotateId ? null : this.hitMidpoint(s2);
+    const handleHit = cornerId || rotateId || midpointId;
+    const openingHit = handleHit ? null : this.hitOpening(w);
+    const itemHit = handleHit || openingHit ? null : this.hitItem(w);
+    const wallId = handleHit || openingHit || itemHit ? null : this.hitWall(w);
+    this.canvas.style.cursor = handleHit
+      ? 'pointer'
+      : openingHit || itemHit
+        ? 'move'
+        : wallId
+          ? 'pointer'
+          : this.hitUnderlay(w)
+            ? 'grab'
+            : 'default';
+
+    const nextHandle: HoverOverlay['handle'] = cornerId
+      ? { kind: 'corner', id: cornerId }
+      : midpointId
+        ? { kind: 'midpoint', id: midpointId }
+        : null;
+    const nextWallId = nextHandle ? null : wallId;
+    const prev = this.hover;
+    if (
+      prev.handle?.kind !== nextHandle?.kind ||
+      prev.handle?.id !== nextHandle?.id ||
+      prev.wallId !== nextWallId
+    ) {
+      this.hover = { handle: nextHandle, wallId: nextWallId };
+      this.requestDraw();
+    }
   }
 
   private onPointerUp(e: PointerEvent): void {
@@ -1489,6 +1553,7 @@ export class Plan2D {
         drawRing: this.drawRing(),
         measure: this.calibrateOn ? this.calibrate : this.measure,
         advisoryChecks: this.checksOn,
+        hover: this.hover,
       }
     );
   }

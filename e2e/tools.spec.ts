@@ -309,3 +309,39 @@ test('the hint chip follows the pointer while a tool is armed', async ({ app }) 
   expect(await editorTool(app)).toBe('select');
   await expect(app.locator('#hint-chip-2d')).toHaveCount(0);
 });
+
+// WP 2.3 (WS-SPEC §5.3): pure-paint hover pre-highlight in select mode — no
+// store writes, so this only ever asserts overlayState()/debug(), never the
+// design. The fresh room is a 4x3 rectangle at (0,0)-(4,0)-(4,3)-(0,3), so
+// (2,0) is the south wall's midpoint handle and (1,0) is bare wall, clear of
+// both the midpoint and corner hit radii at this zoom.
+test('hover pre-highlights a handle, then a wall, then clears over empty floor', async ({
+  app,
+}) => {
+  await pinViewport(app);
+
+  const mid = await at(app, 2, 0);
+  await app.mouse.move(mid.x, mid.y);
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().hover.handle?.kind))
+    .toBe('midpoint');
+  expect(await app.evaluate(() => window.__kp.plan.overlayState().hover.wallId)).toBe(null);
+
+  const before = await app.evaluate(() => window.__kp.plan.debug().drawCount);
+
+  const wallPt = await at(app, 1, 0);
+  await app.mouse.move(wallPt.x, wallPt.y);
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().hover.wallId))
+    .not.toBe(null);
+  expect(await app.evaluate(() => window.__kp.plan.overlayState().hover.handle)).toBe(null);
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.plan.debug().drawCount))
+    .toBeGreaterThan(before);
+
+  const floor = await at(app, 2, 1.5);
+  await app.mouse.move(floor.x, floor.y);
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().hover))
+    .toEqual({ handle: null, wallId: null });
+});

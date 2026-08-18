@@ -112,6 +112,19 @@ export interface OpeningGhost {
   valid: boolean;
 }
 
+/**
+ * Pre-highlight target under the cursor in select mode (WP 2.3, WS-SPEC §5.3):
+ * pure paint, computed by Plan2D from the SAME hit testers the cursor already
+ * runs — never new geometry. `handle` covers corner/midpoint (the rotate
+ * handle is selection-bound already, so it never needs a hover state of its
+ * own); `wallId` is null whenever a handle is hovered, an item/opening sits
+ * under the cursor, or nothing does.
+ */
+export interface HoverOverlay {
+  handle: { kind: 'corner' | 'midpoint'; id: string } | null;
+  wallId: string | null;
+}
+
 /** The plan's view transform, in the caller's transform units (CSS px by default). */
 export interface PlanViewport {
   /** px per metre */
@@ -153,6 +166,7 @@ export interface PlanOverlays {
   measure: Measure;
   /** the ⚠ toggle: warn/info findings on top of the always-drawn errors */
   advisoryChecks: boolean;
+  hover: HoverOverlay;
 }
 
 const NO_SELECTION: Selection = { kind: 'none' };
@@ -495,6 +509,27 @@ export function renderPlan(
     ctx.stroke();
   }
 
+  // ---- wall hover pre-highlight ----
+  // WS-SPEC I1 (deviation, pre-approved — see plan2d.ts onPointerMove): Plan2D
+  // cannot read which workspace is active, so this paints whenever the tool is
+  // 'select' in EITHER Plan or Furnish, since selection/manipulation there is
+  // identical by design and a pre-highlight that lied about clickability in
+  // Furnish would be wrong the other way. Reuses the exact fill+path the
+  // selected-wall ink above already uses, just layered on top at lower alpha.
+  if (opts.handles && overlays?.hover.wallId) {
+    const hoveredId = overlays.hover.wallId;
+    for (const g of drawnWalls) {
+      if (wallSelected(g)) continue;
+      if (g.id !== hoveredId && g.shared?.wallId !== hoveredId) continue;
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = ACCENT;
+      fillPoly(ctx, slabQuad(g));
+      ctx.restore();
+      break; // a wall id identifies at most one drawn slab
+    }
+  }
+
   // ---- add-room ghost ----
   if (opts.ghosts && overlays?.roomGhost) {
     const poly = overlays.roomGhost.poly;
@@ -615,15 +650,17 @@ export function renderPlan(
 
   // ---- corner + midpoint handles (active room only, like every gesture) ----
   if (opts.handles) {
+    const hoverHandle = overlays?.hover.handle ?? null;
     for (const g of walls) {
       if (g.roomId !== activeId) continue;
+      const hoveredM = hoverHandle?.kind === 'midpoint' && hoverHandle.id === g.id;
       const m = wallPoint(g, g.len / 2);
-      const r = 4.5 / zoom;
+      const r = (hoveredM ? 6.5 : 4.5) / zoom;
       ctx.save();
       ctx.translate(m.x, m.y);
       ctx.rotate(Math.PI / 4);
-      ctx.fillStyle = '#fff';
-      ctx.strokeStyle = '#a5a29a';
+      ctx.fillStyle = hoveredM ? ACCENT : '#fff';
+      ctx.strokeStyle = hoveredM ? ACCENT : '#a5a29a';
       ctx.lineWidth = hair;
       ctx.fillRect(-r, -r, r * 2, r * 2);
       ctx.strokeRect(-r, -r, r * 2, r * 2);
@@ -631,9 +668,11 @@ export function renderPlan(
     }
     for (const c of store.activeRoom().corners) {
       const selectedC = sel.kind === 'corner' && sel.id === c.id;
-      const r = (selectedC ? 6.5 : 5) / zoom;
-      ctx.fillStyle = selectedC ? ACCENT : '#fff';
-      ctx.strokeStyle = selectedC ? ACCENT : INK;
+      const hoveredC = hoverHandle?.kind === 'corner' && hoverHandle.id === c.id;
+      const activeC = selectedC || hoveredC;
+      const r = (activeC ? 6.5 : 5) / zoom;
+      ctx.fillStyle = activeC ? ACCENT : '#fff';
+      ctx.strokeStyle = activeC ? ACCENT : INK;
       ctx.lineWidth = hair * 1.3;
       ctx.fillRect(c.x - r, c.y - r, r * 2, r * 2);
       ctx.strokeRect(c.x - r, c.y - r, r * 2, r * 2);
