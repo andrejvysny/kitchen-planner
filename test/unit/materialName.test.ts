@@ -119,10 +119,10 @@ describe('materialName hex normalization', () => {
   });
 
   it('throws on malformed hex', () => {
+    expect(() => materialName({ kind: 'plain', hex6: 'not-a-color', fallback: 'matte' })).toThrow();
     expect(() =>
-      materialName({ kind: 'plain', hex6: 'not-a-color', fallback: 'matte' })
+      materialName({ kind: 'library', matId: 'oak', hex6: 'zzzzzz', rot: false })
     ).toThrow();
-    expect(() => materialName({ kind: 'library', matId: 'oak', hex6: 'zzzzzz', rot: false })).toThrow();
   });
 });
 

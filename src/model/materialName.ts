@@ -82,10 +82,7 @@ export interface ProductMaterialDesc {
 }
 
 export type MaterialDesc =
-  | LibraryMaterialDesc
-  | PlainMaterialDesc
-  | ShellMaterialDesc
-  | ProductMaterialDesc;
+  LibraryMaterialDesc | PlainMaterialDesc | ShellMaterialDesc | ProductMaterialDesc;
 
 /** Blender ID cap (63 bytes) minus headroom for its own `.001`-style suffix. */
 export const MATERIAL_NAME_MAX = 50;

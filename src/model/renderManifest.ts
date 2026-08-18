@@ -325,8 +325,8 @@ function manifestLights(design: Design): ManifestLight[] {
  * frame.
  *
  * `zc` is the wall-local mid-thickness offset `buildRooms` computes and
- * `buildOpening` positions its group at (`g.position.set(o.offset, 0, zc)`
- * inside a group at `wall.a` rotated by `-wall.angle`). Room corners are the
+ * `buildOpening` positions its group at: `g.position.set(o.offset, 0, zc)`,
+ * inside a group at `wall.a` rotated by `-wall.angle`. Room corners are the
  * room-side wall FACE, so for an exterior wall (`faceOffset` 0) the slab —
  * and the aperture centre with it — hangs `thickness / 2` OUTSIDE the
  * polygon, while a shared partition (`faceOffset = thickness / 2`) straddles
