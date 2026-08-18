@@ -181,7 +181,8 @@ export class ElevationView {
     this.ensureWall();
     const idx = walls.findIndex((w) => w.id === this.wallId);
     if (idx < 0) return 'No wall';
-    const room = this.store.design.rooms.length > 1 ? `${this.store.activeRoom().name} · ` : '';
+    const activeName = this.store.activeRoom()?.name;
+    const room = this.store.design.rooms.length > 1 && activeName ? `${activeName} · ` : '';
     return `${room}Wall ${idx + 1} / ${walls.length} · ${fmtCm(walls[idx].len)}`;
   }
 

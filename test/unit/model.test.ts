@@ -3,7 +3,13 @@ import { catalogDef } from '../../src/model/catalog';
 import { projectOnWall, signedArea, wallPoint } from '../../src/model/geometry';
 import { toCatalogDef } from '../../src/model/parts';
 import { presetPart } from '../../src/model/presets';
-import { allWalls, openingsOfWall, rectangleSizeOf, wallByIdIn } from '../../src/model/rooms';
+import {
+  allWalls,
+  defaultRoomStyle,
+  openingsOfWall,
+  rectangleSizeOf,
+  wallByIdIn,
+} from '../../src/model/rooms';
 import { snapItem } from '../../src/model/snapping';
 import { DESIGN_KEY, UNDERLAY_KEY } from '../../src/model/storageKeys';
 import { initialUnderlay } from '../../src/model/underlay';
@@ -25,13 +31,19 @@ const RECT = () => [c('c0', 0, 0), c('c1', 4, 0), c('c2', 4, 3), c('c3', 0, 3)];
 
 function rectDesign(): Design {
   const d = emptyDesign();
-  d.rooms[0].corners = RECT();
+  d.rooms.push({
+    id: 'r0',
+    name: 'Room 1',
+    corners: RECT(),
+    style: defaultRoomStyle(),
+    wallVisibility: {},
+  });
   return normalizeDesign(d);
 }
 
 describe('normalizeDesign', () => {
   it('reverses clockwise polygons and remaps openings to the flipped walls', () => {
-    const d = emptyDesign();
+    const d = rectDesign();
     // clockwise in y-down plan space => signed area negative => must reverse
     d.rooms[0].corners = [c('a', 0, 0), c('b', 0, 3), c('d', 4, 3), c('e', 4, 0)];
     d.openings = [
@@ -53,7 +65,7 @@ describe('normalizeDesign', () => {
   });
 
   it('normalizes each room independently', () => {
-    const d = emptyDesign();
+    const d = rectDesign();
     d.rooms = [
       { id: 'ccw', name: 'A', corners: RECT(), style: d.rooms[0].style },
       {
@@ -86,8 +98,17 @@ describe('sanitizeDesign', () => {
     expect(sanitizeDesign({ version: 4, corners: RECT() })).toBeNull();
     // no step ABOVE the current version either
     expect(sanitizeDesign({ version: 7, rooms: [] })).toBeNull();
-    expect(sanitizeDesign({ version: 5, corners: [c('a', 0, 0), c('b', 1, 0)] })).toBeNull();
-    expect(sanitizeDesign({ version: 6, rooms: [] })).toBeNull();
+  });
+
+  it('keeps a zero-room design instead of rejecting it — a fresh design may have no rooms yet', () => {
+    const empty = sanitizeDesign({ version: 6, rooms: [] });
+    expect(empty).not.toBeNull();
+    expect(empty!.rooms).toEqual([]);
+    // a v5 ring too degenerate to migrate (< 3 corners) is dropped the same
+    // way, not treated as a reason to reject the whole file
+    const degenerate = sanitizeDesign({ version: 5, corners: [c('a', 0, 0), c('b', 1, 0)] });
+    expect(degenerate).not.toBeNull();
+    expect(degenerate!.rooms).toEqual([]);
   });
 
   it('migrates a valid v5 payload into a single v6 room', () => {
@@ -123,7 +144,7 @@ describe('sanitizeDesign', () => {
   });
 
   it('remaps wall visibility overrides when the polygon is reversed', () => {
-    const d = emptyDesign();
+    const d = rectDesign();
     d.rooms[0].corners = [c('a', 0, 0), c('b', 0, 3), c('e', 4, 3), c('f', 4, 0)];
     d.rooms[0].wallVisibility = { a: 'hide' };
     normalizeDesign(d);
@@ -257,12 +278,12 @@ describe('sanitizeDesign', () => {
     expect(d.items.find((i) => i.id === 'zero-w')!.w).toBeCloseTo(0.45);
   });
 
-  it('drops a self-intersecting (bowtie) room ring', () => {
+  it('drops a self-intersecting (bowtie) room ring, leaving the rest of the design valid', () => {
     // a-b and d-e are the crossing diagonals of the same rectangle
     const bowtie = [c('a', 0, 0), c('b', 4, 3), c('d', 4, 0), c('e', 0, 3)];
-    expect(
-      sanitizeDesign({ version: 6, rooms: [{ id: 'r', name: 'A', corners: bowtie }] })
-    ).toBeNull();
+    const d = sanitizeDesign({ version: 6, rooms: [{ id: 'r', name: 'A', corners: bowtie }] });
+    expect(d).not.toBeNull();
+    expect(d!.rooms).toEqual([]);
   });
 
   it('collapses a near-duplicate adjacent corner (including wrap-around) without breaking a valid ring', () => {

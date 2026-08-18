@@ -5,7 +5,7 @@ import { useChannel } from '../hooks/useStore';
 import { CornerProps } from './CornerProps';
 import { ItemProps } from './ItemProps';
 import { OpeningProps } from './OpeningProps';
-import { RoomProps } from './RoomProps';
+import { NoRoomProps, RoomProps } from './RoomProps';
 import { WallProps } from './WallProps';
 
 /**
@@ -50,5 +50,6 @@ export function PropsBody(): ReactElement {
     if (store.cornerById(sel.id)) return <CornerProps id={sel.id} />;
   }
 
+  if (store.design.rooms.length === 0) return <NoRoomProps />;
   return <RoomProps />;
 }

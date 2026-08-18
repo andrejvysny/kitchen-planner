@@ -161,6 +161,8 @@ export class View3D {
   private animRaf = 0;
   /** false until the first attach() framed the design; later attaches keep the pose */
   private framed = false;
+  /** reframes once on the 0→1 room transition — a fresh design has nothing to frame yet */
+  private hadRooms = false;
   /** context-loss curtain of the bound canvas, removed with the renderer */
   private lostOverlay: HTMLElement | null = null;
 
@@ -222,6 +224,7 @@ export class View3D {
     this.scene.add(this.roomGroup);
     this.scene.add(this.itemsGroup);
     // the scene starts empty and unframed; the first attach() pays both debts
+    this.hadRooms = store.design.rooms.length > 0;
   }
 
   /* ---------------- lifecycle ---------------- */
@@ -475,7 +478,9 @@ export class View3D {
 
   setPreset(p: CamPreset): void {
     const corners = this.allCorners();
-    const c = polygonCentroid(corners);
+    // no room yet: an empty polygon centroid is NaN, so frame a placeholder
+    // spot instead of pointing the camera at nothing
+    const c = corners.length ? polygonCentroid(corners) : { x: 2, y: 1.5 };
     const xs = corners.map((k) => k.x);
     const ys = corners.map((k) => k.y);
     const spanX = Math.max(...xs) - Math.min(...xs);
@@ -496,11 +501,13 @@ export class View3D {
         set(c.x, span * 2.1, c.y + 0.02, c.x, 0, c.y);
         break;
       case 'front':
-        set(c.x, 1.35, Math.max(...ys) + span * 1.05, c.x, 1.0, c.y);
+        set(c.x, 1.35, (ys.length ? Math.max(...ys) : c.y) + span * 1.05, c.x, 1.0, c.y);
         break;
       case 'inside': {
         // step into the ACTIVE room, not the centroid of the whole design
-        const rc = this.store.activeRoom().corners;
+        const room = this.store.activeRoom();
+        if (!room) break;
+        const rc = room.corners;
         const ci = polygonCentroid(rc);
         const ry = rc.map((k) => k.y);
         const rSpanY = Math.max(Math.max(...ry) - Math.min(...ry), 1.5);
@@ -577,6 +584,12 @@ export class View3D {
     for (const item of this.store.design.items) this.buildItem(item, hosting.get(item.id));
     this.relight();
     this.applySelectionTint();
+
+    // the very first room after a blank start has nothing framed yet — every
+    // later rebuild keeps whatever pose the user left the camera in
+    const hasRooms = this.store.design.rooms.length > 0;
+    if (hasRooms && !this.hadRooms) this.setPreset('corner');
+    this.hadRooms = hasRooms;
   }
 
   private buildRooms(): void {

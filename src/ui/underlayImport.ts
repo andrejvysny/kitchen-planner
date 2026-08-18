@@ -61,8 +61,9 @@ export async function importUnderlay(store: Store, f: File): Promise<void> {
     setHint('Could not read that image — try a JPEG or PNG');
     return;
   }
-  const b = polygonBounds(store.activeRoom().corners);
-  const center = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
+  const room = store.activeRoom();
+  const b = room ? polygonBounds(room.corners) : null;
+  const center = b ? { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 } : { x: 0, y: 0 };
   if (!store.setUnderlay(img.src, initialUnderlay(img.w, img.h, center))) {
     setHint('Could not store the reference photo — browser storage is full or blocked');
     return;

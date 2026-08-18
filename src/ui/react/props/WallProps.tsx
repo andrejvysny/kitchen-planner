@@ -28,6 +28,7 @@ export function WallProps({ wallId }: { wallId: string }): ReactElement | null {
   if (!wall) return null;
 
   const wallRoom = store.roomOfWall(wallId) ?? store.activeRoom();
+  if (!wallRoom) return null;
   // a partition belongs to two rooms — say which, so its edits are no surprise
   const twin = wall.shared ? store.roomById(wall.shared.roomId) : undefined;
 

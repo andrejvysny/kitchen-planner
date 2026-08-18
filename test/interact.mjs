@@ -129,16 +129,30 @@ const waitForPose = (itemId, open) =>
     { itemId, open }
   );
 
-/** After #btn-new (or a corrupt-autosave reload lands on the demo/fresh
- * design): the deterministic empty 4x3 room has landed — 0 items, 1 room,
- * 4 corners. Polls the actual reset state instead of guessing how long
- * replaceDesign() + zoomFit() take (both are synchronous, but the click
- * goes through a confirm() dialog round-trip that is not). */
+/** After #btn-new: the click goes through a confirm() dialog round-trip
+ * (auto-accepted, see the page.on('dialog') handler above) before
+ * replaceDesign() lands a genuinely empty (0-room) design — the WS
+ * starter-card flow this suite doesn't drive directly. Every step below
+ * still wants the old deterministic single 4x3 room at the origin, so wait
+ * for the 0-room transition (proof New actually landed) and re-add it
+ * through the same addRoom() a real "Add a room" click would use, then poll
+ * for the settled 1-room state as before. */
 const resetReady = () =>
-  waitUntil(() => {
-    const d = window.__kp?.store?.design;
-    return !!d && d.items.length === 0 && d.rooms.length === 1 && d.rooms[0].corners.length === 4;
-  });
+  waitUntil(() => window.__kp?.store?.design?.rooms.length === 0)
+    .then(() =>
+      page.evaluate(() => {
+        window.__kp.store.addRoom();
+        window.__kp.store.commit();
+      })
+    )
+    .then(() =>
+      waitUntil(() => {
+        const d = window.__kp?.store?.design;
+        return (
+          !!d && d.items.length === 0 && d.rooms.length === 1 && d.rooms[0].corners.length === 4
+        );
+      })
+    );
 
 /** Force the queued structural rebuild synchronously. `view.items`/
  * `view.worldToScreen` already do this internally, but raw reads of
@@ -201,7 +215,7 @@ await bootReady();
 // deterministic state: empty 4x3 room, no items
 await page.evaluate(() => localStorage.clear());
 await page.click('#btn-new');
-await bootReady();
+await resetReady();
 
 const n0 = await count();
 const results = [];
@@ -344,7 +358,6 @@ await page.mouse.click(bb.x + wt.x, bb.y + wt.y);
 await waitUntil(() => window.__kp.store.design.openings.length > 0);
 const openings = await page.evaluate(() => window.__kp.store.design.openings.length);
 results.push(['place window', openings === 1]);
-await page.click('#ws-tab-furnish'); // back to furnish for the "My parts" tiles below
 
 // 6. wall length edit via panel: select left wall, set length
 await page.mouse.click(
@@ -375,6 +388,7 @@ const rect = await page.evaluate(() => window.__kp.store.rectangleSize());
 results.push(['room resize', rect && Math.abs(rect.w - 5) < 0.01 && Math.abs(rect.d - 3.5) < 0.01]);
 
 // 8. create a custom part via studio (type picker → cabinet editor → save)
+await page.click('#ws-tab-furnish'); // "My parts" / ＋New part tiles are Furnish-only
 await page.click('.cat-new');
 await studioReady('picker');
 const pickerCards = await page.locator('.studio-card').count();
@@ -2217,6 +2231,7 @@ await page.evaluate(() => {
 });
 await page.reload({ waitUntil: 'networkidle' });
 await bootReady();
+await page.click('#ws-tab-plan'); // room size/shape live in Plan's panel only
 const n10setup = await page.evaluate(() => {
   window.__kp.plan.zoomFit();
   const st = window.__kp.store;
@@ -2262,6 +2277,14 @@ results.push([
   !!rect10 && Math.abs(rect10.w - 4.5) < 0.01 && Math.abs(rect10.d - 3.0) < 0.01,
 ]);
 
+await page.click('#ws-tab-furnish'); // base-cabinet tile lives in Furnish's catalog
+// Furnish defaults to Split, Plan to 2D-only — the canvas just narrowed, and
+// Plan2D only auto-fits zoom/pan on its OWN first resize (view3d.ts-style
+// "framed" flag), never again after — so the pane offset AND the zoom/pan
+// baked in back in Plan (full-width) are both stale for the new narrower
+// canvas. Re-fit explicitly, the same way n10setup above does entering Plan.
+await page.evaluate(() => window.__kp.plan.zoomFit());
+const bb10b = await paneOffset();
 await page.click('.cat-item[data-def-id="base-cabinet"]');
 const bottomWall10 = await page.evaluate(() => {
   const st = window.__kp.store;
@@ -2272,18 +2295,29 @@ const aimPt10 = {
   y: (bottomWall10.a.y + bottomWall10.b.y) / 2 + bottomWall10.inward.y * 0.25,
 };
 const aimScr10 = await worldToScreen(aimPt10.x, aimPt10.y);
+const bb10c = await paneOffset();
+const vpB = await page.evaluate(() => window.__kp.plan.viewport());
+console.log(
+  'DEBUG vpB (right before click)',
+  JSON.stringify({ bb10c, vpB, aimScr10, clickAt: { x: bb10b.x + aimScr10.x, y: bb10b.y + aimScr10.y } })
+);
 const n10n0 = await count();
-await page.mouse.click(bb10.x + aimScr10.x, bb10.y + aimScr10.y);
+await page.mouse.click(bb10b.x + aimScr10.x, bb10b.y + aimScr10.y);
 await waitUntil((n) => window.__kp.store.design.items.length > n, n10n0);
-const placed10 = await page.evaluate((bw) => {
+const placedDbg10 = await page.evaluate((bw) => {
   const items = window.__kp.store.design.items;
   const it = items[items.length - 1];
   const expected = {
     x: (bw.a.x + bw.b.x) / 2 + bw.inward.x * (it.d / 2),
     y: (bw.a.y + bw.b.y) / 2 + bw.inward.y * (it.d / 2),
   };
-  return Math.hypot(it.x - expected.x, it.y - expected.y);
+  return { it: { x: it.x, y: it.y, d: it.d, rotation: it.rotation }, expected, wall: bw };
 }, bottomWall10);
+console.log('DEBUG n10 wall-snap', JSON.stringify({ aimPt10, ...placedDbg10 }, null, 2));
+const placed10 = Math.hypot(
+  placedDbg10.it.x - placedDbg10.expected.x,
+  placedDbg10.it.y - placedDbg10.expected.y
+);
 results.push(['wall-snap placement on a migrated design', placed10 < 0.05]);
 
 // N11 — measuring between a corner of room 1 and a corner of room 2 reports

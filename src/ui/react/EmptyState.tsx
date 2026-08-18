@@ -1,5 +1,4 @@
 import { useState, type ReactElement } from 'react';
-import type { Design } from '../../model/types';
 import { workspace } from '../workspaceState';
 import { useChannel } from './hooks/useStore';
 import { useEditor, useStore } from './services';
@@ -8,12 +7,9 @@ import { useEditor, useStore } from './services';
  * The three empty-state aids (WS-SPEC §5.4, WP 2.4): help for a brand-new
  * design before there is anything on the canvas to click on.
  *
- * SPEC CORRECTION: WS-SPEC's "Plan, no rooms (possible after New)" trigger is
- * unreachable in this codebase — `emptyDesign()` (store.ts) always ships one
- * room and `store.deleteRoom` refuses to remove the last one. The real "just
- * started" state is a PRISTINE design: exactly what `onNew` in Topbar.tsx
- * produces — one room, no items, no openings — so <PlanStarterCard/> renders
- * on that condition instead.
+ * `emptyDesign()` (store.ts) ships zero rooms, so "Plan, no rooms" is the
+ * literal state <PlanStarterCard/> gates on — there is nothing hidden behind
+ * it for "Add a room"/"Draw a room" to collide with.
  *
  * Both components mount as children of #pane2d in Workspace.tsx, after
  * <HintChip/> — see that component's shape and Workspace.tsx's doc comment
@@ -22,13 +18,9 @@ import { useEditor, useStore } from './services';
  * card is Plan-only, the nudge is Furnish-only.
  */
 
-function isPristine(d: Design): boolean {
-  return d.rooms.length === 1 && d.items.length === 0 && d.openings.length === 0;
-}
-
 /**
  * Plan's "nothing here yet" card: three ways to get a room on the canvas.
- * Gated on the resting tool as well as the pristine design, so arming any
+ * Gated on the resting tool as well as the empty design, so arming any
  * tool — the card's own buttons included — hides it immediately rather than
  * blocking the click that follows (e.g. placing the room itself).
  */
@@ -39,7 +31,7 @@ export function PlanStarterCard(): ReactElement | null {
   useChannel('design');
   useChannel('editor');
 
-  const show = workspace() === 'plan' && editor.isTool('select') && isPristine(store.design);
+  const show = workspace() === 'plan' && editor.isTool('select') && store.design.rooms.length === 0;
   if (!show) return null;
 
   return (

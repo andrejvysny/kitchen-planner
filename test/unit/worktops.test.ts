@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { applianceHosting, attachValid, defOfDesign, partOfDesign } from '../../src/model/attach';
 import { partPanels, type Panel, type PartDims } from '../../src/model/panels';
+import { makeRoom } from '../../src/model/rooms';
 import { emptyDesign } from '../../src/model/store';
 import type { CabinetPartDef, Design, Item, Point } from '../../src/model/types';
 import { uid } from '../../src/model/types';
 import { hostContexts, itemRuns, worktopRuns } from '../../src/model/worktops';
 
 /* ---------------- fixtures ---------------- */
+
+/** A 4×3 room at the origin — the fixture `emptyDesign()` used to ship inline. */
+function oneRoomDesign(): Design {
+  const design = emptyDesign();
+  design.rooms = [makeRoom({ name: 'Room 1', x: 0, y: 0, w: 4, d: 3 })];
+  return design;
+}
 
 /** Place an item of `defId` at its natural size in the first room. */
 function place(design: Design, defId: string, over: Partial<Item> = {}): Item {
@@ -83,7 +91,7 @@ function cornerPart(): CabinetPartDef {
 
 describe('worktopRuns', () => {
   it('two flush units merge: the leader spans both, the follower emits nothing', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const [a, b] = runOf(design, 2);
     const plans = worktopRuns(design);
     expect(plans.get(a.id)).toMatchObject({ role: 'leader' });
@@ -105,7 +113,7 @@ describe('worktopRuns', () => {
   });
 
   it('the merged area equals one long slab, not two short ones', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const items = runOf(design, 2);
     const ctxs = hostContexts(design);
     const merged = items.flatMap((it) => tops(panelsOf(design, it, ctxs)));
@@ -115,11 +123,11 @@ describe('worktopRuns', () => {
   });
 
   it('a 5 mm joint still merges; 6 mm is two separate worktops', () => {
-    const flush = emptyDesign();
+    const flush = oneRoomDesign();
     runOf(flush, 2, 0.005);
     expect(worktopRuns(flush).size).toBe(2);
 
-    const apart = emptyDesign();
+    const apart = oneRoomDesign();
     const items = runOf(apart, 2, 0.006);
     expect(worktopRuns(apart).size).toBe(0);
     const ctxs = hostContexts(apart);
@@ -127,7 +135,7 @@ describe('worktopRuns', () => {
   });
 
   it('three flush units become one slab carried by the first', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const items = runOf(design, 3);
     const plans = worktopRuns(design);
     expect([...plans.values()].map((p) => p.role)).toEqual(['leader', 'follower', 'follower']);
@@ -136,7 +144,7 @@ describe('worktopRuns', () => {
   });
 
   it('stacked duplicates are a modelling error, never a run', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     place(design, 'base-cabinet', { x: 1, y: 0.4 });
     place(design, 'base-cabinet', { x: 1, y: 0.4 });
     expect(worktopRuns(design).size).toBe(0);
@@ -150,13 +158,13 @@ describe('worktopRuns', () => {
       { name: 'depth', over: { d: 0.65 } },
     ];
     for (const c of cases) {
-      const design = emptyDesign();
+      const design = oneRoomDesign();
       place(design, 'base-cabinet', { x: 0.4, y: 0.4 });
       place(design, 'base-cabinet', { x: 1.0, y: 0.4, ...c.over });
       expect(worktopRuns(design).size, c.name).toBe(0);
     }
     // a different overhang is a different board
-    const ov = emptyDesign();
+    const ov = oneRoomDesign();
     const forked: CabinetPartDef = {
       ...(partOfDesign(ov, 'base-cabinet') as CabinetPartDef),
       id: uid('part'),
@@ -167,7 +175,7 @@ describe('worktopRuns', () => {
     place(ov, forked.id, { x: 1.0, y: 0.4 });
     expect(worktopRuns(ov).size).toBe(0);
     // …and so is a different room, even at the very same spot
-    const rooms = emptyDesign();
+    const rooms = oneRoomDesign();
     rooms.rooms.push({ ...rooms.rooms[0], id: uid('room'), name: 'Utility' });
     place(rooms, 'base-cabinet', { x: 0.4, y: 0.4, roomId: rooms.rooms[0].id });
     place(rooms, 'base-cabinet', { x: 1.0, y: 0.4, roomId: rooms.rooms[1].id });
@@ -175,7 +183,7 @@ describe('worktopRuns', () => {
   });
 
   it('a units-apart run merges along its own axis, rotated', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const r = Math.PI / 2;
     // rotated 90°: the run axis is +y, cabinets stack along it
     const a = place(design, 'base-cabinet', { x: 2.4, y: 1.0, rotation: r });
@@ -187,7 +195,7 @@ describe('worktopRuns', () => {
   });
 
   it('an island run merges independently of the wall run', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const wall = runOf(design, 2); // along +x at y = 0.4
     const r = Math.PI / 2;
     const isle = [
@@ -208,7 +216,7 @@ describe('worktopRuns', () => {
   });
 
   it('an L-footprint neighbour is excluded and keeps its own slab', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const corner = cornerPart();
     design.customParts.push(corner);
     const c = place(design, corner.id, { x: 0.45, y: 0.4 });
@@ -226,7 +234,7 @@ describe('worktopRuns', () => {
   });
 
   it('non-candidates never join: no worktop, attached, or a bought product', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const a = place(design, 'base-cabinet', { x: 0.4, y: 0.4 });
     place(design, 'pantry', { x: 1.0, y: 0.4, h: 0.9 }); // worktop: false
     place(design, 'appl-sink', {
@@ -240,7 +248,7 @@ describe('worktopRuns', () => {
   });
 
   it('itemRuns exposes every run in order, singles included', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const [a, b] = runOf(design, 2);
     const lone = place(design, 'base-cabinet', { x: 3.0, y: 0.4 });
     const runs = itemRuns(design);
@@ -252,7 +260,7 @@ describe('worktopRuns', () => {
 
 describe('single units stay byte-identical', () => {
   it('a lone cabinet gets no plan and the very same panel list', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const it = place(design, 'base-cabinet');
     expect(worktopRuns(design).size).toBe(0);
     const part = partOfDesign(design, it.defId)!;
@@ -264,7 +272,7 @@ describe('single units stay byte-identical', () => {
   });
 
   it('a lone host with a cutout matches the plain appliance-hosting context', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const host = place(design, 'base-cabinet', { w: 0.8 });
     place(design, 'appl-sink', {
       attach: { kind: 'counter', hostId: host.id, u: 0.02, v: 0 },
@@ -280,7 +288,7 @@ describe('single units stay byte-identical', () => {
 
 describe('cutouts inside a merged run', () => {
   it("a follower's sink lands in the leader's slab at the same world point", () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const r = 0.7; // an angle that is neither axis nor diagonal
     const lead = place(design, 'base-cabinet', { x: 1.2, y: 1.4, w: 0.8, rotation: r });
     const step = { x: 0.8 * Math.cos(r), y: 0.8 * Math.sin(r) };
@@ -325,7 +333,7 @@ describe('cutouts inside a merged run', () => {
   });
 
   it('merging leaves the appliance attached to its own host (known limit)', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     place(design, 'base-cabinet', { x: 0.4, y: 0.4, w: 0.8 });
     const host = place(design, 'base-cabinet', { x: 1.2, y: 0.4, w: 0.8 });
     const sink = place(design, 'appl-sink', {
@@ -346,7 +354,7 @@ describe('cutouts inside a merged run', () => {
 
 describe('hostContexts', () => {
   it('carries appliance hosting and worktop plans in one map', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const a = place(design, 'base-cabinet', { x: 0.4, y: 0.4, w: 0.8 });
     const b = place(design, 'base-cabinet', { x: 1.2, y: 0.4, w: 0.8 });
     place(design, 'appl-sink', {

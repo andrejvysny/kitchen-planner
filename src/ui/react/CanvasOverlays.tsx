@@ -1,4 +1,5 @@
-import { useState, type ReactElement } from 'react';
+import { useLayoutEffect, useState, type ReactElement } from 'react';
+import type { View3D } from '../../view3d/view3d';
 import { workspace } from '../workspaceState';
 import { useChannel } from './hooks/useStore';
 import { useAppServices, useStore } from './services';
@@ -18,40 +19,53 @@ import { useAppServices, useStore } from './services';
  */
 
 type ViewMode = '2d' | 'split' | '3d';
+type PaneWorkspace = 'plan' | 'furnish';
 
 /**
- * `.hidden` on the panes is the TRUTH, not this component's state: the overlay
- * unmounts on a workspace switch, so the mode has to be read back off the DOM
- * on mount instead of assuming 'split' and lying about a hidden pane.
+ * Plan and Furnish share one set of canvas panes but remember their OWN view
+ * mode: Plan starts on 2D (a floor plan doesn't need the 3D pane open by
+ * default), Furnish keeps the original Split default. A manual pick during
+ * the session stays sticky for that workspace — switching away and back
+ * restores it — but nothing is persisted across a reload; only the starting
+ * point differs from before.
  */
-function readViewMode(): ViewMode {
-  if (document.getElementById('pane2d')?.classList.contains('hidden')) return '3d';
-  if (document.getElementById('pane3d')?.classList.contains('hidden')) return '2d';
-  return 'split';
+const viewModeByWs: Record<PaneWorkspace, ViewMode> = { plan: '2d', furnish: 'split' };
+
+function applyViewMode(next: ViewMode, view3d: View3D): void {
+  document.getElementById('pane2d')!.classList.toggle('hidden', next === '3d');
+  document.getElementById('pane3d')!.classList.toggle('hidden', next === '2d');
+  view3d.setActive(next !== '2d'); // a hidden 3D pane renders nothing
 }
 
 /**
  * 2D / Split / 3D, centred over #canvases. The buttons' own `.active` class is
  * React's; the panes stay imperative because the 2D/elev sub-toggle
- * (Workspace.tsx) writes `.elev-mode` on the same class list — so `pick` is the
- * old setView, unchanged, minus the part React now renders.
+ * (Workspace.tsx) writes `.elev-mode` on the same class list.
  */
 export function ViewOverlay(): ReactElement | null {
   const { view3d } = useAppServices();
   useChannel('workspace');
-  const [mode, setMode] = useState<ViewMode>(readViewMode);
   const ws = workspace();
+  const paneWs: PaneWorkspace | null = ws === 'plan' || ws === 'furnish' ? ws : null;
+  const [mode, setMode] = useState<ViewMode>(viewModeByWs[paneWs ?? 'plan']);
+
+  // fires on mount and on every workspace switch, restoring that workspace's
+  // own last mode (or its default) — before paint, so there is no Split flash
+  useLayoutEffect(() => {
+    if (!paneWs) return;
+    applyViewMode(viewModeByWs[paneWs], view3d);
+    setMode(viewModeByWs[paneWs]);
+  }, [paneWs, view3d]);
 
   const pick = (next: ViewMode): void => {
-    document.getElementById('pane2d')!.classList.toggle('hidden', next === '3d');
-    document.getElementById('pane3d')!.classList.toggle('hidden', next === '2d');
-    view3d.setActive(next !== '2d'); // a hidden 3D pane renders nothing
+    if (paneWs) viewModeByWs[paneWs] = next;
+    applyViewMode(next, view3d);
     setMode(next);
   };
 
   const cls = (m: ViewMode): string | undefined => (mode === m ? 'active' : undefined);
 
-  if (ws !== 'plan' && ws !== 'furnish') return null;
+  if (!paneWs) return null;
 
   return (
     <div className="canvas-overlay canvas-overlay-top">

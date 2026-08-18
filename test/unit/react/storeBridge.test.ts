@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { makeRoom } from '../../../src/model/rooms';
 import { emptyDesign, Store } from '../../../src/model/store';
 import { EditorState } from '../../../src/editor/editorState';
 import { StoreBridge, type Channel } from '../../../src/ui/react/storeBridge';
@@ -120,6 +121,10 @@ describe('StoreBridge', () => {
     before = versions(bridge);
     store.openFronts.toggle('item_x', 'door-1');
     expect(moved(before, versions(bridge))).toEqual(['pose']);
+
+    // a direct push (not store.addRoom) — this test isolates setActiveRoom's
+    // own emit, and addRoom would activate the new room itself first
+    store.design.rooms.push(makeRoom({ name: 'R', x: 0, y: 0, w: 4, d: 3 }));
 
     before = versions(bridge);
     store.setActiveRoom(store.design.rooms[0].id);

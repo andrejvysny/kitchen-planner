@@ -827,7 +827,9 @@ export class Plan2D {
   }
 
   private hitCorner(s: Point): string | null {
-    for (const c of this.store.activeRoom().corners) {
+    const room = this.store.activeRoom();
+    if (!room) return null;
+    for (const c of room.corners) {
       const cs = this.toScreen(c);
       if (Math.hypot(cs.x - s.x, cs.y - s.y) < hitRadius(9)) return c.id;
     }

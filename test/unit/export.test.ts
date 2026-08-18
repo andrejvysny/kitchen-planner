@@ -71,6 +71,13 @@ function drawerPart(name: string, d: number, drawers: number): CabinetPartDef {
   return { ...doorPart(name, 0.9), name, d, face: { kind: 'leaf', fill: 'drawers', drawers } };
 }
 
+/** A 4×3 room at the origin — the fixture `emptyDesign()` used to ship inline. */
+function oneRoomDesign(): Design {
+  const design = emptyDesign();
+  design.rooms = [makeRoom({ name: 'Room 1', x: 0, y: 0, w: 4, d: 3 })];
+  return design;
+}
+
 /** Design with a second room to the right of the first, sharing the partition. */
 function twoRoomDesign(): Design {
   const design = emptyDesign();
@@ -91,7 +98,7 @@ const rowOf = (rows: CutRow[], panelId: string): CutRow => {
 
 describe('cutRows', () => {
   it('emits one row per panel of a manufactured item', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const item = place(design, 'base-cabinet');
     const rows = cutRows(design);
     const panels = partPanels(partOfDesign(design, 'base-cabinet')!, {
@@ -107,7 +114,7 @@ describe('cutRows', () => {
   });
 
   it('merges identical items in one room: qty adds up, itemIds keep traceability', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const a = place(design, 'base-cabinet');
     const b = place(design, 'base-cabinet', { x: 2 });
     const rows = cutRows(design);
@@ -129,7 +136,7 @@ describe('cutRows', () => {
   });
 
   it('a resized instance splits off — dimensions are part of the key', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     place(design, 'base-cabinet');
     place(design, 'base-cabinet', { w: 0.9 });
     const rows = cutRows(design).filter((r) => r.panelId === 'carcass.bottom');
@@ -141,7 +148,7 @@ describe('cutRows', () => {
   it('same-named parts under different defIds merge; a renamed fork does not', () => {
     // forkPartForItem mints a fresh defId, so keying on defId would split two
     // physically identical cabinets — the part NAME is the dedup identity
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const one = doorPart('Sideboard', 0.9);
     const two = { ...doorPart('Sideboard', 0.9), id: uid('part') };
     const forked = { ...doorPart('Sideboard (custom)', 0.9), id: uid('part') };
@@ -158,7 +165,7 @@ describe('cutRows', () => {
   });
 
   it('every drawer front pulls a real box: 2 drawers → 8 drawerBox rows', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const part = drawerPart('Drawers', 0.6, 2);
     design.customParts.push(part);
     place(design, part.id);
@@ -168,7 +175,7 @@ describe('cutRows', () => {
   });
 
   it('hinge side and slide travel travel into the notes', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const hinged = doorPart('Hinged', 0.9);
     const slid = drawerPart('Slid', 0.6, 1);
     design.customParts.push(hinged, slid);
@@ -193,7 +200,7 @@ describe('cutRows', () => {
   });
 
   it('a per-item counter material wins over the room one, keeping its colour', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     design.rooms[0].style.counterColor = '#c9a87c';
     design.rooms[0].style.counterMaterial = 'oak';
     place(design, 'base-cabinet', { counterMaterial: 'marble-light' });
@@ -203,7 +210,7 @@ describe('cutRows', () => {
   });
 
   it('design variables resolve into the row; a dangling ref falls back', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     design.variables = [{ id: 'v1', name: 'Sage', color: '#8a9683', material: 'oak' }];
     place(design, 'base-cabinet', { color: 'var:v1' });
     place(design, 'base-cabinet', { color: 'var:gone', x: 2 });
@@ -215,7 +222,7 @@ describe('cutRows', () => {
   });
 
   it('accent slots take the item override, else the part accent', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     place(design, 'base-cabinet');
     place(design, 'base-cabinet', { accentColor: '#123456', x: 2 });
     const shelves = cutRows(design).filter((r) => r.role === 'shelf');
@@ -225,7 +232,7 @@ describe('cutRows', () => {
   });
 
   it('plinth boards carry the shared plinth colour; glass carries the glass material', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const glassy: CabinetPartDef = {
       ...doorPart('Vitrine', 1.2),
       plinth: true,
@@ -242,7 +249,7 @@ describe('cutRows', () => {
   });
 
   it('a sink cutout turns the worktop into a prism whose area drops by the hole', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const host = place(design, 'base-cabinet', { w: 0.8 });
     place(design, 'appl-sink', {
       attach: { kind: 'counter', hostId: host.id, u: 0, v: 0 },
@@ -258,7 +265,7 @@ describe('cutRows', () => {
   });
 
   it('a continuous run is ONE worktop row spanning the whole counter', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     // three flush 600 mm units against the same wall
     for (const x of [0.4, 1.0, 1.6]) place(design, 'base-cabinet', { x, y: 0.4 });
     const tops = cutRows(design).filter((r) => r.role === 'worktop');
@@ -278,7 +285,7 @@ describe('cutRows', () => {
   });
 
   it('a sink on a merged run keeps its cutout, once, in the shared slab', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const lead = place(design, 'base-cabinet', { x: 0.4, y: 0.4, w: 0.8 });
     const host = place(design, 'base-cabinet', { x: 1.2, y: 0.4, w: 0.8 });
     place(design, 'appl-sink', { attach: { kind: 'counter', hostId: host.id, u: 0, v: 0 } });
@@ -292,7 +299,7 @@ describe('cutRows', () => {
   });
 
   it('bought products never reach the cut list', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     place(design, 'chair');
     place(design, 'appl-oven');
     place(design, 'pendant');
@@ -300,7 +307,7 @@ describe('cutRows', () => {
   });
 
   it('freeform rods sort like rods and note their diameter', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const desk: FreeformPartDef = {
       id: uid('part'),
       name: 'Desk',
@@ -324,7 +331,7 @@ describe('cutRows', () => {
   });
 
   it('a hanging rail reaches the cut list as a rod with its diameter', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const part: CabinetPartDef = {
       ...doorPart('Wardrobe', 2.1),
       w: 1.0,
@@ -344,7 +351,7 @@ describe('cutRows', () => {
   });
 
   it('dimension invariants hold for every preset: L ≥ W ≥ T ≥ 1 mm', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     for (const entry of PRESETS) place(design, entry.part.id);
     const rows = cutRows(design);
     expect(rows.length).toBeGreaterThan(50);
@@ -362,7 +369,7 @@ describe('cutRows', () => {
 
 describe('buyRows', () => {
   it('identical chairs collapse into one row', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const ids = [0, 1, 2, 3].map((i) => place(design, 'chair', { x: i }).id);
     const rows = buyRows(design);
     expect(rows).toHaveLength(1);
@@ -372,7 +379,7 @@ describe('buyRows', () => {
   });
 
   it('catalog params render as options and split otherwise-identical rows', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     place(design, 'appl-hob', { params: { burners: 4 } });
     place(design, 'appl-hob', { params: { burners: 5 }, x: 2 });
     const rows = buyRows(design).filter((r) => r.defId === 'appl-hob');
@@ -381,7 +388,7 @@ describe('buyRows', () => {
   });
 
   it('an attached appliance notes its host and the cutout it takes', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const host = place(design, 'base-cabinet', { w: 0.8 });
     place(design, 'appl-sink', { attach: { kind: 'counter', hostId: host.id, u: 0, v: 0 } });
     const tower = place(design, 'pantry');
@@ -394,7 +401,7 @@ describe('buyRows', () => {
   });
 
   it('openings become rows carrying the wall thickness and their options', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const wallId = design.rooms[0].corners[0].id;
     const mkOpening = (over: Partial<Opening>): Opening => ({
       id: uid('o'),
@@ -449,7 +456,7 @@ describe('buyRows', () => {
 
 describe('hardwareRows', () => {
   it('hinge counts step 2 / 3 / 4 with the leaf height', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     for (const h of [0.7, 1.2, 2.0]) {
       const part = doorPart(`Door ${h}`, h);
       design.customParts.push(part);
@@ -462,7 +469,7 @@ describe('hardwareRows', () => {
   });
 
   it('slide pairs bucket to stocked lengths, one pair per drawer', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const deep = drawerPart('Deep drawers', 0.6, 3);
     const shallow = drawerPart('Shallow drawers', 0.35, 2);
     design.customParts.push(deep, shallow);
@@ -479,7 +486,7 @@ describe('hardwareRows', () => {
 
 describe('buildBom', () => {
   it('manufactured and bought are mutually exclusive; totals sum the rows', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const cab = place(design, 'base-cabinet');
     const chair = place(design, 'chair', { x: 2 });
     const bom = buildBom(design, new Date('2026-01-02T03:04:05.000Z'));
@@ -550,7 +557,7 @@ function parseCsv(text: string): string[][] {
 
 /** A design exercising every row shape: cabinet, cutout prism, product, opening. */
 function richBom(): Bom {
-  const design = emptyDesign();
+  const design = oneRoomDesign();
   const host = place(design, 'base-cabinet', { w: 0.8 });
   place(design, 'appl-sink', { attach: { kind: 'counter', hostId: host.id, u: 0, v: 0 } });
   place(design, 'chair', { x: 2 });
@@ -595,7 +602,7 @@ describe('CSV serializers', () => {
   });
 
   it('quotes only when needed and round-trips commas and quotes', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const part = doorPart('Oak, sideboard "XL"', 0.9);
     design.customParts.push(part);
     place(design, part.id);
@@ -650,7 +657,7 @@ describe('bomHtml', () => {
   });
 
   it('escapes user text — a part named like a script tag stays inert', () => {
-    const design = emptyDesign();
+    const design = oneRoomDesign();
     const part = doorPart('<script>alert("x")</script>', 0.9);
     design.customParts.push(part);
     place(design, part.id);

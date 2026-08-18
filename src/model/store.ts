@@ -408,18 +408,21 @@ export class Store {
 
   /* ---------------- active room ---------------- */
 
-  /** The room room-scoped edits default to; always resolves to a real room. */
+  /**
+   * The room room-scoped edits default to; '' (never a real room id) when the
+   * design has no rooms at all.
+   */
   get activeRoomId(): string {
     const r = this.activeId ? roomById(this.design.rooms, this.activeId) : undefined;
-    return (r ?? this.design.rooms[0]).id;
+    return (r ?? this.design.rooms[0])?.id ?? '';
   }
 
-  activeRoom(): Room {
-    return roomById(this.design.rooms, this.activeRoomId) ?? this.design.rooms[0];
+  activeRoom(): Room | null {
+    return roomById(this.design.rooms, this.activeRoomId) ?? this.design.rooms[0] ?? null;
   }
 
   activeStyle(): RoomStyle {
-    return this.activeRoom().style;
+    return this.activeRoom()?.style ?? defaultRoomStyle();
   }
 
   /** Purely a view concern: no notify, no commit, no autosave. */
@@ -1050,7 +1053,7 @@ export class Store {
         ? { on: def.light.on, intensity: def.light.intensity, warmth: def.light.warmth }
         : undefined,
       params: defaultParams(def),
-      roomId: (this.roomContaining({ x, y }) ?? this.activeRoom()).id,
+      roomId: (this.roomContaining({ x, y }) ?? this.activeRoom())?.id,
     };
     // instances of user parts start at the part's configured elevation
     const part = this.partOf(def.id);
@@ -1473,7 +1476,6 @@ export function sanitizeDesign(raw: unknown): Design | null {
     if (corners.length < 3 || !polygonIsSimple(corners)) continue;
     rooms.push({ ...(r as Room), corners });
   }
-  if (!rooms.length) return null;
   d.rooms = rooms;
 
   if (!Array.isArray(d.openings)) d.openings = [];
@@ -1619,7 +1621,7 @@ export function sanitizeDesign(raw: unknown): Design | null {
 
   const design = normalizeDesign(d as unknown as Design);
   // every item carries the room it sits in, so per-room finishes resolve O(1)
-  for (const it of design.items) it.roomId = (roomOfItem(design, it) ?? design.rooms[0]).id;
+  for (const it of design.items) it.roomId = (roomOfItem(design, it) ?? design.rooms[0])?.id;
   sanitizeAttachments(design);
   return design;
 }
@@ -1776,19 +1778,9 @@ export function defaultScene(): Design['scene'] {
 }
 
 export function emptyDesign(): Design {
-  const c = (x: number, y: number): Corner => ({ id: uid('c'), x, y });
   return normalizeDesign({
     version: DESIGN_VERSION,
-    rooms: [
-      {
-        id: uid('room'),
-        name: 'Room 1',
-        // v6 corners are the room-side wall face, so this is 4 × 3 of floor
-        corners: [c(0, 0), c(4, 0), c(4, 3), c(0, 3)],
-        style: defaultRoomStyle(),
-        wallVisibility: {},
-      },
-    ],
+    rooms: [],
     openings: [],
     items: [],
     customParts: Store.sharedLibrary(),

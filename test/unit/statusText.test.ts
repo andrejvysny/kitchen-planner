@@ -10,11 +10,13 @@ import { statusInfoText } from '../../src/ui/statusText';
 describe('statusInfoText', () => {
   it('counts items and floor area, and stays quiet about a single room', () => {
     const store = new Store(emptyDesign());
+    store.addRoom(); // 4×3 default
     expect(statusInfoText(store)).toBe('0 items · 12.0 m²');
   });
 
   it('adds the room count once a design has more than one room', () => {
     const store = new Store(emptyDesign());
+    store.addRoom(); // 4×3 default
     store.addRoom({ w: 3, d: 2 });
     expect(statusInfoText(store)).toBe('0 items · 18.0 m² · 2 rooms');
   });

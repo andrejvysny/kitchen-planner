@@ -48,7 +48,8 @@ describe('wallElevation', () => {
   });
 
   it('maps an item to its along-wall position and floor-relative height band', () => {
-    const store = new Store(emptyDesign()); // 4x3 room
+    const store = new Store(emptyDesign());
+    store.addRoom(); // 4x3 room at the origin
     const bottom = store.allWalls().find((w) => Math.abs(w.dir.y) < 1e-6 && w.a.y > 2.9)!;
     const cab = placeSnapped(store, 'base-cabinet', 2.0, 2.8);
     const elev = wallElevation(store.design, bottom.id)!;
@@ -65,6 +66,7 @@ describe('wallElevation', () => {
 
   it('excludes a free-standing table dropped near a wall', () => {
     const store = new Store(emptyDesign());
+    store.addRoom();
     const bottom = store.allWalls().find((w) => Math.abs(w.dir.y) < 1e-6 && w.a.y > 2.9)!;
     // a table does not snap/rotate to the wall, so it must not appear in the elevation
     const table = store.addItem(store.defOf('table'), 2.0, 2.2, 0);

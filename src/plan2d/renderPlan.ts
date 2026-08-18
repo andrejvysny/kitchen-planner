@@ -666,7 +666,8 @@ export function renderPlan(
       ctx.strokeRect(-r, -r, r * 2, r * 2);
       ctx.restore();
     }
-    for (const c of store.activeRoom().corners) {
+    const aRoom = store.activeRoom();
+    for (const c of aRoom?.corners ?? []) {
       const selectedC = sel.kind === 'corner' && sel.id === c.id;
       const hoveredC = hoverHandle?.kind === 'corner' && hoverHandle.id === c.id;
       const activeC = selectedC || hoveredC;

@@ -1,5 +1,6 @@
-import { useRef, type KeyboardEvent, type ReactElement } from 'react';
+import { Fragment, useRef, type KeyboardEvent, type ReactElement } from 'react';
 import { useAppServices, useStore } from '../services';
+import { workspace } from '../../workspaceState';
 import { COUNTER_COLORS, FLOOR_COLORS, WALL_COLORS } from '../../../model/catalog';
 import {
   COUNTER_MATERIALS,
@@ -17,6 +18,7 @@ import { SwatchRow } from '../fields/SwatchRow';
 import { useSyncedValue } from '../fields/useLiveValue';
 import { useNativeChange } from '../fields/useNativeChange';
 import { VarChips } from '../fields/VarChips';
+import { WORKSPACE_ROOM_SECTIONS, type RoomSectionId } from './roomSections';
 import { ChecksSection } from './ChecksSection';
 import { LightingProps } from './LightingProps';
 import { UnderlaySection } from './UnderlaySection';
@@ -35,10 +37,11 @@ const VIS_CHOICES: readonly (readonly [string, string])[] = [
 ];
 
 /**
- * The no-selection panel: the active room's name, the room switcher, the
- * tracing photo, the advisory checks, size/shape/ceiling, the three finish
- * slots, global lighting and the delete action — src/ui/ui.ts's
- * renderRoomProps, section for section.
+ * The no-selection panel: which sections show is a per-workspace registry
+ * (roomSections.ts) — Plan gets floor-plan structure, Furnish gets
+ * materials + lighting, `checks` is shared by both. ui.ts's renderRoomProps
+ * used to render all of this as one fixed list; here each block is a small
+ * component in `SECTIONS` below, looked up by id instead of hardcoded order.
  *
  * ui.ts had to guard its rebuilds with an `isEditingRoomName` check, because a
  * fresh 'activeRoom' event would blow the name field away mid-edit. Here the
@@ -46,121 +49,184 @@ const VIS_CHOICES: readonly (readonly [string, string])[] = [
  * key) and re-rendered otherwise, so the name input keeps its node and its
  * caret — the guard has nothing left to protect and is gone.
  */
-export function RoomProps(): ReactElement {
-  const { store, plan } = useAppServices();
+export function RoomProps(): ReactElement | null {
+  const store = useStore();
   const room = store.activeRoom();
   const style = store.activeStyle();
-  const rooms = store.design.rooms;
   const rect = store.rectangleSize();
 
+  // PropsBody only renders this component once a room exists (see
+  // NoRoomProps for the 0-room panel), but activeRoom() stays nullable at
+  // the type level for the design's genuinely-roomless window.
+  if (!room) return null;
+
+  const ids = WORKSPACE_ROOM_SECTIONS[workspace() === 'furnish' ? 'furnish' : 'plan'];
+  const SECTIONS: Record<RoomSectionId, () => ReactElement> = {
+    identity: () => <IdentitySection room={room} />,
+    roomList: () => <RoomListSection room={room} />,
+    referencePhoto: () => <UnderlaySection />,
+    checks: () => <ChecksSection list={store.warnings()} cap={12} />,
+    size: () => <SizeSection room={room} style={style} rect={rect} />,
+    shape: () => <ShapeSection room={room} />,
+    ceiling: () => <CeilingSection />,
+    deleteRoom: () => <DeleteRoomSection room={room} />,
+    tip: () => <TipSection />,
+    walls: () => <WallsSection style={style} />,
+    floor: () => <FloorSection style={style} />,
+    worktops: () => <WorktopsSection style={style} />,
+    lighting: () => <LightingProps />,
+  };
+
+  return (
+    <>
+      {ids.map((id) => (
+        <Fragment key={id}>{SECTIONS[id]()}</Fragment>
+      ))}
+    </>
+  );
+}
+
+/** Placeholder for the props panel while the design has no rooms yet. */
+export function NoRoomProps(): ReactElement {
+  if (workspace() === 'furnish') {
+    return <p className="props-sub">Add a room in Plan first — there is nothing to furnish yet.</p>;
+  }
+  // Plan's canvas already carries the full "Start with a room" card
+  // (<PlanStarterCard/>); nothing more to say here.
+  return <p className="props-sub">Add a room to get started.</p>;
+}
+
+function IdentitySection({ room }: { room: Room }): ReactElement {
+  const store = useStore();
   return (
     <>
       <RoomName room={room} />
       <p className="props-sub">{`${store.floorArea().toFixed(1)} m² · ${room.corners.length} corners`}</p>
-
-      <div className="prop-section">
-        <div className="prop-section-title">Rooms</div>
-        {rooms.map((r) => (
-          <RoomRow key={r.id} room={r} active={r.id === room.id} />
-        ))}
-        <div className="btn-row">
-          <button className="btn" onClick={() => plan.setRoomTool(true)}>
-            ＋ Add room
-          </button>
-          <button className="btn" onClick={() => plan.setDrawRoom(true)}>
-            ✎ Draw room
-          </button>
-        </div>
-      </div>
-
-      <UnderlaySection />
-      <ChecksSection list={store.warnings()} cap={12} />
-
-      <div className="prop-section">
-        <div className="prop-section-title">Size</div>
-        {rect ? (
-          <>
-            <LengthField
-              label="Width"
-              items={[rect]}
-              read={(r) => r.w}
-              onCommit={(m) => store.setRectangleSize(m, rect.d)}
-              min={1}
-              max={20}
-            />
-            <LengthField
-              label="Depth"
-              items={[rect]}
-              read={(r) => r.d}
-              onCommit={(m) => store.setRectangleSize(rect.w, m)}
-              min={1}
-              max={20}
-            />
-          </>
-        ) : (
-          <p className="props-sub">
-            Select a wall to edit its length, or drag corners in the plan.
-          </p>
-        )}
-        <LengthField
-          label="Ceiling"
-          items={[style]}
-          read={(s) => s.wallHeight}
-          onCommit={(m) => store.setRoomStyle({ wallHeight: m })}
-          min={2}
-          max={4}
-        />
-      </div>
-
-      <ShapeSection room={room} />
-
-      <div className="prop-section">
-        <div className="prop-section-title">Ceiling</div>
-        <ChoiceRow
-          options={VIS_CHOICES}
-          current={store.ceilingVisibility()}
-          onPick={(v) => store.setCeilingVisibility(v as WallVisMode)}
-        />
-        <p className="props-sub" style={{ marginTop: 8 }}>
-          Auto shows the ceiling only when the camera is below it
-        </p>
-      </div>
-
-      <WallsSection style={style} />
-      <FloorSection style={style} />
-      <WorktopsSection style={style} />
-
-      <LightingProps />
-
-      <div className="prop-section">
-        <div className="prop-section-title">Actions</div>
-        <div className="btn-row">
-          <button
-            className="btn danger"
-            disabled={rooms.length === 1}
-            title={rooms.length === 1 ? 'A design always has at least one room' : undefined}
-            onClick={() => {
-              if (!confirm(`Delete "${room.name}" and everything in it?`)) return;
-              store.deleteRoom(room.id);
-              store.commit();
-            }}
-          >
-            Delete room
-          </button>
-        </div>
-      </div>
-
-      <div className="props-empty-tip">
-        <b>How to design your space</b>
-        <br />1 · Sketch rooms — size, corners, and <b>＋ Add room</b> for more
-        <br />2 · Place doors, windows &amp; utilities on the walls
-        <br />3 · Furnish along the walls — cabinets and furniture snap into place
-        <br />4 · Place lights, then set the mood in <b>Lighting</b> (sun direction &amp; height,
-        brightness)
-        <br />
-        Create your own parametric furniture with <b>＋ New part</b>
-      </div>
     </>
+  );
+}
+
+function RoomListSection({ room }: { room: Room }): ReactElement {
+  const store = useStore();
+  const plan = useAppServices().plan;
+  const rooms = store.design.rooms;
+  return (
+    <div className="prop-section">
+      <div className="prop-section-title">Rooms</div>
+      {rooms.map((r) => (
+        <RoomRow key={r.id} room={r} active={r.id === room.id} />
+      ))}
+      <div className="btn-row">
+        <button className="btn" onClick={() => plan.setRoomTool(true)}>
+          ＋ Add room
+        </button>
+        <button className="btn" onClick={() => plan.setDrawRoom(true)}>
+          ✎ Draw room
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SizeSection({
+  style,
+  rect,
+}: {
+  room: Room;
+  style: RoomStyle;
+  rect: { w: number; d: number } | null;
+}): ReactElement {
+  const store = useStore();
+  return (
+    <div className="prop-section">
+      <div className="prop-section-title">Size</div>
+      {rect ? (
+        <>
+          <LengthField
+            label="Width"
+            items={[rect]}
+            read={(r) => r.w}
+            onCommit={(m) => store.setRectangleSize(m, rect.d)}
+            min={1}
+            max={20}
+          />
+          <LengthField
+            label="Depth"
+            items={[rect]}
+            read={(r) => r.d}
+            onCommit={(m) => store.setRectangleSize(rect.w, m)}
+            min={1}
+            max={20}
+          />
+        </>
+      ) : (
+        <p className="props-sub">Select a wall to edit its length, or drag corners in the plan.</p>
+      )}
+      <LengthField
+        label="Ceiling"
+        items={[style]}
+        read={(s) => s.wallHeight}
+        onCommit={(m) => store.setRoomStyle({ wallHeight: m })}
+        min={2}
+        max={4}
+      />
+    </div>
+  );
+}
+
+function CeilingSection(): ReactElement {
+  const store = useStore();
+  return (
+    <div className="prop-section">
+      <div className="prop-section-title">Ceiling</div>
+      <ChoiceRow
+        options={VIS_CHOICES}
+        current={store.ceilingVisibility()}
+        onPick={(v) => store.setCeilingVisibility(v as WallVisMode)}
+      />
+      <p className="props-sub" style={{ marginTop: 8 }}>
+        Auto shows the ceiling only when the camera is below it
+      </p>
+    </div>
+  );
+}
+
+function DeleteRoomSection({ room }: { room: Room }): ReactElement {
+  const store = useStore();
+  const rooms = store.design.rooms;
+  return (
+    <div className="prop-section">
+      <div className="prop-section-title">Actions</div>
+      <div className="btn-row">
+        <button
+          className="btn danger"
+          disabled={rooms.length === 1}
+          title={rooms.length === 1 ? 'A design always has at least one room' : undefined}
+          onClick={() => {
+            if (!confirm(`Delete "${room.name}" and everything in it?`)) return;
+            store.deleteRoom(room.id);
+            store.commit();
+          }}
+        >
+          Delete room
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TipSection(): ReactElement {
+  return (
+    <div className="props-empty-tip">
+      <b>How to design your space</b>
+      <br />1 · Sketch rooms — size, corners, and <b>＋ Add room</b> for more
+      <br />2 · Place doors, windows &amp; utilities on the walls
+      <br />3 · Furnish along the walls — cabinets and furniture snap into place
+      <br />4 · Place lights, then set the mood in <b>Lighting</b> (sun direction &amp; height,
+      brightness)
+      <br />
+      Create your own parametric furniture with <b>＋ New part</b>
+    </div>
   );
 }
 
