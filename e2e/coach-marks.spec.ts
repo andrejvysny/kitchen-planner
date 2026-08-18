@@ -33,6 +33,9 @@ async function bootOnboarded(page: Page): Promise<void> {
 
 test.describe('first-run coach marks', () => {
   test('a brand-new profile lands in Plan and walks three marks exactly once', async ({ page }) => {
+    // Two full boots + a three-mark walk: legitimately outlives the 60s budget
+    // under full-suite parallelism on SwiftShader. slow() triples the timeout.
+    test.slow();
     await page.goto('/', { waitUntil: 'networkidle' });
     await booted(page);
 
@@ -88,6 +91,7 @@ test.describe('first-run coach marks', () => {
 
 test.describe('shortcut cheatsheet', () => {
   test('? opens the sheet, and Escape closes it WITHOUT cancelling the tool', async ({ page }) => {
+    test.slow(); // boot + tool + sheet round-trips: see the first-run walk's note
     await bootOnboarded(page);
 
     // arm a tool first: Escape over an open sheet must belong to the sheet
@@ -114,6 +118,7 @@ test.describe('shortcut cheatsheet', () => {
   });
 
   test('? toggles, and a press outside the panel closes it', async ({ page }) => {
+    test.slow(); // see the first-run walk's note
     await bootOnboarded(page);
 
     await page.keyboard.press('?');
@@ -142,6 +147,7 @@ test.describe('shortcut cheatsheet', () => {
   });
 
   test('the settings menu opens the same sheet', async ({ page }) => {
+    test.slow(); // see the first-run walk's note
     await bootOnboarded(page);
 
     await page.click('#btn-settings');

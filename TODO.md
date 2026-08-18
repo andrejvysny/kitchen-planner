@@ -121,10 +121,11 @@ pane head, and the zone canvas' footer caption is clipped at the pane's width.
       overlays owning Escape in the capture phase. Every suite seeds
       ONBOARDED_KEY at page init — a cleared profile is a first run.
 
-**Phase 2 status:** WPs 2.1–2.4 fully gated and committed. WP 2.5 committed on
-the fast gate only — the implementing agent reported interact 106/106 and 77/77
-Playwright before it was interrupted, but those numbers were never re-verified
-by the orchestrator. Treat the browser gates as PENDING. B1 walk (§9) still to
+**Phase 2 status:** WPs 2.1–2.5 fully gated and committed. WP 2.5's browser
+gates were re-verified 2026-08-18 (post render-pipeline merge): interact
+106/106, Playwright 77/77 — the four longest coach-marks/cheatsheet walks
+needed `test.slow()` (they blow the 60s budget under full-suite parallelism on
+SwiftShader; solo runs always passed, no product bug). B1 walk (§9) still to
 run by hand.
 
 ## HANDOFF — continuing in a new session
