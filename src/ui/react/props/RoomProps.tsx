@@ -18,6 +18,7 @@ import { SwatchRow } from '../fields/SwatchRow';
 import { useSyncedValue } from '../fields/useLiveValue';
 import { useNativeChange } from '../fields/useNativeChange';
 import { VarChips } from '../fields/VarChips';
+import { useChannel } from '../hooks/useStore';
 import { WORKSPACE_ROOM_SECTIONS, type RoomSectionId } from './roomSections';
 import { ChecksSection } from './ChecksSection';
 import { LightingProps } from './LightingProps';
@@ -86,10 +87,31 @@ export function RoomProps(): ReactElement | null {
   );
 }
 
-/** Placeholder for the props panel while the design has no rooms yet. */
+/**
+ * The props panel while the design has no rooms yet.
+ *
+ * Tracing is the one thing you CAN do without a room, and it is a whole
+ * workflow — position, opacity, calibrate, replace — so the Reference-photo
+ * section renders here too. Without it, importing a plan left the inspector
+ * saying "Add a room to get started" with the scale controls nowhere to be
+ * found, which is exactly when they are needed.
+ */
 export function NoRoomProps(): ReactElement {
+  const store = useStore();
+  useChannel('history');
   if (workspace() === 'furnish') {
     return <p className="props-sub">Add a room in Plan first — there is nothing to furnish yet.</p>;
+  }
+  if (store.underlayRef()) {
+    return (
+      <>
+        <h2 className="props-title">Floor plan reference</h2>
+        <p className="props-sub">
+          Calibrate the scale, then draw your rooms over it with the ✎ wall tool.
+        </p>
+        <UnderlaySection />
+      </>
+    );
   }
   // Plan's canvas already carries the full "Start with a room" card
   // (<PlanStarterCard/>); nothing more to say here.
@@ -117,9 +139,6 @@ function RoomListSection({ room }: { room: Room }): ReactElement {
         <RoomRow key={r.id} room={r} active={r.id === room.id} />
       ))}
       <div className="btn-row">
-        <button className="btn" onClick={() => plan.setRoomTool(true)}>
-          ＋ Add room
-        </button>
         <button className="btn" onClick={() => plan.setDrawRoom(true)}>
           ✎ Draw room
         </button>

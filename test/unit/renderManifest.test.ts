@@ -21,6 +21,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { DESIGN_VERSION } from '../../src/model/migrate';
 import goldenManifest from '../../render/manifest/examples/kitchen-min.json';
 import { OAK, SPOT_AIM } from '../../src/model/catalog';
 import {
@@ -33,7 +34,7 @@ import {
   type ManifestPortal,
   type ManifestRender,
 } from '../../src/model/renderManifest';
-import { defaultRoomStyle } from '../../src/model/rooms';
+import { DEFAULT_WALL_W, defaultRoomStyle } from '../../src/model/rooms';
 import { AMBIENT_DAY, skyState } from '../../src/model/sky';
 import type { Design, Item, Opening, Room, RoomStyle } from '../../src/model/types';
 
@@ -64,7 +65,7 @@ const rect4x3 = (id = 'A', style: Partial<RoomStyle> = {}): Room =>
 
 function mkDesign(rooms: Room[], over: Partial<Design> = {}): Design {
   return {
-    version: 6,
+    version: DESIGN_VERSION,
     rooms,
     openings: [],
     items: [],
@@ -151,7 +152,7 @@ describe('manifest envelope', () => {
   it('stamps version, units, axis, files and passes the view layer through', () => {
     const m = buildRenderManifest(mkDesign([rect4x3()]), mkInput({ appVersion: '1.2.3' }));
     expect(m.manifestVersion).toBe(MANIFEST_VERSION);
-    expect(m.designVersion).toBe(6);
+    expect(m.designVersion).toBe(DESIGN_VERSION);
     expect(m.appVersion).toBe('1.2.3');
     expect(m.exportedAt).toBe('2026-01-02T03:04:05.000Z');
     expect(m.units).toBe('m');
@@ -403,14 +404,14 @@ describe('portals', () => {
     expect(p.wallId).toBe('A-c0');
     expect(p.roomId).toBe('A');
     expect(p.type).toBe('window');
-    // wall (0,0)→(4,0): dir (1,0), inward (0,1); exterior ⇒ zc = 0 − 0.1/2
-    expect(p.center).toEqual({ x: 1.5, y: 1.6, z: -0.05 }); // y = sill + height/2
+    // wall (0,0)→(4,0): dir (1,0), inward (0,1); exterior ⇒ zc = 0 − t/2
+    expect(p.center).toEqual({ x: 1.5, y: 1.6, z: -DEFAULT_WALL_W / 2 }); // y = sill + height/2
     expect(p.normal).toEqual({ x: 0, y: 0, z: 1 });
     expect(p.tangent).toEqual({ x: 1, y: 0, z: 0 });
     expect(p.width).toBeCloseTo(1.2, 9);
     expect(p.height).toBeCloseTo(1.4, 9);
     expect(p.sill).toBeCloseTo(0.9, 9);
-    expect(p.wallThickness).toBeCloseTo(0.1, 9);
+    expect(p.wallThickness).toBeCloseTo(DEFAULT_WALL_W, 9);
     expect(p.interior).toBe(false);
   });
 
@@ -422,7 +423,7 @@ describe('portals', () => {
     const p = portalsOf(design)[0];
     expect(p.width).toBeCloseTo(0.9, 9);
     expect(p.height).toBeCloseTo(2.05, 9);
-    expect(p.center).toEqual({ x: -0.05, y: 1.025, z: 2 });
+    expect(p.center).toEqual({ x: -DEFAULT_WALL_W / 2, y: 1.025, z: 2 });
     expect(p.normal).toEqual({ x: 1, y: 0, z: 0 });
     expect(p.tangent).toEqual({ x: 0, y: 0, z: -1 });
   });
@@ -436,10 +437,11 @@ describe('portals', () => {
       openings: [window1('A-c0')],
     });
     const p = portalsOf(design)[0];
-    // a + dir·1.5 + inward·(−0.05), dir = (cos30, sin30), inward = (−sin30, cos30)
-    expect(p.center.x).toBeCloseTo(1.324038, 6);
+    // a + dir·1.5 + inward·(−t/2), dir = (cos30, sin30), inward = (−sin30, cos30)
+    const h = DEFAULT_WALL_W / 2;
+    expect(p.center.x).toBeCloseTo(1.5 * Math.cos(Math.PI / 6) + h * Math.sin(Math.PI / 6), 6);
     expect(p.center.y).toBeCloseTo(1.6, 9);
-    expect(p.center.z).toBeCloseTo(0.706699, 6);
+    expect(p.center.z).toBeCloseTo(1.5 * Math.sin(Math.PI / 6) - h * Math.cos(Math.PI / 6), 6);
     expect(p.normal.x).toBeCloseTo(-0.5, 6);
     expect(p.normal.z).toBeCloseTo(0.866025, 6);
     expect(p.tangent.x).toBeCloseTo(0.866025, 6);

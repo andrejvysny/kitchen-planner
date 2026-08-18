@@ -17,7 +17,10 @@ import {
   convexHull,
   dist,
   distToSegment,
+  insetPolygon,
   pointInPolygon,
+  polygonIsSimple,
+  segmentIntersection,
   projectOnWall,
   signedArea,
   wallGeom,
@@ -30,10 +33,18 @@ import {
   type Design,
   type Item,
   type Opening,
+  type FreeWall,
   type Point,
   type Room,
   type RoomStyle,
 } from './types';
+
+/**
+ * Default wall width (m). 115 mm is a real single-leaf partition — a 100 mm
+ * round number is not a wall anybody builds, and every room drawn at it comes
+ * out 15 mm per wall wrong against the plan it was traced from.
+ */
+export const DEFAULT_WALL_W = 0.115;
 
 /** Two edge endpoints closer than this (1 mm) count as the same point. */
 export const SHARE_EPS = 1e-3;
@@ -48,7 +59,10 @@ export interface SharedEdge {
 }
 
 export interface RoomWall extends WallGeom {
+  /** owning room, or `NO_ROOM` for a free-standing chain's segment */
   roomId: string;
+  /** set instead of `roomId` when this segment belongs to a `FreeWall` chain */
+  freeWallId?: string;
   /** edge index in room.corners; the wall id is corners[index].id */
   index: number;
   thickness: number;
@@ -82,7 +96,9 @@ export function allWalls(rooms: Room[]): RoomWall[] {
         ...g,
         roomId: room.id,
         index: i,
-        thickness: room.style.wallThickness,
+        // the per-wall override is resolved HERE and nowhere else, so every
+        // consumer (slabs, joints, 3D, openings, the plan) reads one number
+        thickness: room.wallWidths?.[c[i].id] ?? room.style.wallThickness,
         faceOffset: 0,
         shared: null,
       });
@@ -103,9 +119,65 @@ function linkShared(walls: RoomWall[], order: Map<string, number>): void {
     const owner = (order.get(w.roomId) ?? 0) < (order.get(twin.roomId) ?? 0);
     w.shared = { roomId: twin.roomId, wallId: twin.id, owner };
     twin.shared = { roomId: w.roomId, wallId: w.id, owner: !owner };
-    w.faceOffset = w.thickness / 2;
-    twin.faceOffset = twin.thickness / 2;
+    // A partition is ONE physical wall, so the two twins cannot disagree about
+    // how thick it is: the owner's width wins and is written onto both. Only
+    // the owner draws the slab, but the follower's faceOffset (and everything
+    // derived from it — openings, the 3D slab, the band centre) must describe
+    // that same wall from the other side.
+    const t = owner ? w.thickness : twin.thickness;
+    w.thickness = t;
+    twin.thickness = t;
+    w.faceOffset = t / 2;
+    twin.faceOffset = t / 2;
   }
+}
+
+/**
+ * The sentinel `roomId` of a wall belonging to no room. Not null, so every
+ * consumer that groups or compares by `roomId` keeps working unchanged; it is
+ * simply an id no room can ever have.
+ */
+export const NO_ROOM = '';
+
+/**
+ * The free-standing chains as walls, in the SAME `RoomWall` shape the room
+ * rings produce — which is the whole point: `slabQuad`, `wallJoints`,
+ * `bandCenter`, opening lookup and every renderer already speak that shape, so
+ * a divider needs no second code path anywhere downstream.
+ *
+ * A chain is OPEN, so it yields `corners.length - 1` walls rather than one per
+ * corner. `faceOffset` is thickness/2 like a partition's: a free wall has no
+ * interior side, so its slab straddles the polyline it was drawn on — the same
+ * centreline the wall tool drew.
+ */
+export function freeWallGeoms(walls: FreeWall[] | undefined): RoomWall[] {
+  const out: RoomWall[] = [];
+  for (const chain of walls ?? []) {
+    const c = chain.corners;
+    for (let i = 0; i + 1 < c.length; i++) {
+      // test the RAW distance: wallGeom floors its len at 1e-6, so a guard on
+      // `g.len` can never fire and a duplicated point would emit a wall with a
+      // direction made up out of the floor
+      if (dist(c[i], c[i + 1]) < SHARE_EPS) continue;
+      const g = wallGeom({ id: c[i].id, a: c[i], b: c[i + 1] });
+      const t = chain.wallWidths?.[c[i].id] ?? chain.thickness;
+      out.push({
+        ...g,
+        roomId: NO_ROOM,
+        freeWallId: chain.id,
+        index: i,
+        thickness: t,
+        faceOffset: t / 2,
+        shared: null,
+      });
+    }
+  }
+  return out;
+}
+
+/** Every wall in the design: room rings first, then the free-standing chains. */
+export function designWalls(rooms: Room[], walls?: FreeWall[]): RoomWall[] {
+  return [...allWalls(rooms), ...freeWallGeoms(walls)];
 }
 
 /** One room's walls, in corner order. */
@@ -140,6 +212,89 @@ export function slabQuad(g: RoomWall): [Point, Point, Point, Point] {
   });
   const outer = g.faceOffset - g.thickness;
   return [at(g.a, g.faceOffset), at(g.b, g.faceOffset), at(g.b, outer), at(g.a, outer)];
+}
+
+/**
+ * Where a wall slab's CENTRELINE sits relative to its polygon edge, measured
+ * along the edge's inward normal. Room corners are the room-side wall face, so
+ * an exterior wall lies wholly outside (−t/2) and a partition straddles (0).
+ *
+ * This is the single sanctioned bridge between the model's face-polygon
+ * invariant and the centreline space the wall tool draws in — the same role
+ * `faceOffset` plays for the slab itself. Never hardcode ±thickness / 2.
+ */
+export const bandCenter = (g: RoomWall): number => g.faceOffset - g.thickness / 2;
+
+/** One wall's centreline, mitred into its neighbours at both ends. */
+export interface Centreline {
+  wallId: string;
+  roomId: string;
+  a: Point;
+  b: Point;
+}
+
+/** A room's mitred centreline junctions, in corner order. */
+export interface CentrelineRing {
+  roomId: string;
+  /** one point per corner: where the two incident centrelines meet */
+  points: { cornerId: string; x: number; y: number }[];
+}
+
+/**
+ * Every room's walls as CENTRELINE segments, plus the MITRED junction ring.
+ * The two are deliberately different and are used for different jobs:
+ *
+ * - `segments` are each wall's own extent shifted perpendicular by
+ *   `bandCenter`, so a segment ends exactly where its wall does. This is what
+ *   the wall tool SNAPS to, because it is also what
+ *   `Store.alignWallToCentreline` produces when it promotes that wall — snap
+ *   and promotion have to agree to the millimetre or the two rings never
+ *   coincide and no partition forms.
+ * - `rings` are the corner ring offset per edge by `bandCenter` and
+ *   re-intersected, i.e. where two centrelines actually MEET. This is where
+ *   the plan draws its corner handles. A mitre runs past the wall's end (by
+ *   half a thickness at a right angle), which is exactly why it must not be a
+ *   snap target. A ring that degenerates under the offset — a concave corner
+ *   tighter than the offset it carries — falls back to the raw corners, so a
+ *   room always yields a ring rather than dropping out.
+ */
+export function wallCentrelines(rooms: Room[]): {
+  segments: Centreline[];
+  rings: CentrelineRing[];
+} {
+  const walls = allWalls(rooms);
+  const byRoom = new Map<string, RoomWall[]>();
+  for (const w of walls) {
+    const list = byRoom.get(w.roomId);
+    if (list) list.push(w);
+    else byRoom.set(w.roomId, [w]);
+  }
+
+  const segments: Centreline[] = [];
+  const rings: CentrelineRing[] = [];
+  for (const room of rooms) {
+    const mine = byRoom.get(room.id);
+    if (!mine || mine.length < 3) continue;
+    // allWalls emits in corner order per room, but sort by index rather than
+    // trust that: the ring must line up index-for-index with room.corners
+    const ordered = [...mine].sort((p, q) => p.index - q.index);
+    const moved = insetPolygon(room.corners, ordered.map(bandCenter));
+    const pts = moved ?? room.corners;
+    rings.push({
+      roomId: room.id,
+      points: pts.map((p, i) => ({ cornerId: room.corners[i].id, x: p.x, y: p.y })),
+    });
+    for (const w of ordered) {
+      const o = bandCenter(w);
+      segments.push({
+        wallId: w.id,
+        roomId: room.id,
+        a: { x: w.a.x + w.inward.x * o, y: w.a.y + w.inward.y * o },
+        b: { x: w.b.x + w.inward.x * o, y: w.b.y + w.inward.y * o },
+      });
+    }
+  }
+  return { segments, rings };
 }
 
 /** A welded junction and the convex patch that closes it. */
@@ -318,7 +473,7 @@ export function defaultRoomStyle(): RoomStyle {
     floorColor: '#cfccc6',
     counterColor: '#c9a87c',
     wallHeight: 2.6,
-    wallThickness: 0.1,
+    wallThickness: DEFAULT_WALL_W,
   };
 }
 
@@ -359,6 +514,13 @@ export function reidCorners(room: Room): Map<string, string> {
       remapped[map.get(id) ?? id] = mode;
     }
     room.wallVisibility = remapped;
+  }
+  if (room.wallWidths) {
+    const remapped: Record<string, number> = {};
+    for (const [id, m] of Object.entries(room.wallWidths)) {
+      remapped[map.get(id) ?? id] = m;
+    }
+    room.wallWidths = remapped;
   }
   return map;
 }
@@ -475,6 +637,298 @@ export function snapPointToRooms(rooms: Room[], p: Point, skipId?: string): Poin
     }
   }
   return best ? { p: best, hit: true } : { p, hit: false };
+}
+
+/**
+ * `snapPointToRooms`' twin for the wall tool: pull a free point onto another
+ * room's wall CENTRELINE — a mitred junction within ROOM_CORNER_SNAP wins
+ * outright, otherwise the closest spot on a centreline segment within
+ * ROOM_EDGE_SNAP.
+ *
+ * Snapping the face ring (what `snapPointToRooms` does) is what left a drawn
+ * corner half a wall thickness off its neighbour, so the weld had to cut the
+ * mismatch into stub segments. Landing on the centreline instead means the
+ * drawn room's own face ring — the centreline ring inset by its half width —
+ * comes out flush with the neighbour's, which is the precondition `weld` needs
+ * to make one clean partition.
+ */
+export function snapPointToCentrelines(rooms: Room[], p: Point, skipId?: string): PointSnap {
+  const { segments } = wallCentrelines(rooms);
+  let best: Point | null = null;
+  let bestD = ROOM_CORNER_SNAP;
+  // segment ENDPOINTS, not the mitred junctions: a mitre overshoots the wall's
+  // real end, and a drawn edge has to match that end exactly to share it
+  for (const s of segments) {
+    if (s.roomId === skipId) continue;
+    for (const e of [s.a, s.b]) {
+      const d = dist(p, e);
+      if (d < bestD) {
+        bestD = d;
+        best = { x: e.x, y: e.y };
+      }
+    }
+  }
+  if (best) return { p: best, hit: true };
+  bestD = ROOM_EDGE_SNAP;
+  for (const s of segments) {
+    if (s.roomId === skipId) continue;
+    const q = closestOnSegment(p, s.a, s.b);
+    const d = dist(p, q);
+    if (d < bestD) {
+      bestD = d;
+      best = q;
+    }
+  }
+  return best ? { p: best, hit: true } : { p, hit: false };
+}
+
+/**
+ * Axis-aligned CENTRELINE lines of every room but `skipId` — `snapRoomRect`'s
+ * input set, moved off the face ring for the same reason
+ * `snapPointToCentrelines` exists. A rectangle side landing on one of these
+ * puts the new room's centreline on the neighbour's, so the two face rings end
+ * up flush once the tool insets by the half width.
+ */
+export function centrelineAxisLines(
+  rooms: Room[],
+  skipId?: string
+): { xs: number[]; ys: number[] } {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const s of wallCentrelines(rooms).segments) {
+    if (s.roomId === skipId) continue;
+    if (Math.abs(s.a.x - s.b.x) < SHARE_EPS) xs.push(s.a.x);
+    if (Math.abs(s.a.y - s.b.y) < SHARE_EPS) ys.push(s.a.y);
+  }
+  return { xs, ys };
+}
+
+/** Everything committing a drawn ring needs, decided in ONE pass. */
+export interface FaceRingPlan {
+  /** per-edge inset turning the centreline ring into the stored face ring */
+  offsets: number[];
+  /** existing exterior walls to promote onto their centreline first, by wall id */
+  promote: string[];
+}
+
+/**
+ * How far each edge of a drawn CENTRELINE ring must move inward to become the
+ * room-side face ring a `Room` stores — the conversion the wall tool commits
+ * through, and the reason `insetPolygon` takes a per-edge offset — plus the
+ * existing walls that have to move out to meet it.
+ *
+ * The offset is NOT uniform, because `Room.corners` means two different things
+ * depending on the wall: for an EXTERIOR wall the ring is the room-side face
+ * (`faceOffset` 0, the slab lies wholly outside), but for a PARTITION the ring
+ * is the wall's centreline and the slab straddles it (`faceOffset` t/2). So an
+ * edge that will be exterior moves in by `half`, and an edge that lands on an
+ * existing wall's centreline must STAY on it — that coincidence is the whole
+ * of what `allWalls` looks for when it detects a shared edge, and moving it
+ * would leave the two rooms a wall's thickness apart with a weld unable to
+ * close the gap (the stub segments and notched junctions this replaces).
+ *
+ * An edge counts as landing on a neighbour when its midpoint sits on that
+ * neighbour's centreline segment and the two run parallel. A PARTIAL overlap
+ * (a tee) is treated as shared for the whole edge: the weld then splits it,
+ * and the remainder becomes exterior on its own.
+ *
+ * Both halves are computed against the SAME snapshot of the rooms, which is the
+ * whole point of returning them together. Promoting a wall moves its ring edge
+ * onto its centreline, and (until something actually shares it) that moves the
+ * centreline too, so an offsets pass run afterwards would no longer recognise
+ * the edge it just prepared. Callers promote from `promote`, then inset with
+ * `offsets`; never re-derive between the two.
+ */
+export function faceRingPlan(rooms: Room[], ring: Point[], half: number): FaceRingPlan {
+  const offsets: number[] = [];
+  const promote: string[] = [];
+  for (let i = 0; i < ring.length; i++) {
+    const hit = centrelineEdgeHit(rooms, ring, i);
+    offsets.push(hit ? 0 : half);
+    if (hit && !promote.includes(hit.wallId)) promote.push(hit.wallId);
+  }
+  return { offsets, promote };
+}
+
+/**
+ * The existing wall a drawn ring's edge `i` lands on the centreline of, or
+ * null. Companion to `faceRingPlan`: the offsets say WHERE the edge goes,
+ * this says WHICH wall has to be promoted to meet it there
+ * (`Store.alignWallToCentreline`).
+ */
+export function centrelineEdgeHit(rooms: Room[], ring: Point[], i: number): Centreline | null {
+  const a = ring[i];
+  const b = ring[(i + 1) % ring.length];
+  const len = dist(a, b);
+  if (len < 1e-9) return null;
+  const dir = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  for (const s of wallCentrelines(rooms).segments) {
+    const sl = dist(s.a, s.b);
+    if (sl < 1e-9) continue;
+    const sd = { x: (s.b.x - s.a.x) / sl, y: (s.b.y - s.a.y) / sl };
+    // parallel either way round — a partition is traversed in reverse
+    if (Math.abs(dir.x * sd.y - dir.y * sd.x) > PARALLEL_EPS) continue;
+    if (dist(mid, closestOnSegment(mid, s.a, s.b)) > SHARE_EPS) continue;
+    return s;
+  }
+  return null;
+}
+
+/** sin of the largest angle two edges may differ by and still count parallel (~0.06°). */
+const PARALLEL_EPS = 1e-3;
+
+/** An axis-aligned rectangle by its four sides, each flagged as snapped or not. */
+export interface RectSides {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  snapped: { x0: boolean; y0: boolean; x1: boolean; y1: boolean };
+}
+
+/**
+ * Snap each SIDE of an axis-aligned rectangle to the nearest wall centreline
+ * independently — unlike `snapRoomRect`, which slides the whole rectangle and
+ * so can only ever land one side of each axis.
+ *
+ * Independence is what a drag-rectangle needs: a new room laid alongside an
+ * existing one wants its shared side ON that wall's centreline AND its two
+ * flanking sides on the neighbour's, so that after the face inset all three
+ * edges line up and the contact is one clean partition. Translating the
+ * rectangle can satisfy the first and then miss the others by whatever the
+ * caller's grid rounds to, which leaves a few-centimetre stub the weld refuses
+ * to cut (its MIN_SEAM floor) and the rooms never share at all.
+ *
+ * A side with nothing in reach is left untouched, flagged false, for the
+ * caller to grid-round.
+ */
+export function snapRectSides(
+  rooms: Room[],
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  skipId?: string
+): RectSides {
+  const { xs, ys } = centrelineAxisLines(rooms, skipId);
+  const near = (lines: number[], v: number): number | null => {
+    let best: number | null = null;
+    let bestD = ROOM_SNAP_REACH;
+    for (const l of lines) {
+      const d = Math.abs(l - v);
+      if (d < bestD) {
+        bestD = d;
+        best = l;
+      }
+    }
+    return best;
+  };
+  const sx0 = near(xs, x0);
+  const sx1 = near(xs, x1);
+  const sy0 = near(ys, y0);
+  const sy1 = near(ys, y1);
+  return {
+    x0: sx0 ?? x0,
+    y0: sy0 ?? y0,
+    x1: sx1 ?? x1,
+    y1: sy1 ?? y1,
+    snapped: { x0: sx0 !== null, y0: sy0 !== null, x1: sx1 !== null, y1: sy1 !== null },
+  };
+}
+
+/* ---------------- splitting a room with a drawn chain ---------------- */
+
+/** The two rings a chain cuts one room's ring into. */
+export interface RoomSplit {
+  /** the room that was cut */
+  roomId: string;
+  /** two closed rings, each already a simple polygon */
+  rings: Point[][];
+}
+
+/**
+ * Cut `room` in two along a drawn wall chain.
+ *
+ * The chain is drawn in CENTRELINE space and snaps to wall centrelines, which
+ * for an exterior wall lie OUTSIDE the ring — so a chain across a room starts
+ * and ends beyond the boundary and crosses it twice. Those two crossings are
+ * what this finds; the chain is clipped to the part between them and used as
+ * the shared edge of both halves.
+ *
+ * That shared edge is the chain's own centreline, which is exactly right: once
+ * the two halves both hold it, `allWalls` links them and `faceOffset` t/2 makes
+ * the slab straddle it. The outer arcs stay on the original ring, still the
+ * room-side face of their (still exterior) walls. Both meanings of `corners`
+ * hold simultaneously, which is what makes the result a legal design.
+ *
+ * Returns null when the chain does not cleanly cross the ring twice, or when
+ * either half would be degenerate — the caller then treats the chain as a
+ * free-standing wall instead of guessing.
+ */
+export function splitRoomByChain(room: Room, chain: Point[]): RoomSplit | null {
+  if (chain.length < 2 || room.corners.length < 3) return null;
+  const ring = room.corners;
+
+  /** Chain crossings of the ring, in chain order, each with its ring position. */
+  const hits: { p: Point; chainIdx: number; ringIdx: number; ringU: number }[] = [];
+  for (let i = 0; i + 1 < chain.length; i++) {
+    const found: typeof hits = [];
+    for (let j = 0; j < ring.length; j++) {
+      const x = segmentIntersection(chain[i], chain[i + 1], ring[j], ring[(j + 1) % ring.length]);
+      if (x) found.push({ p: x.p, chainIdx: i, ringIdx: j, ringU: x.u });
+    }
+    // several crossings on ONE chain segment must keep their order along it
+    found.sort(
+      (m, n) => dist(chain[i], m.p) - dist(chain[i], n.p)
+    );
+    for (const f of found) {
+      const prev = hits[hits.length - 1];
+      if (prev && dist(prev.p, f.p) < SHARE_EPS) continue;
+      hits.push(f);
+    }
+  }
+  if (hits.length < 2) return null;
+
+  // the FIRST and LAST crossings bound the part of the chain that is inside;
+  // a chain that wanders out and back is not a split anybody drew on purpose
+  const entry = hits[0];
+  const exit = hits[hits.length - 1];
+  if (entry.ringIdx === exit.ringIdx && Math.abs(entry.ringU - exit.ringU) < 1e-9) return null;
+
+  // clipped chain: entry, every chain vertex strictly between the two
+  // crossings, then exit
+  const inner: Point[] = [entry.p];
+  for (let i = entry.chainIdx + 1; i <= exit.chainIdx; i++) {
+    const v = chain[i];
+    if (dist(v, inner[inner.length - 1]) > SHARE_EPS) inner.push(v);
+  }
+  if (dist(exit.p, inner[inner.length - 1]) > SHARE_EPS) inner.push(exit.p);
+  else inner[inner.length - 1] = exit.p;
+  if (inner.length < 2) return null;
+
+  /** Ring vertices strictly after position (idx,u), walking forward to (idx2,u2). */
+  const arc = (from: typeof entry, to: typeof exit): Point[] => {
+    const out: Point[] = [];
+    let j = from.ringIdx;
+    // start at the vertex ENDING the edge the entry sits on
+    for (let step = 0; step <= ring.length; step++) {
+      j = (j + 1) % ring.length;
+      if (from.ringIdx === to.ringIdx && step === 0 && to.ringU > from.ringU) break;
+      const atEnd = (j + ring.length - 1) % ring.length === to.ringIdx;
+      if (atEnd) break;
+      out.push({ x: ring[j].x, y: ring[j].y });
+    }
+    return out;
+  };
+
+  const ringA = [entry.p, ...arc(entry, exit), exit.p, ...[...inner].reverse().slice(1, -1)];
+  const ringB = [exit.p, ...arc(exit, entry), entry.p, ...inner.slice(1, -1)];
+
+  for (const r of [ringA, ringB]) {
+    if (r.length < 3 || Math.abs(signedArea(r)) < 1e-4 || !polygonIsSimple(r)) return null;
+  }
+  return { roomId: room.id, rings: [ringA, ringB] };
 }
 
 /* ---------------- welding adjacent rooms ---------------- */

@@ -33,16 +33,9 @@ test('plan starter card shows on a pristine design, hides while a tool is armed,
   await expect(app.locator('#plan-starter')).toBeVisible();
 });
 
-test('the "Add a room" and photo-import buttons on the starter card do the right thing', async ({
-  app,
-}) => {
+test('the photo-import button on the starter card does the right thing', async ({ app }) => {
   await app.click('#ws-tab-plan');
   const card = app.locator('#plan-starter');
-
-  await card.getByRole('button', { name: 'Add a room' }).click();
-  expect(await app.evaluate(() => window.__kp.editor.tool)).toBe('room');
-  await expect(app.locator('#plan-starter')).toHaveCount(0);
-  await app.keyboard.press('Escape');
 
   // "Import a floor plan photo…" is a proxy click onto the hidden file input
   await expect(app.locator('#plan-starter')).toBeVisible();

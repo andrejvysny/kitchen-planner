@@ -1,13 +1,22 @@
 import { catalogDef, hasCatalogDef, isWallMounted, type CatalogDef } from '../model/catalog';
 import {
   clamp,
+  insetPolygon,
   pointInPolygon,
   pointInRect,
   projectOnWall,
   rot,
-  wallPoint,
+  signedArea,
 } from '../model/geometry';
-import { snapPointToRooms, snapRoomRect, type RoomWall } from '../model/rooms';
+import {
+  faceRingPlan,
+  snapPointToCentrelines,
+  snapPointToRooms,
+  snapRectSides,
+  type RoomWall,
+} from '../model/rooms';
+import { unitPrefs } from '../model/prefs';
+import { parseLength } from '../model/units';
 import { nearestWall, snapItem, type Guide } from '../model/snapping';
 import type { Store } from '../model/store';
 import type { Item, Opening, Point } from '../model/types';
@@ -18,10 +27,12 @@ import { toCatalogDef } from '../model/parts';
 import type { EditorState, ToolId } from '../editor/editorState';
 import { hitRadius, PinchGesture } from './pinch';
 import type { ContextHit } from './planHit';
-import { underlayHits } from '../model/underlay';
+import { underlayCorners, underlayHits } from '../model/underlay';
 import {
   bandCenter,
+  cornerHandlePositions,
   footprintOf,
+  midpointHandlePos,
   itemOutlineWorld,
   renderPlan,
   rotateHandlePos,
@@ -32,28 +43,33 @@ import {
   type ItemGhost,
   type Measure,
   type OpeningGhost,
-  type RoomGhost,
 } from './renderPlan';
 
-/** Seed size of a room dropped by the add-room tool (m). */
-const NEW_ROOM_W = 4;
-const NEW_ROOM_D = 3;
-/** Ortho assist for the draw-room tool — snapping.ts' ALIGN_SNAP_DIST. */
+/** Ortho assist for the wall tool — snapping.ts' ALIGN_SNAP_DIST. */
 const DRAW_ALIGN = 0.06;
-/** How close to a wall the cursor must be for the tool to attach the room to it. */
-const ROOM_WALL_REACH = 0.45;
-/**
- * Mirrors store's MIN_WALL_SEG: splitWall refuses to leave a stub shorter than
- * this, so `addRoom({against})` silently widens a span whose end lands inside
- * it. The ghost snaps the same way, or it would lie about what a click builds.
- */
-const MIN_SPAN_STUB = 0.1;
+/** Shift locks the pending segment to this angular step (15°). */
+const ANGLE_STEP = Math.PI / 12;
+/** Below this on either side a drag is a click, not a rectangle (m). */
+const MIN_RECT_SIDE = 0.4;
+/** Screen px a press must travel before it counts as a rectangle drag. */
+const RECT_DRAG_SLOP = 4;
+
+/** Re-wind a ring counter-clockwise, which is what `insetPolygon` needs. */
+function ccw(pts: Point[]): Point[] {
+  return signedArea(pts) > 0 ? pts : [...pts].reverse();
+}
 
 type Drag =
   | { type: 'none' }
   | { type: 'maybe-pan'; sx: number; sy: number; panX0: number; panY0: number; moved: boolean }
   | { type: 'pan'; sx: number; sy: number; panX0: number; panY0: number }
   | { type: 'maybe-split'; wallId: string; sx: number; sy: number }
+  /**
+   * The wall tool's press, before it is known to be a drag: below
+   * RECT_DRAG_SLOP it releases as a plain click (the first corner of a ring),
+   * past it the rectangle takes over. `a` is the already-snapped anchor.
+   */
+  | { type: 'drawRect'; a: Point; sx: number; sy: number; moved: boolean }
   | { type: 'pinch' }
   | { type: 'item'; id: string; ox: number; oy: number; moved: boolean; cycleTo?: string | null }
   | { type: 'corner'; id: string }
@@ -107,12 +123,21 @@ export class Plan2D {
    */
   checksOn = false;
 
-  roomToolOn = false;
-  private roomGhost: RoomGhost | null = null;
-
   drawRoomOn = false;
+  /**
+   * The ring being drawn, in wall-CENTRELINE space — NOT the room-side face
+   * ring the model stores. `closeDrawRoom` insets it by half the wall width to
+   * make the face polygon `addRoom` takes.
+   */
   private drawPts: Point[] = [];
   private drawHover: Point | null = null;
+  /** Typed dimension for the pending segment; '' = follow the cursor. */
+  private drawLength = '';
+  /** The live drag-rectangle's centreline ring, or null outside that gesture. */
+  private drawRect: Point[] | null = null;
+  /** Last cursor position + modifier, so a typed digit can re-snap without a move. */
+  private lastPointer: Point | null = null;
+  private lastShift = false;
 
   private ghost: ItemGhost | null = null;
   private ghostOpening: OpeningGhost | null = null;
@@ -215,7 +240,7 @@ export class Plan2D {
         if (this.drag.type === 'none') {
           this.ghost = null;
           this.ghostOpening = null;
-          this.roomGhost = null;
+          this.lastPointer = null;
           this.drawHover = null; // the ring stays; only its rubber band leaves
           this.requestDraw();
         }
@@ -271,8 +296,21 @@ export class Plan2D {
     this.requestDraw();
   }
 
+  /**
+   * Frame everything there is to look at: every room corner PLUS the tracing
+   * reference's four corners. A design being traced has no rooms yet, so
+   * fitting rooms alone left the freshly imported plan wherever it happened to
+   * land — usually off-canvas, which reads as "nothing was imported".
+   */
   zoomFit(): void {
-    const c = this.store.design.rooms.flatMap((r) => r.corners);
+    const c = this.store.design.rooms.flatMap((r) => r.corners) as Point[];
+    const ref = this.store.underlayRef();
+    // the natural size lives in the decoded bitmap, not in the Design (the
+    // transform is all that is stored) — a miss just means "not decoded yet",
+    // and the requestDraw the loader triggers is not a refit, so callers that
+    // import then fit go through `zoomFitWhenReady`
+    const img = ref ? underlayImage(ref.src) : null;
+    if (ref && img) c.push(...underlayCorners(ref.u, img.naturalWidth, img.naturalHeight));
     if (!c.length) return;
     const xs = c.map((p) => p.x);
     const ys = c.map((p) => p.y);
@@ -284,6 +322,17 @@ export class Plan2D {
     this.panX = this.cssW / 2 - ((minX + maxX) / 2) * this.zoom;
     this.panY = this.cssH / 2 - ((minY + maxY) / 2) * this.zoom;
     this.requestDraw();
+  }
+
+  /**
+   * `zoomFit`, but waiting for the tracing reference to finish decoding first.
+   * An import fits IMMEDIATELY on a cached image and on the load callback
+   * otherwise, so "I picked a plan and nothing appeared" cannot happen either
+   * way. Gives up rather than hanging if the image never loads.
+   */
+  zoomFitWhenReady(): void {
+    const ref = this.store.underlayRef();
+    if (!ref || underlayImage(ref.src, () => this.zoomFit())) this.zoomFit();
   }
 
   zoomBy(f: number): void {
@@ -346,9 +395,6 @@ export class Plan2D {
         case 'measure':
           this.resetMeasure();
           break;
-        case 'room':
-          this.roomGhost = null;
-          break;
         case 'drawRoom':
           this.resetDrawRing();
           break;
@@ -358,7 +404,6 @@ export class Plan2D {
     this.armedDef = tool === 'place' ? this.resolveArmed(this.editor.armedDefId) : null;
     this.measureOn = tool === 'measure';
     this.calibrateOn = tool === 'calibrate';
-    this.roomToolOn = tool === 'room';
     this.drawRoomOn = tool === 'drawRoom';
     this.checksOn = this.editor.checksOn;
     if (this.attached) this.canvas.style.cursor = this.toolCursor();
@@ -383,7 +428,7 @@ export class Plan2D {
 
   /** Whichever tool owns the cursor wants a crosshair. */
   private toolCursor(): string {
-    return this.armedDef || this.measureOn || this.roomToolOn || this.drawRoomOn || this.calibrateOn
+    return this.armedDef || this.measureOn || this.drawRoomOn || this.calibrateOn
       ? 'crosshair'
       : 'default';
   }
@@ -480,20 +525,27 @@ export class Plan2D {
     this.editor.setChecks(on);
   }
 
-  /* ---------------- add-room tool ---------------- */
+  /* ---------------- wall tool (draw rooms) ---------------- */
 
-  setRoomTool(on: boolean): void {
-    this.roomGhost = null;
-    this.editor.setTool(on ? 'room' : 'select');
-    this.updateHint();
-    this.requestDraw();
-  }
-
-  /* ---------------- draw-room tool ---------------- */
+  /*
+   * ONE tool, two gestures, both in CENTRELINE space:
+   *
+   *   drag  → an axis-aligned rectangle sized under the cursor
+   *   click → a corner-by-corner ring, closed on the first corner or Enter
+   *
+   * Everything here works on wall CENTRELINES, not on the room-side face ring
+   * the model stores. That is the whole fix for the old tool: snapping the face
+   * ring left a drawn corner half a wall thickness off its neighbour, and the
+   * weld then cut the mismatch into stub segments. `closeDrawRoom` insets the
+   * centreline ring by the half width to reach the face ring the Design wants,
+   * which is the same conversion migrate.ts already does for a v5 design.
+   */
 
   private resetDrawRing(): void {
     this.drawPts = [];
     this.drawHover = null;
+    this.drawLength = '';
+    this.drawRect = null;
   }
 
   setDrawRoom(on: boolean): void {
@@ -505,7 +557,7 @@ export class Plan2D {
 
   /** Esc drops the in-progress ring first; only an empty one disarms the tool. */
   cancelDrawRoom(): void {
-    if (!this.drawPts.length) {
+    if (!this.drawPts.length && !this.drawRect) {
       this.setDrawRoom(false);
       return;
     }
@@ -514,21 +566,72 @@ export class Plan2D {
     this.requestDraw();
   }
 
+  /** The width every wall of the room being drawn gets (m). */
+  private drawWidth(): number {
+    return this.editor.wallWidth;
+  }
+
   /**
-   * Where the pending vertex would land: another room's corner or wall wins
-   * outright (that flushness is what the weld turns into a partition), else the
-   * 5 cm grid with an ortho assist onto the previous and first vertices.
+   * Where the pending vertex would land, in order of authority:
+   *
+   *  1. another room's wall CENTRELINE — a mitred junction, then a segment;
+   *     landing there is what makes the finished face rings flush, so the weld
+   *     produces one clean partition instead of stubs;
+   *  2. a typed length, which fixes the distance and leaves only the direction
+   *     to the cursor;
+   *  3. `shift`, locking the direction to 15° off the previous vertex;
+   *  4. the ortho assist onto the previous and first vertices, then the 5 cm grid.
    */
-  private snapDrawPoint(w: Point): Point {
-    const near = snapPointToRooms(this.store.design.rooms, w);
+  private snapDrawPoint(w: Point, shift = false): Point {
+    const anchor = this.drawPts[this.drawPts.length - 1];
+    const locked = this.angleLocked(shift);
+
+    const typed = this.typedLength();
+    if (typed !== null && anchor) {
+      const dir = this.pendingDir(anchor, w, locked);
+      return { x: anchor.x + dir.x * typed, y: anchor.y + dir.y * typed };
+    }
+
+    // an existing wall centreline still outranks the angle lock: landing on a
+    // neighbour is what makes the rooms share a partition, and no angle is
+    // worth breaking that
+    const near = snapPointToCentrelines(this.store.design.rooms, w);
     if (near.hit) return near.p;
+
+    if (locked && anchor) {
+      const dir = this.pendingDir(anchor, w, true);
+      const len = Math.hypot(w.x - anchor.x, w.y - anchor.y);
+      return { x: anchor.x + dir.x * len, y: anchor.y + dir.y * len };
+    }
+
     const p = { x: Math.round(w.x * 20) / 20, y: Math.round(w.y * 20) / 20 };
-    for (const v of [this.drawPts[this.drawPts.length - 1], this.drawPts[0]]) {
+    for (const v of [anchor, this.drawPts[0]]) {
       if (!v) continue;
       if (Math.abs(w.x - v.x) < DRAW_ALIGN) p.x = v.x;
       if (Math.abs(w.y - v.y) < DRAW_ALIGN) p.y = v.y;
     }
     return p;
+  }
+
+  /**
+   * Whether the pending segment's angle is quantised. The preference decides,
+   * and Shift INVERTS it: a plan is nearly all right angles, so snapping is the
+   * default and Shift is the escape hatch — but with the preference off, Shift
+   * still gets you one snapped wall without turning it back on.
+   */
+  private angleLocked(shift: boolean): boolean {
+    return this.editor.angleSnap !== shift;
+  }
+
+  /**
+   * Unit direction of the pending segment, quantised to ANGLE_STEP (15°) when
+   * locked — which covers right angles as the 0/90° cases and the 45°
+   * diagonals a floor plan actually uses.
+   */
+  private pendingDir(anchor: Point, w: Point, locked: boolean): Point {
+    let a = Math.atan2(w.y - anchor.y, w.x - anchor.x);
+    if (locked) a = Math.round(a / ANGLE_STEP) * ANGLE_STEP;
+    return { x: Math.cos(a), y: Math.sin(a) };
   }
 
   /** Is `p` on the ring's first vertex, i.e. on the close target? */
@@ -540,6 +643,9 @@ export class Plan2D {
 
   private addDrawPoint(p: Point): void {
     if (this.onCloseTarget(p)) {
+      // land the click on the first corner exactly, so `ringIsClosed` sees a
+      // ring rather than an open chain that happens to end nearby
+      this.drawPts.push({ ...this.drawPts[0] });
       this.closeDrawRoom();
       return;
     }
@@ -547,103 +653,223 @@ export class Plan2D {
     const last = this.drawPts[this.drawPts.length - 1];
     if (last && Math.hypot(p.x - last.x, p.y - last.y) < 1e-6) return;
     this.drawPts.push(p);
+    this.drawLength = ''; // the typed length applied to THAT segment only
     this.updateHint();
     this.requestDraw();
   }
 
-  /** Turn the drawn ring into a room. An unusable outline stays up to be fixed. */
+  /* ---- type-in segment length ---- */
+
+  /**
+   * The typed buffer as metres, or null when nothing usable is pending. Parsed
+   * by src/model/units.ts in the user's own unit, so '2400' is 2.4 m in a mm
+   * profile and '1.2m' works anywhere.
+   */
+  private typedLength(): number | null {
+    if (!this.drawLength) return null;
+    const m = parseLength(this.drawLength, unitPrefs());
+    return m !== null && m > 1e-4 ? m : null;
+  }
+
+  /** Whether a keystroke should feed the dimension box rather than a shortcut. */
+  drawInputActive(): boolean {
+    return this.drawRoomOn && this.drawPts.length > 0;
+  }
+
+  /** Append one typed character (digit, separator or unit suffix). */
+  drawDigit(ch: string): void {
+    if (!this.drawInputActive() || this.drawLength.length >= 12) return;
+    this.drawLength += ch;
+    this.refreshDrawHover();
+  }
+
+  drawBackspace(): void {
+    if (!this.drawInputActive() || !this.drawLength) return;
+    this.drawLength = this.drawLength.slice(0, -1);
+    this.refreshDrawHover();
+  }
+
+  /** The typed buffer, for the overlay's dimension box. */
+  drawTyped(): string {
+    return this.drawLength;
+  }
+
+  /**
+   * Re-run the snap from the last known cursor position, so a typed digit moves
+   * the rubber-banded vertex without waiting for a pointermove.
+   */
+  private refreshDrawHover(): void {
+    if (this.lastPointer) this.drawHover = this.snapDrawPoint(this.lastPointer, this.lastShift);
+    this.updateHint();
+    this.requestDraw();
+  }
+
+  /**
+   * Finish the chain. What it BECOMES depends on what it is:
+   *
+   * - closed on its own first corner (3+ points) → a room, via `commitRing`;
+   * - anything else → a free-standing wall chain (`store.addFreeWall`).
+   *
+   * The second case is the point: a plan is redrawn wall by wall, and a
+   * divider, a peninsula or a corner stub encloses nothing. Enter and
+   * double-click both land here, so "I am done" is one gesture whichever kind
+   * of thing was being drawn.
+   */
   closeDrawRoom(): void {
-    if (this.drawPts.length < 3) return;
-    const room = this.store.addRoom({ polygon: this.drawPts });
-    if (!room) {
-      this.onHint('That outline is not a usable room — it crosses itself or is too small');
+    if (this.ringIsClosed()) {
+      if (!this.commitRing(this.drawPts)) return;
+      this.setDrawRoom(false);
       return;
     }
-    this.store.select({ kind: 'none' }); // the new room's panel is the no-selection one
+    this.commitFreeWall();
+  }
+
+  /**
+   * Does the chain come back to its own start? Only then is it a room. Uses the
+   * same reach as the close TARGET, so what the overlay offers and what Enter
+   * does cannot disagree.
+   */
+  private ringIsClosed(): boolean {
+    const pts = this.drawPts;
+    if (pts.length < 3) return false;
+    const a = pts[0];
+    const b = pts[pts.length - 1];
+    return Math.hypot(b.x - a.x, b.y - a.y) * this.zoom < hitRadius(10);
+  }
+
+  /**
+   * Commit an OPEN chain, trying the two useful readings in order:
+   *
+   *  1. it crosses a room twice → it is a partition, and the room is CUT in
+   *     two along it (`store.splitRoom`). This is the redraw workflow: you draw
+   *     only the new wall, not the three that were already there.
+   *  2. otherwise → free-standing walls (a divider, a peninsula, a stub).
+   *
+   * Order matters: a chain drawn right across a room is almost never meant to
+   * be a free wall floating inside it, and a chain that misses every room can
+   * never be a split.
+   */
+  private commitFreeWall(): void {
+    if (this.drawPts.length < 2) {
+      // a single stray click is not a wall; drop it rather than warning
+      this.resetDrawRing();
+      this.updateHint();
+      this.requestDraw();
+      return;
+    }
+    if (this.trySplit()) return;
+    const chain = this.store.addFreeWall(this.drawPts, this.drawWidth());
+    if (!chain) {
+      this.onHint('That chain is too short to be a wall');
+      return;
+    }
+    this.store.select({ kind: 'wall', id: chain.corners[0].id });
     this.store.commit();
     this.setDrawRoom(false);
   }
 
   /**
-   * The nearest wall a new room could be hung off: exterior walls only, from
-   * any room. A partition already has a room on both sides, and `addRoom`
-   * refuses it.
+   * Shared tail of both gestures: centreline ring → room, selection, commit.
+   *
+   * The inset is PER EDGE (`faceRingOffsets`), not uniform: a `Room`'s ring is
+   * the room-side face on an exterior wall but the CENTRELINE on a partition,
+   * so an edge drawn onto a neighbour's centreline has to stay put or the two
+   * rooms end up a wall's thickness apart with nothing for the weld to join.
    */
-  private nearestFreeWall(p: Point): { wall: RoomWall; t: number } | null {
-    let best: { wall: RoomWall; t: number } | null = null;
-    let bestPerp = ROOM_WALL_REACH;
-    for (const g of this.store.allWalls()) {
-      if (g.shared) continue;
-      const pr = projectOnWall(g, p);
-      if (pr.t < -0.1 || pr.t > g.len + 0.1) continue;
-      const perp = Math.abs(pr.side);
-      if (perp > bestPerp) continue;
-      bestPerp = perp;
-      best = { wall: g, t: clamp(pr.t, 0, g.len) };
+  private commitRing(centreline: Point[]): ReturnType<Store['addRoom']> {
+    const width = this.drawWidth();
+    // closing ON the first corner leaves it in the list twice; a zero-length
+    // edge makes insetPolygon bail, so drop the repeat before converting
+    const pts = [...centreline];
+    while (
+      pts.length > 3 &&
+      Math.hypot(pts[pts.length - 1].x - pts[0].x, pts[pts.length - 1].y - pts[0].y) < 1e-6
+    ) {
+      pts.pop();
     }
-    return best;
-  }
-
-  /** What a click at `w` would add: a room against the wall under the cursor, else a free one. */
-  private roomGhostAt(w: Point): RoomGhost {
-    const near = this.nearestFreeWall(w);
-    if (near) {
-      const g = near.wall;
-      const width = Math.min(g.len, NEW_ROOM_W);
-      let t0 = clamp(near.t - width / 2, 0, g.len - width);
-      let t1 = t0 + width;
-      // stubs shorter than a wall segment are never cut — match addRoom exactly
-      if (t0 < MIN_SPAN_STUB) t0 = 0;
-      if (g.len - t1 < MIN_SPAN_STUB) t1 = g.len;
-      const out = { x: -g.inward.x, y: -g.inward.y };
-      const a = wallPoint(g, t0);
-      const b = wallPoint(g, t1);
-      const whole = t0 === 0 && t1 === g.len;
-      return {
-        poly: [
-          b,
-          a,
-          { x: a.x + out.x * NEW_ROOM_D, y: a.y + out.y * NEW_ROOM_D },
-          { x: b.x + out.x * NEW_ROOM_D, y: b.y + out.y * NEW_ROOM_D },
-        ],
-        opts: { against: { wallId: g.id, ...(whole ? {} : { span: { t0, t1 } }) }, d: NEW_ROOM_D },
-        attached: true,
-      };
+    const ring = ccw(pts);
+    // ONE pass over the rooms as they are now: which edges become partitions,
+    // and which existing walls have to move out to meet them. Promoting first
+    // and asking afterwards would not work — see faceRingPlan's doc comment.
+    const plan = faceRingPlan(this.store.design.rooms, ring, width / 2);
+    for (const wallId of plan.promote) this.store.alignWallToCentreline(wallId);
+    const face = insetPolygon(ring, plan.offsets);
+    if (!face) {
+      this.onHint('That outline is not a usable room — it crosses itself or is too small');
+      return null;
     }
-    // free-standing: a w×d rectangle centred on the cursor. A side within reach
-    // of another room goes exactly flush with it (addRoom then welds the two
-    // into a partition); the drag grid only rules the axes that did not snap.
-    const flush = snapRoomRect(
-      this.store.design.rooms,
-      w.x - NEW_ROOM_W / 2,
-      w.y - NEW_ROOM_D / 2,
-      NEW_ROOM_W,
-      NEW_ROOM_D
-    );
-    const x = flush.snappedX ? flush.x : Math.round(flush.x * 20) / 20;
-    const y = flush.snappedY ? flush.y : Math.round(flush.y * 20) / 20;
-    return {
-      poly: [
-        { x, y },
-        { x: x + NEW_ROOM_W, y },
-        { x: x + NEW_ROOM_W, y: y + NEW_ROOM_D },
-        { x, y: y + NEW_ROOM_D },
-      ],
-      opts: { at: { x, y }, w: NEW_ROOM_W, d: NEW_ROOM_D },
-      attached: false,
-      flush: flush.snappedX || flush.snappedY,
-    };
-  }
-
-  private placeRoom(w: Point, keep: boolean): void {
-    const ghost = this.roomGhostAt(w);
-    const room = this.store.addRoom(ghost.opts);
-    if (!room) return; // the host wall became a partition since the ghost was built
+    const room = this.store.addRoom({ polygon: face, style: { wallThickness: width } });
+    if (!room) {
+      this.onHint('That outline is not a usable room — it crosses itself or is too small');
+      return null;
+    }
     this.store.select({ kind: 'none' }); // the new room's panel is the no-selection one
     this.store.commit();
-    this.roomGhost = null;
-    if (!keep) this.setRoomTool(false);
-    else this.requestDraw();
+    return room;
+  }
+
+  /**
+   * Cut whichever room the chain actually crosses. Tries every room rather than
+   * only the active one — you draw where the wall goes, not where the selection
+   * happens to be — and takes the first clean cut. Returns whether it split.
+   */
+  private trySplit(): boolean {
+    for (const room of this.store.design.rooms) {
+      const made = this.store.splitRoom(room.id, this.drawPts);
+      if (!made) continue;
+      this.store.select({ kind: 'none' });
+      this.store.commit();
+      this.setDrawRoom(false);
+      return true;
+    }
+    return false;
+  }
+
+  /* ---- drag gesture: a rectangle sized under the cursor ---- */
+
+  /**
+   * The rectangle a drag from `a` to `b` would build, as a CCW centreline ring.
+   * Sides within reach of another room's wall centreline land exactly on it,
+   * so the two rooms weld into one partition; the 5 cm grid rules whichever
+   * axis did not snap. `shift` forces a square.
+   */
+  private rectRing(a: Point, b: Point, shift: boolean): Point[] {
+    let w = b.x - a.x;
+    let h = b.y - a.y;
+    if (shift) {
+      const s = Math.max(Math.abs(w), Math.abs(h));
+      w = Math.sign(w || 1) * s;
+      h = Math.sign(h || 1) * s;
+    }
+    // each SIDE snaps on its own (snapRectSides, not a whole-rectangle slide):
+    // a room laid against an existing one has to put its shared side on that
+    // wall's centreline AND its flanking sides on the neighbour's, or the
+    // contact comes out a few centimetres short of a weldable seam
+    const snap = snapRectSides(
+      this.store.design.rooms,
+      Math.min(a.x, a.x + w),
+      Math.min(a.y, a.y + h),
+      Math.max(a.x, a.x + w),
+      Math.max(a.y, a.y + h)
+    );
+    const grid = (v: number): number => Math.round(v * 20) / 20;
+    const x0 = snap.snapped.x0 ? snap.x0 : grid(snap.x0);
+    const y0 = snap.snapped.y0 ? snap.y0 : grid(snap.y0);
+    const x1 = snap.snapped.x1 ? snap.x1 : grid(snap.x1);
+    const y1 = snap.snapped.y1 ? snap.y1 : grid(snap.y1);
+    return [
+      { x: x0, y: y0 },
+      { x: x1, y: y0 },
+      { x: x1, y: y1 },
+      { x: x0, y: y1 },
+    ];
+  }
+
+  /** Smallest drag that counts as a rectangle rather than a click (m per side). */
+  private rectUsable(ring: Point[]): boolean {
+    const w = Math.abs(ring[1].x - ring[0].x);
+    const h = Math.abs(ring[2].y - ring[1].y);
+    return w >= MIN_RECT_SIDE && h >= MIN_RECT_SIDE;
   }
 
   private closestOnSeg(p: Point, a: Point, b: Point): Point {
@@ -710,17 +936,14 @@ export class Plan2D {
       );
       return;
     }
-    if (this.roomToolOn) {
-      this.onHint(
-        'Click to place a room · hover a wall to attach it · Shift keeps the tool · Esc cancels'
-      );
-      return;
-    }
     if (this.drawRoomOn) {
+      const shiftDoes = this.editor.angleSnap ? 'Shift frees the angle' : 'Shift snaps to 15°';
       this.onHint(
-        this.drawPts.length >= 3
-          ? 'Click the first corner (or Enter) to close the room · Esc discards it'
-          : 'Click each corner of the room · corners snap to neighbouring rooms · Esc exits'
+        !this.drawPts.length
+          ? 'Drag a rectangle, or click corner by corner · walls snap to wall centres · Esc cancels'
+          : this.drawPts.length >= 3
+            ? `Click the first corner to make a room, or Enter to finish the walls · ${shiftDoes}`
+            : `Click the next corner · ${shiftDoes} · type a length · Enter finishes the walls`
       );
       return;
     }
@@ -784,30 +1007,29 @@ export class Plan2D {
     armedDefId: string | null;
     measure: boolean;
     calibrate: boolean;
-    room: boolean;
     draw: boolean;
     checks: boolean;
+    /** the wall tool's width (m) — one number, so a test can assert the ring */
+    wallWidth: number;
   } {
     return {
       armedDefId: this.armedDef?.id ?? null,
       measure: this.measureOn,
       calibrate: this.calibrateOn,
-      room: this.roomToolOn,
       draw: this.drawRoomOn,
       checks: this.editor.checksOn,
+      wallWidth: this.editor.wallWidth,
     };
   }
 
-  /** Snapshot of the in-flight overlay state — the measure span, room-tool ghost and draw ring. */
+  /** Snapshot of the in-flight overlay state — the measure span and the draw ring. */
   overlayState(): {
     measure: Measure;
-    roomGhost: RoomGhost | null;
     drawRing: DrawRing | null;
     hover: HoverOverlay;
   } {
     return {
       measure: this.measure,
-      roomGhost: this.roomGhost,
       drawRing: this.drawRing(),
       hover: { ...this.hover },
     };
@@ -826,11 +1048,18 @@ export class Plan2D {
     this.requestDraw();
   }
 
+  /**
+   * Corner handles hit-test where they DRAW — at the wall centreline junction,
+   * not at the raw face-ring corner. `cornerHandlePositions` is the one source
+   * for both; grabbing a handle still returns the CORNER id, so the drag itself
+   * keeps moving the face ring exactly as before.
+   */
   private hitCorner(s: Point): string | null {
     const room = this.store.activeRoom();
     if (!room) return null;
+    const handles = cornerHandlePositions(this.store, room.id);
     for (const c of room.corners) {
-      const cs = this.toScreen(c);
+      const cs = this.toScreen(handles.get(c.id) ?? c);
       if (Math.hypot(cs.x - s.x, cs.y - s.y) < hitRadius(9)) return c.id;
     }
     return null;
@@ -867,7 +1096,7 @@ export class Plan2D {
   /** Wall-bend handles belong to the active room only (like the corner handles). */
   private hitMidpoint(s: Point): string | null {
     for (const w of this.store.activeWalls()) {
-      const m = this.toScreen(wallPoint(w, w.len / 2));
+      const m = this.toScreen(midpointHandlePos(w));
       if (Math.hypot(m.x - s.x, m.y - s.y) < hitRadius(8)) return w.id;
     }
     return null;
@@ -1022,15 +1251,21 @@ export class Plan2D {
       return;
     }
 
-    // dropping a new room
-    if (this.roomToolOn) {
-      this.placeRoom(w, e.shiftKey);
-      return;
-    }
-
-    // drawing one corner by corner
+    // the wall tool: an empty ring may still become a drag-rectangle, so the
+    // press only ARMS the gesture; onPointerUp decides drag vs. click. Once the
+    // ring has a vertex the tool is committed to corner-by-corner mode.
     if (this.drawRoomOn) {
-      this.addDrawPoint(this.snapDrawPoint(w));
+      if (this.drawPts.length) {
+        this.addDrawPoint(this.snapDrawPoint(w, e.shiftKey));
+      } else {
+        this.drag = {
+          type: 'drawRect',
+          a: this.snapDrawPoint(w, e.shiftKey),
+          sx: s.x,
+          sy: s.y,
+          moved: false,
+        };
+      }
       return;
     }
 
@@ -1277,6 +1512,16 @@ export class Plan2D {
         this.store.updateItem(it.id, { rotation: ang }, { structural: false, transient: true });
         return;
       }
+      case 'drawRect': {
+        const d = this.drag;
+        if (!d.moved && Math.hypot(s.x - d.sx, s.y - d.sy) <= RECT_DRAG_SLOP) return;
+        d.moved = true;
+        // a rectangle is axis-aligned by construction, so the angle lock has
+        // nothing to say here — Shift means SQUARE instead
+        this.drawRect = this.rectRing(d.a, this.snapDrawPoint(w, false), e.shiftKey);
+        this.requestDraw();
+        return;
+      }
       case 'measure': {
         const d = this.drag;
         if (Math.hypot(s.x - d.sx, s.y - d.sy) > 4) d.moved = true;
@@ -1303,17 +1548,9 @@ export class Plan2D {
         break;
     }
 
-    // add-room tool: preview exactly what a click would build
-    if (this.roomToolOn) {
-      this.roomGhost = this.roomGhostAt(w);
-      this.canvas.style.cursor = 'crosshair';
-      this.requestDraw();
-      return;
-    }
-
-    // draw-room tool: rubber-band the pending vertex
+    // wall tool: rubber-band the pending vertex
     if (this.drawRoomOn) {
-      this.drawHover = this.snapDrawPoint(w);
+      this.drawHover = this.snapDrawPoint(w, e.shiftKey);
       this.canvas.style.cursor = 'crosshair';
       this.requestDraw();
       return;
@@ -1463,6 +1700,18 @@ export class Plan2D {
       const room = this.store.roomOfCorner(wasDrag.id);
       if (room) this.store.weldRoom(room.id);
     }
+    if (wasDrag.type === 'drawRect') {
+      // a press that never travelled is the ring's FIRST corner, not a
+      // rectangle — the two gestures share one press, and this is where they
+      // part. A drag too small to be a room falls back the same way.
+      const ring = this.drawRect;
+      this.drawRect = null;
+      if (wasDrag.moved && ring && this.rectUsable(ring)) {
+        if (this.commitRing(ring)) this.setDrawRoom(false);
+      } else {
+        this.addDrawPoint(wasDrag.a);
+      }
+    }
     if (['corner', 'opening', 'item', 'rotate', 'underlay'].includes(wasDrag.type)) {
       this.store.commit();
     }
@@ -1492,7 +1741,7 @@ export class Plan2D {
       this.closeDrawRoom(); // the two presses already placed the last corner
       return;
     }
-    if (this.armedDef || this.roomToolOn || this.calibrateOn) return;
+    if (this.armedDef || this.calibrateOn) return;
     if (this.hitItem(w) || this.hitOpening(w)) return;
     const wallId = this.hitWall(w);
     if (wallId) {
@@ -1516,12 +1765,34 @@ export class Plan2D {
     });
   }
 
+  /**
+   * The wall tool's overlay. ONE shape serves both gestures: the drag
+   * rectangle is just a `closed` ring with no rubber band, so renderPlan draws
+   * the preview through a single code path and the drag and the click produce
+   * pixel-identical walls.
+   */
   private drawRing(): DrawRing | null {
-    if (!this.drawRoomOn || !this.drawPts.length) return null;
+    if (!this.drawRoomOn) return null;
+    if (this.drawRect) {
+      return {
+        pts: this.drawRect,
+        hover: null,
+        closing: false,
+        closed: true,
+        width: this.drawWidth(),
+        typed: '',
+        angleSnap: this.editor.angleSnap,
+      };
+    }
+    if (!this.drawPts.length) return null;
     return {
       pts: this.drawPts,
       hover: this.drawHover,
       closing: this.onCloseTarget(this.drawHover),
+      closed: false,
+      width: this.drawWidth(),
+      typed: this.drawLength,
+      angleSnap: this.editor.angleSnap,
     };
   }
 
@@ -1551,7 +1822,6 @@ export class Plan2D {
         armedDef: this.armedDef,
         ghost: this.ghost,
         ghostOpening: this.ghostOpening,
-        roomGhost: this.roomToolOn ? this.roomGhost : null,
         drawRing: this.drawRing(),
         measure: this.calibrateOn ? this.calibrate : this.measure,
         advisoryChecks: this.checksOn,

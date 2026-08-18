@@ -124,10 +124,12 @@ const ALWAYS: readonly ContractEntry[] = [
   vis('#status-info'),
 ];
 
-/** Plan-workspace-only chrome — the room tools exist only under #ws-tab-plan
+/** Plan-workspace-only chrome — the wall tool exists only under #ws-tab-plan
  *  (WS-SPEC §4.4: workspaces scope toolsets; #btn-measure/#btn-checks stay in
- *  ALWAYS because they exist in Furnish, the boot default, too). */
-const PLAN_TOOLS: readonly ContractEntry[] = [vis('#btn-room'), vis('#btn-draw-room')];
+ *  ALWAYS because they exist in Furnish, the boot default, too). #btn-angle-snap
+ *  and #wall-width mount only while that tool is armed, so they are covered by
+ *  e2e/tools.spec.ts rather than pinned here. */
+const PLAN_TOOLS: readonly ContractEntry[] = [vis('#btn-draw-room')];
 
 /** Catalog tiles — .cat-item is one of the selectors named in the plan.
  *  Furnish-scoped: door/window moved to CATALOG_PLAN (WS-SPEC §4.3), since

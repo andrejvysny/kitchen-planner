@@ -18,16 +18,18 @@ import { demoDesign, Store } from '../../../src/model/store';
 // lift: same mutations, same guards, same `store.commit()` discipline.
 
 /** Records every port call so a command's tool-cancelling path is observable. */
-function fakePlan(): PlanToolPort & { calls: string[] } {
+function fakePlan(drawing = false): PlanToolPort & { calls: string[] } {
   const calls: string[] = [];
   return {
     calls,
     setArmed: () => calls.push('setArmed'),
     setCalibrate: (on) => calls.push(`setCalibrate:${on}`),
     setMeasure: (on) => calls.push(`setMeasure:${on}`),
-    setRoomTool: (on) => calls.push(`setRoomTool:${on}`),
     cancelDrawRoom: () => calls.push('cancelDrawRoom'),
     closeDrawRoom: () => calls.push('closeDrawRoom'),
+    drawInputActive: () => drawing,
+    drawDigit: (ch) => calls.push(`drawDigit:${ch}`),
+    drawBackspace: () => calls.push('drawBackspace'),
   };
 }
 
@@ -269,11 +271,27 @@ describe('app commands', () => {
       expect(plan.calls).toEqual([]);
     });
 
+    it('the dimension commands only run while a ring is in flight', () => {
+      const idle = fakePlan(false);
+      const idleReg = new CommandRegistry({ store, editor, plan: idle, modal, workspace: ws, help });
+      idleReg.registerAll(APP_COMMANDS);
+      expect(idleReg.execute('draw.digit4')).toBe(false);
+      expect(idleReg.execute('draw.backspace')).toBe(false);
+      expect(idle.calls).toEqual([]);
+
+      const live = fakePlan(true);
+      const liveReg = new CommandRegistry({ store, editor, plan: live, modal, workspace: ws, help });
+      liveReg.registerAll(APP_COMMANDS);
+      expect(liveReg.execute('draw.digit4')).toBe(true);
+      expect(liveReg.execute('draw.digitDot')).toBe(true);
+      expect(liveReg.execute('draw.backspace')).toBe(true);
+      expect(live.calls).toEqual(['drawDigit:4', 'drawDigit:.', 'drawBackspace']);
+    });
+
     it.each([
       ['place', 'setArmed'],
       ['calibrate', 'setCalibrate:false'],
       ['measure', 'setMeasure:false'],
-      ['room', 'setRoomTool:false'],
       ['drawRoom', 'cancelDrawRoom'],
     ] as const)('%s cancels through the plan port (%s)', (tool, call) => {
       editor.setTool(tool);

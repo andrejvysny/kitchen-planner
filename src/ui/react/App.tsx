@@ -2,6 +2,7 @@ import { useEffect, type ReactElement } from 'react';
 import { services } from '../../app/bootstrap';
 import { Cheatsheet } from './Cheatsheet';
 import { CoachMarks } from './CoachMarks';
+import { PdfPagePicker } from './PdfPagePicker';
 import { RecoveryBanner } from './RecoveryBanner';
 import { AppServicesProvider } from './services';
 import { StatusBar } from './StatusBar';
@@ -46,6 +47,9 @@ export function App(): ReactElement {
         <Workspace />
         <StatusBar />
         <Cheatsheet />
+        {/* self-gating like <Cheatsheet/>: renders null unless a PDF is waiting
+            for a page to be chosen (shellState.pdfImport) */}
+        <PdfPagePicker />
         {services.firstRun && <CoachMarks />}
       </div>
     </AppServicesProvider>

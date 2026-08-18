@@ -37,12 +37,12 @@ async function clickPlan(page: Page, x: number, y: number): Promise<void> {
   await page.mouse.click(p.x, p.y);
 }
 
-// WS-SPEC §4.4: the room tools only render in the Plan workspace, and the
+// WS-SPEC §4.4: the wall tool only renders in the Plan workspace, and the
 // fixture boots into Furnish (the persisted default with cleared storage).
 // Every spec here exercises plan-editing tools, so start each in Plan.
 test.beforeEach(async ({ app }) => {
   await app.click('#ws-tab-plan');
-  await expect(app.locator('#btn-room')).toBeVisible();
+  await expect(app.locator('#btn-draw-room')).toBeVisible();
   // the tab and window.__kp.workspace() are the same state, not two of them
   expect(await app.evaluate(() => window.__kp.workspace())).toBe('plan');
 });
@@ -55,15 +55,15 @@ const isActive = (page: Page, sel: string) =>
 test('the tool buttons project editor state and round-trip their .active class', async ({
   app,
 }) => {
-  await app.click('#btn-room');
-  expect(await editorTool(app)).toBe('room');
-  expect(await isActive(app, '#btn-room')).toBe(true);
+  await app.click('#btn-draw-room');
+  expect(await editorTool(app)).toBe('drawRoom');
+  expect(await isActive(app, '#btn-draw-room')).toBe(true);
 
   // a second tool takes the single gesture slot; the first gives it up
   await app.click('#btn-measure');
   expect(await editorTool(app)).toBe('measure');
   expect(await isActive(app, '#btn-measure')).toBe(true);
-  expect(await isActive(app, '#btn-room')).toBe(false);
+  expect(await isActive(app, '#btn-draw-room')).toBe(false);
 
   // clicking the armed tool again drops back to the resting state
   await app.click('#btn-measure');
@@ -84,7 +84,6 @@ test('the tool buttons project editor state and round-trip their .active class',
 
 test('toolState() mirrors the editor for every tool', async ({ app }) => {
   const cases = [
-    ['room', { room: true }],
     ['drawRoom', { draw: true }],
     ['measure', { measure: true }],
     ['calibrate', { calibrate: true }],
@@ -97,7 +96,6 @@ test('toolState() mirrors the editor for every tool', async ({ app }) => {
       armedDefId: null,
       measure: false,
       calibrate: false,
-      room: false,
       draw: false,
       ...expected,
     });
@@ -107,7 +105,7 @@ test('toolState() mirrors the editor for every tool', async ({ app }) => {
   expect(await toolState(app)).toMatchObject({ armedDefId: 'base-cabinet', measure: false });
 
   await app.evaluate(() => window.__kp.editor.setTool('select'));
-  expect(await toolState(app)).toMatchObject({ armedDefId: null, room: false, draw: false });
+  expect(await toolState(app)).toMatchObject({ armedDefId: null, draw: false });
 });
 
 test('re-arming the draw tool mid-ring drops the ring it was building', async ({ app }) => {
@@ -130,33 +128,21 @@ test('re-arming the draw tool mid-ring drops the ring it was building', async ({
 test('switching tools clears the overlay of the tool being left', async ({ app }) => {
   await pinViewport(app);
 
-  // measure: one click opens a span, then the room tool takes the slot
+  // measure: one click opens a span, then the wall tool takes the slot
   await app.click('#btn-measure');
   await clickPlan(app, 1, 1);
   await expect
     .poll(() => app.evaluate(() => !!window.__kp.plan.overlayState().measure.a))
     .toBe(true);
 
-  await app.click('#btn-room');
+  await app.click('#btn-draw-room');
   expect(await app.evaluate(() => window.__kp.plan.overlayState().measure)).toMatchObject({
     a: null,
     b: null,
     measuring: false,
   });
 
-  // room tool: a hover builds the placement ghost, which must not outlive it.
-  // Mid-canvas on purpose — the pane's control clusters sit over its corners,
-  // and the pinned transform only reaches ~7.4 m across a 566 px pane.
-  const p = await at(app, 6, 5);
-  await app.mouse.move(p.x, p.y);
-  await expect
-    .poll(() => app.evaluate(() => !!window.__kp.plan.overlayState().roomGhost))
-    .toBe(true);
-
-  await app.click('#btn-draw-room');
-  expect(await app.evaluate(() => window.__kp.plan.overlayState().roomGhost)).toBe(null);
-
-  // draw tool: a ring in progress goes when the tool does
+  // wall tool: a ring in progress goes when the tool does
   await clickPlan(app, 6, 1);
   await expect
     .poll(() => app.evaluate(() => !!window.__kp.plan.overlayState().drawRing))
@@ -178,7 +164,7 @@ test('Escape walks the tools in order, and the draw ring goes before its tool', 
 
   for (const [btn, tool] of [
     ['#btn-measure', 'measure'],
-    ['#btn-room', 'room'],
+    ['#btn-draw-room', 'drawRoom'],
   ] as const) {
     await app.click(btn);
     expect(await editorTool(app)).toBe(tool);
@@ -265,27 +251,27 @@ test('the 2D/elevation toggle and the wall nav still drive the elevation view', 
 });
 
 test('arming survives inside a workspace and dies across a switch', async ({ app }) => {
-  await app.click('#btn-room');
-  expect(await editorTool(app)).toBe('room');
+  await app.click('#btn-draw-room');
+  expect(await editorTool(app)).toBe('drawRoom');
 
   // chrome interactions inside the same workspace leave the tool alone
   await app.click('#btn-zoom-in');
-  expect(await editorTool(app)).toBe('room');
+  expect(await editorTool(app)).toBe('drawRoom');
 
   // a workspace switch is a task change (WS-SPEC I3): the tool resets to
   // select, the mirrors follow, and the plan-only button leaves the DOM
   await app.click('#ws-tab-furnish');
   expect(await editorTool(app)).toBe('select');
-  expect((await toolState(app)).room).toBe(false);
-  await expect(app.locator('#btn-room')).toHaveCount(0);
+  expect((await toolState(app)).draw).toBe(false);
+  await expect(app.locator('#btn-draw-room')).toHaveCount(0);
 });
 
 test('the status hint renders from the shell store', async ({ app }) => {
   await app.click('#btn-measure');
   await expect(app.locator('#status-hint')).toContainText('measure');
 
-  await app.click('#btn-room');
-  await expect(app.locator('#status-hint')).toContainText('place a room');
+  await app.click('#btn-draw-room');
+  await expect(app.locator('#status-hint')).toContainText('Drag a rectangle');
 
   await app.keyboard.press('Escape');
   await expect(app.locator('#status-hint')).toContainText('Drag corners');
@@ -294,13 +280,13 @@ test('the status hint renders from the shell store', async ({ app }) => {
 // WP 2.2: the floating cursor chip, deliberately redundant with #status-hint.
 test('the hint chip follows the pointer while a tool is armed', async ({ app }) => {
   await pinViewport(app);
-  await app.click('#btn-room');
+  await app.click('#btn-draw-room');
 
   const p = await at(app, 6, 5); // mid-canvas, clear of the corner clusters
   await app.mouse.move(p.x, p.y);
 
   const chip = app.locator('#hint-chip-2d');
-  await expect(chip).toContainText('drop a room');
+  await expect(chip).toContainText('Drag a rectangle');
   await expect(chip).toHaveCSS('opacity', '1');
   // pointer-events:none is what keeps this from ever stealing a canvas click
   await expect(chip).toHaveCSS('pointer-events', 'none');

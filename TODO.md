@@ -202,3 +202,76 @@ PreToolUse hook (project tooling, not an attack) and that suites seed
 See ROADMAP.md. In short: `ToolManager` + `InputRouter` land together with
 `MeasureTool`, then Calibrate → DrawRoom → AddRoom → Place → **Select last**.
 Nothing starts until the M11 gates are green on CI.
+
+---
+
+# M13 — Unified centreline wall tool
+
+Plan: `~/.claude/plans/smooth-tumbling-spring.md`
+
+One `✎ Wall` tool replaces `room` + `drawRoom`: drag a rectangle or click
+corner by corner, in **wall-centreline** space, with real wall bodies in the
+preview, 15° Shift lock, type-in segment length and per-wall width.
+
+The model invariant is untouched — `Room.corners` stays the room-side wall
+FACE. The tool converts its centreline ring to a face ring on close via
+`insetPolygon` (now per-edge), which is the same function that derives
+centreline junctions back out of a committed room.
+
+- [x] S1 `insetPolygon` per-edge + `wallCentrelines` / `snapPointToCentrelines`
+- [x] S2 `Room.wallWidths` per-wall override (model + store + WallProps)
+- [x] S3 Plan2D unified tool (centreline ring, drag-rect, angle lock, type-in)
+- [x] S4 renderPlan wall-body preview + centreline handles (+ hitCorner parity)
+- [x] S5 UI surface collapse (toolbar / props / context menu / empty state) + commands
+- [x] S6 test sweep — units 784 green, `interact.mjs` 108/108
+- [x] S7 angle snap ON by default (Shift inverts) + right-angle markers + `#btn-angle-snap`
+- [x] S8 `faceRingPlan` + `alignWallToCentreline`: a drawn edge on a neighbour's
+      centreline becomes a real partition, host interior unchanged, no stubs
+- [x] S9 `DEFAULT_WALL_W` 0.115 (golden manifest regenerated deliberately)
+- [x] S10 PDF reference import + page picker (`pdfjs-dist`, dynamic chunk)
+- [x] S11 import UX: underlay over the grid, starter card hides, roomless
+      inspector shows the reference section, auto-frame + auto-arm calibrate
+
+**Blocked, pre-existing (NOT from M13):** `npm run test:e2e` cannot run at all —
+`e2e/fixtures.ts` `bootReady` waits for `rooms.length > 0` but `#btn-new` has
+produced a ZERO-room design since `baba3e7` ("zero-room New flow"), so every spec
+using the `app` fixture times out in setup. Verified by stashing M13 entirely and
+running `e2e/dom-contract.spec.ts` on the clean tree: same failure. The e2e specs
+in this change (including the new `e2e/pdf-import.spec.ts`) are written and
+typecheck, but cannot be executed until that fixture is reconciled with the
+zero-room flow. `test/interact.mjs` is unaffected and green.
+
+---
+
+# M14 — open wall chains + free-standing walls
+
+A floor plan is redrawn wall by wall, not loop by loop. Today `Room[]` closed
+rings are the ONLY source of walls, so adding a room next to an existing one
+means re-drawing walls that are already there, and a divider or corner stub
+cannot be drawn at all.
+
+Two additions, decided with the user:
+
+1. **A chain that touches existing walls closes against them.** Start and/or
+   end on an existing wall and the tool completes the loop along the existing
+   geometry — across one room it SPLITS it (BOTH halves become new rooms), off
+   a room's outer face it creates a neighbour reusing that wall.
+2. **A chain that closes against nothing commits as FREE WALLS** — dividers,
+   peninsulas, corner stubs. New `design.walls` entity; `store.allWalls()` is
+   the single choke point every renderer already goes through, so slabs and
+   `wallJoints` pick them up for free.
+
+- [x] W1 `FreeWall` model + `design.walls`, sanitize, DESIGN_VERSION 7 (+ v6→v7)
+- [x] W2 `store.allWalls()` emits free walls; `wallById`, plan slabs, 3D slabs
+- [x] W3 tool: open chain → free walls (Enter / double-click commits)
+- [x] W4 tool: chain across a room → `splitRoomByChain` cuts it, both halves new
+- [x] W5 dimension flow — already satisfied: committing a room disarms the tool
+      and selects nothing, so the room panel's Width/Depth/Ceiling are right
+      there to type into before drawing the next one
+- [x] W6 free walls are first-class: selectable, per-segment width, Delete,
+      their own inspector panel, corners draggable, undo/redo
+
+Deferred (not blocking, say so before assuming they work): a free chain has no
+elevation-view entry and no per-wall visibility override (it belongs to no room,
+so there is nothing to override); splitting a segment of a free chain (the
+"add corner in the middle" action) is room-walls only.

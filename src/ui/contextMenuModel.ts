@@ -92,10 +92,7 @@ export function contextMenu(hit: ContextHit, ws: WorkspaceId, opts: MenuOpts): M
     case 'empty':
       // outside every room there is nothing to act ON, only something to create
       return ws === 'plan'
-        ? [
-            { id: 'add-room', label: 'Add a room' },
-            { id: 'draw-room', label: 'Draw a room' },
-          ]
+        ? [{ id: 'draw-room', label: 'Draw a room', hint: 'drag or click corners' }]
         : [];
   }
 }

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { APP_COMMANDS } from '../../../src/editor/commands/appCommands';
 import { CommandRegistry } from '../../../src/editor/commands/registry';
 import type { EditorContext } from '../../../src/editor/commands/types';
-import { KEY_BINDINGS, matchBinding } from '../../../src/editor/keyboard/bindings';
+import { KEY_BINDINGS, matchBinding, matchBindings } from '../../../src/editor/keyboard/bindings';
 import { KeyboardController } from '../../../src/editor/keyboard/KeyboardController';
 
 // src/editor/keyboard/bindings.ts — the key map as data. Pure and DOM-free, so
@@ -11,6 +11,10 @@ import { KeyboardController } from '../../../src/editor/keyboard/KeyboardControl
 
 const hit = (key: string, mod = false, shift = false): string | null =>
   matchBinding(key, { mod, shift }, KEY_BINDINGS)?.commandId ?? null;
+
+/** Every candidate for a key, in priority order — one key may mean two things. */
+const hits = (key: string, mod = false, shift = false): string[] =>
+  matchBindings(key, { mod, shift }, KEY_BINDINGS).map((b) => b.commandId);
 
 describe('key bindings', () => {
   it('every binding points at a registered command', () => {
@@ -65,8 +69,11 @@ describe('key bindings', () => {
 
   it('Delete and Backspace both delete, with or without modifiers', () => {
     expect(hit('delete')).toBe('selection.delete');
-    expect(hit('backspace')).toBe('selection.delete');
     expect(hit('delete', true, true)).toBe('selection.delete');
+    // Backspace carries TWO meanings told apart by context, not by modifiers:
+    // the wall tool's dimension box outranks deleting, and hands the key on
+    // when no ring is in flight (draw.backspace's canExecute)
+    expect(hits('backspace')).toEqual(['draw.backspace', 'selection.delete']);
   });
 
   it('r rotates 90°, Shift+R rotates 15°', () => {
@@ -86,16 +93,43 @@ describe('key bindings', () => {
   });
 
   it('1-4 pick a workspace, and Ctrl/Cmd+digit is left to the browser', () => {
-    expect(hit('1')).toBe('workspace.plan');
-    expect(hit('2')).toBe('workspace.furnish');
-    expect(hit('3')).toBe('workspace.workshop');
-    expect(hit('4')).toBe('workspace.output');
+    // the wall tool's dimension box sits above them, and falls through when no
+    // ring is being drawn — so a digit at rest is still the workspace switch
+    expect(hits('1')).toEqual(['draw.digit1', 'workspace.plan']);
+    expect(hits('2')).toEqual(['draw.digit2', 'workspace.furnish']);
+    expect(hits('3')).toEqual(['draw.digit3', 'workspace.workshop']);
+    expect(hits('4')).toEqual(['draw.digit4', 'workspace.output']);
     // Ctrl/Cmd+digit switches BROWSER tabs — `mod: false` is a hard exclusion
     // here, not the usual don't-care
     expect(hit('1', true)).toBe(null);
     expect(hit('4', true)).toBe(null);
     // Shift is don't-care, as everywhere else in the table
-    expect(hit('1', false, true)).toBe('workspace.plan');
+    expect(hits('1', false, true)).toEqual(['draw.digit1', 'workspace.plan']);
+  });
+
+  it('the dimension keys outrank their at-rest twins, and only those', () => {
+    const draw = KEY_BINDINGS.filter((b) => b.commandId.startsWith('draw.'));
+    expect(draw.map((b) => b.key)).toEqual([
+      'backspace',
+      '0',
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+      '6',
+      '7',
+      '8',
+      '9',
+      '.',
+    ]);
+    // they are typed characters, so an open modal (a part name field) must not
+    // see them, and Ctrl+digit stays the browser's tab switch
+    for (const b of draw) {
+      expect(b.allowInModal).toBeUndefined();
+      expect(b.allowWhileTyping).toBeUndefined();
+    }
+    expect(hits('5', true)).toEqual([]);
   });
 
   it('? opens the shortcut sheet, and Cmd+? is left to the browser', () => {
@@ -126,6 +160,12 @@ describe('key bindings', () => {
       { key: 'x', commandId: 'second' },
     ];
     expect(matchBinding('x', { mod: false, shift: false }, table)!.commandId).toBe('first');
+    // …and the rest stay reachable, in that same order, for the controller to
+    // fall through to when the first command cannot run
+    expect(matchBindings('x', { mod: false, shift: false }, table).map((b) => b.commandId)).toEqual([
+      'first',
+      'second',
+    ]);
   });
 });
 
@@ -172,20 +212,27 @@ function setup(): {
   kb: KeyboardController;
   ran: string[];
   modal: { open: boolean };
+  blocked: Set<string>;
 } {
   const ran: string[] = [];
+  const blocked = new Set<string>();
   const reg = new CommandRegistry({} as EditorContext);
+  const ids = new Set(KEY_BINDINGS.map((b) => b.commandId));
   reg.registerAll(
-    KEY_BINDINGS.map((b) => ({
-      id: b.commandId,
-      label: b.commandId,
+    [...ids].map((id) => ({
+      id,
+      label: id,
+      canExecute: () => !blocked.has(id),
       execute: () => {
-        ran.push(b.commandId);
+        ran.push(id);
       },
     }))
   );
   const modal = { open: false };
-  return { kb: new KeyboardController(reg, { modalOpen: () => modal.open }), ran, modal };
+  // the wall tool is NOT drawing in these gate tests, so its dimension
+  // bindings decline the key exactly as `draw.*`'s canExecute does in the app
+  for (const id of ids) if (id.startsWith('draw.')) blocked.add(id);
+  return { kb: new KeyboardController(reg, { modalOpen: () => modal.open }), ran, modal, blocked };
 }
 
 describe('KeyboardController gates', () => {
@@ -211,6 +258,36 @@ describe('KeyboardController gates', () => {
     const ev = press(target, '2');
     expect(ran).toEqual(['workspace.furnish']);
     expect(ev.defaultPrevented).toBe(true);
+    kb.dispose();
+  });
+
+  it('a candidate that cannot run hands the key to the next one', () => {
+    const { kb, ran, blocked } = setup();
+    const target = new EventTarget();
+    kb.attach(target);
+
+    // at rest the dimension binding declines and the workspace switch runs
+    expect(press(target, '2').defaultPrevented).toBe(true);
+    expect(ran).toEqual(['workspace.furnish']);
+
+    // drawing: the dimension binding takes the same key and stops there
+    blocked.delete('draw.digit2');
+    blocked.add('workspace.furnish');
+    press(target, '2');
+    expect(ran).toEqual(['workspace.furnish', 'draw.digit2']);
+    kb.dispose();
+  });
+
+  it('a blocked draw binding does not hide the allowInModal one below it', () => {
+    const { kb, ran, modal } = setup();
+    const target = new EventTarget();
+    kb.attach(target);
+    modal.open = true;
+
+    // draw.digit2 has no allowInModal, so the modal gate skips it — and the
+    // gate is per candidate, so workspace.furnish below it still runs
+    press(target, '2');
+    expect(ran).toEqual(['workspace.furnish']);
     kb.dispose();
   });
 

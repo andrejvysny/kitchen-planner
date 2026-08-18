@@ -9,13 +9,25 @@ import { clamp, insetPolygon, projectOnWall, wallPoint } from './geometry';
 import { defaultRoomStyle, ringWalls } from './rooms';
 import { uid, type Corner, type Item, type Opening, type RoomStyle } from './types';
 
-export const DESIGN_VERSION = 6;
+export const DESIGN_VERSION = 7;
 /** Designs older than this predate the preset cut and cannot be migrated. */
 export const MIN_MIGRATABLE_VERSION = 5;
 
 type Raw = Record<string, unknown>;
 
-const MIGRATIONS: Record<number, (d: Raw) => Raw> = { 5: migrate5to6 };
+const MIGRATIONS: Record<number, (d: Raw) => Raw> = { 5: migrate5to6, 6: migrate6to7 };
+
+/**
+ * v6 → v7: `walls` (free-standing wall chains) joins the design. Nothing to
+ * convert — a v6 design simply had none — but the version gates it, so an
+ * older build refuses the file outright instead of loading it and silently
+ * dropping every divider on the next save.
+ */
+function migrate6to7(d: Raw): Raw {
+  d.walls = [];
+  d.version = 7;
+  return d;
+}
 
 /**
  * Step a raw design up to DESIGN_VERSION, or null when there is no path.

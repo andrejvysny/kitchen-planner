@@ -191,7 +191,7 @@ describe('StoreBridge', () => {
     bridge.subscribe('shell', () => calls++);
 
     store.notify({ structural: true, transient: false });
-    editor.setTool('room');
+    editor.setTool('drawRoom');
     setHint('dispose test');
     expect(calls).toBe(3);
 

@@ -242,6 +242,34 @@ export function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boole
   return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 }
 
+/**
+ * Where segments a→b and c→d cross, with both parameters, or null when they
+ * do not. `segmentsIntersect`'s answer plus the point — which is what a caller
+ * splitting one segment on the other actually needs.
+ *
+ * Endpoints count as crossings (the tests are inclusive), because a wall chain
+ * that STARTS exactly on a room's edge has to be seen as touching it. Parallel
+ * segments never cross, collinear-overlapping included: there is no single
+ * point to report and a caller would have to disambiguate anyway.
+ */
+export function segmentIntersection(
+  a: Point,
+  b: Point,
+  c: Point,
+  d: Point
+): { p: Point; t: number; u: number } | null {
+  const rx = b.x - a.x;
+  const ry = b.y - a.y;
+  const sx = d.x - c.x;
+  const sy = d.y - c.y;
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-12) return null;
+  const t = ((c.x - a.x) * sy - (c.y - a.y) * sx) / den;
+  const u = ((c.x - a.x) * ry - (c.y - a.y) * rx) / den;
+  if (t < -1e-9 || t > 1 + 1e-9 || u < -1e-9 || u > 1 + 1e-9) return null;
+  return { p: { x: a.x + rx * t, y: a.y + ry * t }, t, u };
+}
+
 /** True when no two non-adjacent edges cross (O(n²) — outlines stay small). */
 export function polygonIsSimple(poly: Point[]): boolean {
   const n = poly.length;
@@ -261,10 +289,20 @@ export function polygonIsSimple(poly: Point[]): boolean {
  * richer point types (a Corner and its id) survive the offset. Returns null
  * when the result stops being a simple CCW polygon — over-inset, self
  * intersection, or a CW input whose "inward" normals point outward instead.
+ *
+ * `d` may be PER EDGE (`d[i]` offsets edge `pts[i] → pts[i+1]`), which is what
+ * lets one function carry both wall conversions: a centreline ring inward by
+ * each wall's half width to reach the room-side face, and a committed room's
+ * face ring back out by each wall's `bandCenter` to reach its centreline
+ * junctions. A NEGATIVE offset moves the edge outward, so an exterior wall's
+ * centreline is reachable the same way — the simple/CCW check at the end still
+ * rejects a degenerate result either direction.
  */
-export function insetPolygon<T extends Point>(pts: T[], d: number): T[] | null {
+export function insetPolygon<T extends Point>(pts: T[], d: number | number[]): T[] | null {
   const n = pts.length;
   if (n < 3) return null;
+  if (Array.isArray(d) && d.length !== n) return null;
+  const off = (i: number): number => (Array.isArray(d) ? d[i] : d);
   const lines: { p: Point; dir: Point }[] = [];
   for (let i = 0; i < n; i++) {
     const a = pts[i];
@@ -273,7 +311,8 @@ export function insetPolygon<T extends Point>(pts: T[], d: number): T[] | null {
     if (len < 1e-9) return null;
     const dir = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
     const inward = { x: -dir.y, y: dir.x }; // CCW: interior lies left of the edge
-    lines.push({ p: { x: a.x + inward.x * d, y: a.y + inward.y * d }, dir });
+    const o = off(i);
+    lines.push({ p: { x: a.x + inward.x * o, y: a.y + inward.y * o }, dir });
   }
   const out: T[] = [];
   for (let i = 0; i < n; i++) {

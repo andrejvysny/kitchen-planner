@@ -9,7 +9,7 @@ import { useEditor, useStore } from './services';
  *
  * `emptyDesign()` (store.ts) ships zero rooms, so "Plan, no rooms" is the
  * literal state <PlanStarterCard/> gates on — there is nothing hidden behind
- * it for "Add a room"/"Draw a room" to collide with.
+ * it for "Draw a room" to collide with.
  *
  * Both components mount as children of #pane2d in Workspace.tsx, after
  * <HintChip/> — see that component's shape and Workspace.tsx's doc comment
@@ -19,7 +19,7 @@ import { useEditor, useStore } from './services';
  */
 
 /**
- * Plan's "nothing here yet" card: three ways to get a room on the canvas.
+ * Plan's "nothing here yet" card: two ways to get a room on the canvas.
  * Gated on the resting tool as well as the empty design, so arming any
  * tool — the card's own buttons included — hides it immediately rather than
  * blocking the click that follows (e.g. placing the room itself).
@@ -30,20 +30,25 @@ export function PlanStarterCard(): ReactElement | null {
   useChannel('workspace');
   useChannel('design');
   useChannel('editor');
+  useChannel('history'); // the underlay lands on a commit, not on 'design'
 
-  const show = workspace() === 'plan' && editor.isTool('select') && store.design.rooms.length === 0;
+  // A placed reference means the user already answered this card's question —
+  // leaving it up covers the very photo they just imported, and its two
+  // buttons re-ask something they are past. The card is for a BLANK plan.
+  const show =
+    workspace() === 'plan' &&
+    editor.isTool('select') &&
+    store.design.rooms.length === 0 &&
+    !store.underlayRef();
   if (!show) return null;
 
   return (
     <div id="plan-starter" className="pane-empty-card">
       <div className="pane-empty-title">Start with a room</div>
       <p className="pane-empty-sub">
-        Drop a ready room, draw your own, or trace a photo of your floor plan.
+        Drag out a rectangle, click corner by corner, or trace a photo of your floor plan.
       </p>
       <div className="pane-empty-actions">
-        <button className="btn" onClick={() => editor.setTool('room')}>
-          Add a room
-        </button>
         <button className="btn" onClick={() => editor.setTool('drawRoom')}>
           Draw a room
         </button>

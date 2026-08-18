@@ -9,9 +9,17 @@ import { findHost } from '../model/attach';
 import { hostContexts } from '../model/worktops';
 import type { HostContext } from '../model/panels';
 import { snapItem } from '../model/snapping';
-import { openingsOfWall, roomById, wallJoints, type RoomWall } from '../model/rooms';
+import {
+  defaultRoomStyle,
+  openingsOfWall,
+  roomById,
+  wallJoints,
+  type RoomWall,
+} from '../model/rooms';
 import type { Store } from '../model/store';
-import type { Corner, Item, Opening, Point } from '../model/types';
+import type { Corner, Item, Opening, Point,
+  RoomStyle,
+} from '../model/types';
 import { AMBIENT_DAY, skyState } from '../model/sky';
 import { resolveFinish } from '../model/variables';
 import { buildItemGroup, lightLocalY, shade } from './itemMeshes';
@@ -42,8 +50,12 @@ interface ItemEntry {
 
 interface WallEntry {
   id: string; // wall id = start corner id; keys wallVisibility overrides
-  /** room whose wallVisibility map owns this wall (the owner side of a partition) */
-  roomId: string;
+  /**
+   * Room whose wallVisibility map owns this wall (the owner side of a
+   * partition), or null for a free-standing chain — which belongs to no room
+   * and so has no per-room override to answer to.
+   */
+  roomId: string | null;
   /** the room on the other side of a partition; null for exterior walls */
   twinRoomId: string | null;
   group: THREE.Group;
@@ -594,9 +606,10 @@ export class View3D {
 
   private buildRooms(): void {
     const design = this.store.design;
+    const chains = design.walls ?? [];
     // the shared ground disc only shows once there is something standing on it
-    this.ground.visible = design.rooms.length > 0;
-    if (!design.rooms.length) return;
+    this.ground.visible = design.rooms.length > 0 || chains.length > 0;
+    if (!design.rooms.length && !chains.length) return;
 
     const walls = this.store.allWalls();
     let wallIdx = 0;
@@ -642,73 +655,109 @@ export class View3D {
       for (const g of walls) {
         // a partition is built once, under the room that owns it
         if (g.roomId !== room.id || (g.shared && !g.shared.owner)) continue;
-        const t = g.thickness;
-        // corners are the room-side wall FACE, so the slab hangs outside it
-        const zc = g.faceOffset - t / 2;
+        this.buildWallGroup(g, style, H, room.id, ++wallIdx);
+      }
+    }
 
-        const group = new THREE.Group();
-        group.name = `Wall_${++wallIdx}`;
-        group.position.set(g.a.x, 0, g.a.y);
-        group.rotation.y = -g.angle;
-
-        const wallFin = resolveFinish(
-          design,
-          style.wallColor,
-          style.wallMaterial,
-          style.wallMaterialRot
-        );
-        const wallMat = stampShell(
-          wallFin.material
-            ? surfMat(wallFin)
-            : new THREE.MeshStandardMaterial({ color: wallFin.color, roughness: 0.94 }),
-          'wall'
-        );
-        const openings = openingsOfWall(design, g).sort((a, b) => a.offset - b.offset);
-
-        const addSeg = (x0: number, x1: number, y0: number, y1: number) => {
-          if (x1 - x0 < 0.005 || y1 - y0 < 0.005) return;
-          const geo = new THREE.BoxGeometry(x1 - x0, y1 - y0, t);
-          // meter-scaled UVs, offset so the pattern runs continuously across
-          // the segments around openings (front/back faces are the visible ones)
-          scaleBoxUV(geo, x1 - x0, y1 - y0, t);
-          const uv = geo.attributes.uv as THREE.BufferAttribute;
-          for (let i = 16; i < 24; i++) uv.setXY(i, uv.getX(i) + x0, uv.getY(i) + y0);
-          const m = new THREE.Mesh(geo, wallMat);
-          m.position.set((x0 + x1) / 2, (y0 + y1) / 2, zc);
-          m.castShadow = true;
-          m.receiveShadow = true;
-          group.add(m);
-        };
-
-        // butt ends: the slab spans exactly [0, len] and buildJoints fills the
-        // corners, so opening offsets keep measuring from the true wall start
-        let cursor = 0;
-        for (const o of openings) {
-          const oL = o.offset - o.width / 2;
-          const oR = o.offset + o.width / 2;
-          addSeg(cursor, oL, 0, H);
-          if (o.sill > 0.01) addSeg(oL, oR, 0, o.sill);
-          addSeg(oL, oR, o.sill + o.height, H);
-          this.buildOpening(group, o, t, zc);
-          cursor = oR;
-        }
-        addSeg(cursor, g.len, 0, H);
-
-        this.roomGroup.add(group);
-        const mid = wallPoint(g, g.len / 2);
-        this.walls.push({
-          id: g.id,
-          roomId: room.id,
-          twinRoomId: g.shared?.roomId ?? null,
-          group,
-          inward: new THREE.Vector3(g.inward.x, 0, g.inward.y),
-          mid: new THREE.Vector3(mid.x, H / 2, mid.y),
-          height: H,
-        });
+    // ---- free-standing chains ----
+    // They own no floor, no ceiling and no room finish, so they borrow the
+    // active room's wall style (the design's first room otherwise) and their
+    // own height. Same builder as a room wall — a divider is not special
+    // geometry, only unowned geometry.
+    if (chains.length) {
+      const host = roomById(design.rooms, this.store.activeRoomId) ?? design.rooms[0];
+      const style = host?.style ?? defaultRoomStyle();
+      const byChain = new Map(chains.map((c) => [c.id, c]));
+      for (const g of walls) {
+        if (!g.freeWallId) continue;
+        const H = byChain.get(g.freeWallId)?.height ?? style.wallHeight;
+        this.buildWallGroup(g, style, H, null, ++wallIdx);
       }
     }
 
     this.buildJoints(walls);
+  }
+
+
+  /**
+   * One wall's group: the slab in segments around its openings, plus the
+   * openings themselves. Shared by ROOM walls and free-standing chains — a
+   * divider is the same geometry with no room behind it, so the only things
+   * the caller supplies are the finish, the height and the owning room id
+   * (null for a chain).
+   */
+  private buildWallGroup(
+    g: RoomWall,
+    style: RoomStyle,
+    H: number,
+    roomId: string | null,
+    idx: number
+  ): void {
+    const design = this.store.design;
+      // a partition is built once, under the room that owns it
+      const t = g.thickness;
+      // corners are the room-side wall FACE, so the slab hangs outside it
+      const zc = g.faceOffset - t / 2;
+
+      const group = new THREE.Group();
+      group.name = `Wall_${idx}`;
+      group.position.set(g.a.x, 0, g.a.y);
+      group.rotation.y = -g.angle;
+
+      const wallFin = resolveFinish(
+        design,
+        style.wallColor,
+        style.wallMaterial,
+        style.wallMaterialRot
+      );
+      const wallMat = stampShell(
+        wallFin.material
+          ? surfMat(wallFin)
+          : new THREE.MeshStandardMaterial({ color: wallFin.color, roughness: 0.94 }),
+        'wall'
+      );
+      const openings = openingsOfWall(design, g).sort((a, b) => a.offset - b.offset);
+
+      const addSeg = (x0: number, x1: number, y0: number, y1: number) => {
+        if (x1 - x0 < 0.005 || y1 - y0 < 0.005) return;
+        const geo = new THREE.BoxGeometry(x1 - x0, y1 - y0, t);
+        // meter-scaled UVs, offset so the pattern runs continuously across
+        // the segments around openings (front/back faces are the visible ones)
+        scaleBoxUV(geo, x1 - x0, y1 - y0, t);
+        const uv = geo.attributes.uv as THREE.BufferAttribute;
+        for (let i = 16; i < 24; i++) uv.setXY(i, uv.getX(i) + x0, uv.getY(i) + y0);
+        const m = new THREE.Mesh(geo, wallMat);
+        m.position.set((x0 + x1) / 2, (y0 + y1) / 2, zc);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        group.add(m);
+      };
+
+      // butt ends: the slab spans exactly [0, len] and buildJoints fills the
+      // corners, so opening offsets keep measuring from the true wall start
+      let cursor = 0;
+      for (const o of openings) {
+        const oL = o.offset - o.width / 2;
+        const oR = o.offset + o.width / 2;
+        addSeg(cursor, oL, 0, H);
+        if (o.sill > 0.01) addSeg(oL, oR, 0, o.sill);
+        addSeg(oL, oR, o.sill + o.height, H);
+        this.buildOpening(group, o, t, zc);
+        cursor = oR;
+      }
+      addSeg(cursor, g.len, 0, H);
+
+      this.roomGroup.add(group);
+      const mid = wallPoint(g, g.len / 2);
+      this.walls.push({
+        id: g.id,
+        roomId,
+        twinRoomId: g.shared?.roomId ?? null,
+        group,
+        inward: new THREE.Vector3(g.inward.x, 0, g.inward.y),
+        mid: new THREE.Vector3(mid.x, H / 2, mid.y),
+        height: H,
+      });
   }
 
   /**
@@ -730,7 +779,13 @@ export class View3D {
           return style ? [style] : [];
         })
       );
-      if (!styles.length) continue;
+      // a junction between free-standing chains has no room style to take —
+      // fall back to the active room's, or the default, rather than leaving
+      // the corner open
+      if (!styles.length) {
+        const host = roomById(design.rooms, this.store.activeRoomId) ?? design.rooms[0];
+        styles.push(host?.style ?? defaultRoomStyle());
+      }
       const h = Math.max(...styles.map((s) => s.wallHeight));
       const fin = resolveFinish(
         design,

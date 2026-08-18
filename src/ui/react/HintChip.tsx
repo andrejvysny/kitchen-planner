@@ -14,7 +14,7 @@ import { useEditor } from './services';
  * hints today. The 2D map covers every armed tool; the 3D map covers only
  * 'place' — View3D DOES place an armed def on click (view3d.ts onPointerDown's
  * getArmed() branch: floorPoint → snapItem/addItem, plus the appliance
- * findHost path), but the other tools (room/drawRoom/measure/calibrate) are
+ * findHost path), but the other tools (drawRoom/measure/calibrate) are
  * plan-only gestures, so their chips would promise a click 3D ignores.
  *
  * Position is written straight onto the node from an effect's rAF loop, never
@@ -28,8 +28,7 @@ import { useEditor } from './services';
 
 const HINTS_2D: Partial<Record<ToolId, string>> = {
   place: 'Click to place · shift keeps placing',
-  room: 'Click to drop a room · hover a wall to attach',
-  drawRoom: 'Click corners · Enter or click the first corner to close',
+  drawRoom: 'Drag a room, or click walls · close the loop for a room, Enter to stop',
   measure: 'Click two points',
   calibrate: 'Click both ends of a known distance',
 };

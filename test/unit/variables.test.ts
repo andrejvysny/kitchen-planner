@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DESIGN_VERSION } from '../../src/model/migrate';
 import { sanitizeDesign, Store } from '../../src/model/store';
 import {
   detach,
@@ -63,7 +64,7 @@ describe('variables — sanitizeDesign repair', () => {
   it('a design without a variables field gets an empty registry', () => {
     const d = sanitizeDesign({ version: 5, corners: CORNERS })!;
     expect(d).not.toBeNull();
-    expect(d.version).toBe(6);
+    expect(d.version).toBe(DESIGN_VERSION);
     expect(d.variables).toEqual([]);
   });
 

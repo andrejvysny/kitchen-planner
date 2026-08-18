@@ -52,8 +52,23 @@ export async function downscaleImage(f: File): Promise<{ src: string; w: number;
   return { src: cnv.toDataURL('image/jpeg', UNDERLAY_JPEG_Q), w: cnv.width, h: cnv.height };
 }
 
-/** Import a picked file and drop it centred on the active room. */
-export async function importUnderlay(store: Store, f: File): Promise<void> {
+/**
+ * What `placeUnderlay` needs from the plan view to hand the user straight to
+ * calibration. Structural, like the command layer's `PlanToolPort`: this module
+ * has no business importing Plan2D, and a test can pass a stub.
+ */
+export interface CalibratePort {
+  setCalibrate(on: boolean): void;
+  /** frame the freshly imported reference once its bitmap has decoded */
+  zoomFitWhenReady(): void;
+}
+
+/** Import a picked IMAGE file and drop it centred on the active room. */
+export async function importUnderlay(
+  store: Store,
+  f: File,
+  plan?: CalibratePort
+): Promise<void> {
   let img: { src: string; w: number; h: number };
   try {
     img = await downscaleImage(f);
@@ -61,15 +76,43 @@ export async function importUnderlay(store: Store, f: File): Promise<void> {
     setHint('Could not read that image — try a JPEG or PNG');
     return;
   }
+  placeUnderlay(store, img, plan);
+}
+
+/**
+ * Drop an already-rasterized bitmap in as the tracing reference, centred on the
+ * active room. The shared tail of BOTH import routes — a picked photo and a
+ * chosen PDF page — so the two cannot drift in where the reference lands, what
+ * it costs in storage, or what the user is told to do next.
+ *
+ * With a `plan` port it also ARMS the calibrate tool. An uncalibrated reference
+ * is worthless — every wall traced off it comes out at the wrong size — and the
+ * scale is the one thing the app cannot guess, so the import hands the user
+ * straight to the question instead of leaving a hint they have to act on.
+ */
+export function placeUnderlay(
+  store: Store,
+  img: { src: string; w: number; h: number },
+  plan?: CalibratePort
+): boolean {
   const room = store.activeRoom();
   const b = room ? polygonBounds(room.corners) : null;
   const center = b ? { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 } : { x: 0, y: 0 };
   if (!store.setUnderlay(img.src, initialUnderlay(img.w, img.h, center))) {
-    setHint('Could not store the reference photo — browser storage is full or blocked');
-    return;
+    setHint('Could not store the reference — browser storage is full or blocked');
+    return false;
   }
   store.commit();
-  setHint('Reference photo placed — drag it into position, then Calibrate scale');
+  if (plan) {
+    // frame it before arming: an imported plan the user cannot see reads as an
+    // import that did not happen, and the calibration clicks land on it
+    plan.zoomFitWhenReady();
+    plan.setCalibrate(true);
+    setHint('Click both ends of a known distance on the plan to set its scale · Esc skips');
+  } else {
+    setHint('Reference placed — drag it into position, then Calibrate scale');
+  }
+  return true;
 }
 
 /**

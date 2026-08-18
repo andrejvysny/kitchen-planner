@@ -15,11 +15,17 @@
 
 import type { CatalogDef } from '../model/catalog';
 import type { Severity, Warning } from '../model/checks';
-import { fmtCm, polygonCentroid, rot, wallPoint } from '../model/geometry';
+import { convexHull, fmtCm, polygonCentroid, rot, wallPoint } from '../model/geometry';
 import { footprintPolygon } from '../model/parts';
-import { slabQuad, wallJoints, type RoomWall } from '../model/rooms';
+import {
+  bandCenter,
+  slabQuad,
+  wallCentrelines,
+  wallJoints,
+  type RoomWall,
+} from '../model/rooms';
 import type { Guide } from '../model/snapping';
-import type { AddRoomOptions, Store } from '../model/store';
+import type { Store } from '../model/store';
 import type { CustomPartDef, Item, Point, Selection } from '../model/types';
 import { resolveColor } from '../model/variables';
 import { drawPlanSymbol, isOverhead } from './symbols';
@@ -47,11 +53,11 @@ const SEVERITY_COLOR: Record<Severity, string> = {
 const CHECK_LABEL_MAX = 52;
 
 /**
- * Where a wall slab's centreline sits relative to its polygon edge, measured
- * along the edge's inward normal. Room corners are the ROOM-SIDE wall face, so
- * an exterior wall lies wholly outside (−t/2) and a partition straddles (0).
+ * Re-exported from src/model/rooms.ts, where the wall tool also needs it. The
+ * plan-geometry helpers this module exports are the one import site for its
+ * consumers, so keep the name reachable from here.
  */
-export const bandCenter = (g: RoomWall): number => g.faceOffset - g.thickness / 2;
+export { bandCenter };
 
 interface Label {
   x: number;
@@ -66,26 +72,27 @@ interface Label {
 }
 
 /**
- * Preview of the room the add-room tool would create: the exact polygon plus
- * the `addRoom` call that produces it, so the click cannot drift from the ghost.
+ * The wall tool's in-progress ring — overlay only, never in the model.
+ *
+ * `pts` are wall CENTRELINES, not the room-side face ring a Room stores: the
+ * tool insets by `width / 2` only when it commits (Plan2D `commitRing`). That
+ * is what lets the preview and the finished wall occupy the same pixels.
  */
-export interface RoomGhost {
-  poly: Point[];
-  opts: AddRoomOptions;
-  /** hung off an existing wall (vs. free-standing) — drawn slightly differently */
-  attached: boolean;
-  /** free-standing but snapped flush to a neighbour, so placing it will weld */
-  flush?: boolean;
-}
-
-/** The draw-room tool's in-progress ring — overlay only, never in the model. */
 export interface DrawRing {
-  /** corners clicked so far */
+  /** centreline corners placed so far */
   pts: Point[];
   /** snapped cursor the pending segment rubber-bands to */
   hover: Point | null;
   /** the cursor is on the first corner, i.e. a click would close the ring */
   closing: boolean;
+  /** already a full ring (the drag rectangle) — no rubber band, no close target */
+  closed: boolean;
+  /** wall width (m) the bodies are drawn at */
+  width: number;
+  /** typed dimension for the pending segment; '' = follow the cursor */
+  typed: string;
+  /** the angle lock is in force — right-angle markers are worth drawing */
+  angleSnap: boolean;
 }
 
 /** Transient two-point distance measurement (overlay only — never touches the model). */
@@ -161,7 +168,6 @@ export interface PlanOverlays {
   armedDef: CatalogDef | null;
   ghost: ItemGhost | null;
   ghostOpening: OpeningGhost | null;
-  roomGhost: RoomGhost | null;
   drawRing: DrawRing | null;
   measure: Measure;
   /** the ⚠ toggle: warn/info findings on top of the always-drawn errors */
@@ -220,6 +226,36 @@ export function itemOutlineWorld(store: Store, it: Item): Point[] {
     const r = rot(p, it.rotation);
     return { x: it.x + r.x, y: it.y + r.y };
   });
+}
+
+/**
+ * A room's corner handles, keyed by corner id — the wall CENTRELINE junctions,
+ * not the raw face-ring corners.
+ *
+ * A corner on the ring is the room-side wall FACE, so a handle drawn there sits
+ * visibly off-centre inside the wall band and reads as misaligned. The junction
+ * is that ring offset per edge by `bandCenter`, which is exactly
+ * `wallCentrelines`' output — the same points the wall tool snaps to, so a
+ * handle always lands where the tool would have put a corner.
+ *
+ * Exported because `Plan2D.hitCorner` MUST test against these very positions:
+ * a handle that hit-tests somewhere other than where it draws is the bug this
+ * shared helper exists to prevent.
+ */
+export function cornerHandlePositions(store: Store, roomId: string): Map<string, Point> {
+  const out = new Map<string, Point>();
+  for (const ring of wallCentrelines(store.design.rooms).rings) {
+    if (ring.roomId !== roomId) continue;
+    for (const p of ring.points) out.set(p.cornerId, { x: p.x, y: p.y });
+  }
+  return out;
+}
+
+/** A wall's bend handle: the midpoint of its centreline, not of its face edge. */
+export function midpointHandlePos(g: RoomWall): Point {
+  const off = bandCenter(g);
+  const m = wallPoint(g, g.len / 2);
+  return { x: m.x + g.inward.x * off, y: m.y + g.inward.y * off };
 }
 
 export function rotateHandlePos(it: Item): Point {
@@ -288,9 +324,11 @@ export function renderPlan(
   ctx.scale(zoom, zoom);
   const hair = 1 / zoom;
 
-  // ---- tracing underlay (below every drawn layer) ----
-  if (opts.underlay) drawUnderlay(ctx, store, opts.onUnderlayLoad);
-
+  // ---- grid, then the tracing underlay OVER it ----
+  // Order is deliberate and was the other way round: a 10 cm grid drawn on top
+  // of a scanned plan is a moiré over the very lines the user is trying to
+  // trace. The photo has its own opacity slider — that, not the grid, is how
+  // you see through it.
   const gridStep = zoom > 55 ? 0.1 : 0.5;
   ctx.lineWidth = hair;
   for (let x = Math.floor(w0.x / gridStep) * gridStep; x < w1.x; x += gridStep) {
@@ -309,6 +347,8 @@ export function renderPlan(
     ctx.lineTo(w1.x, y);
     ctx.stroke();
   }
+
+  if (opts.underlay) drawUnderlay(ctx, store, opts.onUnderlayLoad);
 
   const design = store.design;
   // the selection is an editing affordance: paper shows the plan, not the cursor
@@ -460,8 +500,13 @@ export function renderPlan(
   // selecting either half highlights the one partition on screen
   const wallSelected = (g: RoomWall): boolean =>
     sel.kind === 'wall' && (sel.id === g.id || sel.id === g.shared?.wallId);
+  // a free-standing chain belongs to no room, so it is never "another room's"
+  // wall — it always draws in full ink and always carries its dimension label
   const wallMine = (g: RoomWall): boolean =>
-    !opts.roomEmphasis || g.roomId === activeId || g.shared?.roomId === activeId;
+    !opts.roomEmphasis ||
+    !!g.freeWallId ||
+    g.roomId === activeId ||
+    g.shared?.roomId === activeId;
   // a joint takes the strongest ink of the walls meeting there
   const wallInk = (gs: RoomWall[]): string =>
     gs.some(wallSelected) ? ACCENT : gs.some(wallMine) ? INK : MUTED;
@@ -530,37 +575,7 @@ export function renderPlan(
     }
   }
 
-  // ---- add-room ghost ----
-  if (opts.ghosts && overlays?.roomGhost) {
-    const poly = overlays.roomGhost.poly;
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(poly[0].x, poly[0].y);
-    for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
-    ctx.closePath();
-    ctx.fillStyle = ACCENT;
-    ctx.globalAlpha = 0.12;
-    ctx.fill();
-    ctx.globalAlpha = 0.85;
-    ctx.strokeStyle = ACCENT;
-    ctx.lineWidth = hair * 2;
-    ctx.setLineDash([hair * 7, hair * 5]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.restore();
-    const c = polygonCentroid(poly);
-    const ghost = overlays.roomGhost;
-    labels.push({
-      x: c.x,
-      y: c.y,
-      text: ghost.attached || ghost.flush ? 'New room · shares this wall' : 'New room',
-      color: ACCENT,
-      size: 12,
-      bold: true,
-    });
-  }
-
-  // ---- draw-room ring ----
+  // ---- wall tool ring ----
   if (opts.ghosts && overlays?.drawRing) {
     drawDrawRing(ctx, overlays.drawRing, zoom, hair, labels);
   }
@@ -654,7 +669,7 @@ export function renderPlan(
     for (const g of walls) {
       if (g.roomId !== activeId) continue;
       const hoveredM = hoverHandle?.kind === 'midpoint' && hoverHandle.id === g.id;
-      const m = wallPoint(g, g.len / 2);
+      const m = midpointHandlePos(g);
       const r = (hoveredM ? 6.5 : 4.5) / zoom;
       ctx.save();
       ctx.translate(m.x, m.y);
@@ -667,16 +682,18 @@ export function renderPlan(
       ctx.restore();
     }
     const aRoom = store.activeRoom();
+    const handles = aRoom ? cornerHandlePositions(store, aRoom.id) : null;
     for (const c of aRoom?.corners ?? []) {
       const selectedC = sel.kind === 'corner' && sel.id === c.id;
       const hoveredC = hoverHandle?.kind === 'corner' && hoverHandle.id === c.id;
       const activeC = selectedC || hoveredC;
       const r = (activeC ? 6.5 : 5) / zoom;
+      const h = handles?.get(c.id) ?? c;
       ctx.fillStyle = activeC ? ACCENT : '#fff';
       ctx.strokeStyle = activeC ? ACCENT : INK;
       ctx.lineWidth = hair * 1.3;
-      ctx.fillRect(c.x - r, c.y - r, r * 2, r * 2);
-      ctx.strokeRect(c.x - r, c.y - r, r * 2, r * 2);
+      ctx.fillRect(h.x - r, h.y - r, r * 2, r * 2);
+      ctx.strokeRect(h.x - r, h.y - r, r * 2, r * 2);
     }
   }
 
@@ -724,9 +741,18 @@ function drawUnderlay(ctx: CanvasRenderingContext2D, store: Store, onLoad?: () =
 }
 
 /**
- * The draw-room tool's ring: clicked segments solid, the pending one dashed to
- * the cursor (and on round to the start once it would close), every segment
- * labelled in cm, and the first corner ringed as the close target.
+ * The wall tool's preview. Unlike the old wireframe, this paints the REAL wall
+ * body at the tool's width so what the user sees while drawing is what lands:
+ * per segment a quad `centreline ± width/2`, plus a convex-hull patch at each
+ * interior junction — the same butt-slab + joint-patch scheme `slabQuad` /
+ * `wallJoints` use for committed walls, so the preview and the result cannot
+ * look different.
+ *
+ * `ring.closed` is the drag rectangle (a full ring, no rubber band); otherwise
+ * the clicked segments are solid, the pending one is a dashed outline, and the
+ * first corner is ringed as the close target. Segment labels carry the length
+ * in cm — or the TYPED dimension with a caret, which is what the user is about
+ * to commit rather than what the cursor happens to measure.
  */
 function drawDrawRing(
   ctx: CanvasRenderingContext2D,
@@ -737,33 +763,111 @@ function drawDrawRing(
 ): void {
   const pts = ring.pts;
   if (!pts.length) return;
-  const seg = (a: Point, b: Point): void => {
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
-    // hang the length off the segment so it never sits under the line
+  const half = ring.width / 2;
+
+  /** One segment's wall body, `[aL, bL, bR, aR]` about its centreline. */
+  const band = (a: Point, b: Point): Point[] | null => {
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < 1e-9) return null;
+    const n = { x: (-(b.y - a.y) / len) * half, y: ((b.x - a.x) / len) * half };
+    return [
+      { x: a.x + n.x, y: a.y + n.y },
+      { x: b.x + n.x, y: b.y + n.y },
+      { x: b.x - n.x, y: b.y - n.y },
+      { x: a.x - n.x, y: a.y - n.y },
+    ];
+  };
+
+  const label = (a: Point, b: Point, pending: boolean): void => {
     const len = Math.max(1e-6, Math.hypot(b.x - a.x, b.y - a.y));
+    const text = pending && ring.typed ? `${ring.typed}|` : fmtCm(len);
     labels.push({
-      x: (a.x + b.x) / 2 - ((b.y - a.y) / len) * 0.2,
-      y: (a.y + b.y) / 2 + ((b.x - a.x) / len) * 0.2,
-      text: fmtCm(len),
+      // clear the wall body, not just the centreline
+      x: (a.x + b.x) / 2 - ((b.y - a.y) / len) * (half + 0.16),
+      y: (a.y + b.y) / 2 + ((b.x - a.x) / len) * (half + 0.16),
+      text,
       color: ACCENT,
       size: 11,
       bold: true,
     });
   };
 
+  // the full centreline path, pending segment included, so the joints between
+  // clicked and rubber-banded walls close the same way
+  const path: Point[] = [...pts];
+  if (!ring.closed && ring.hover) path.push(ring.hover);
+  const wrap = ring.closed || (ring.closing && ring.hover !== null);
+
+  const bands: (Point[] | null)[] = [];
+  for (let i = 0; i + 1 < path.length; i++) bands.push(band(path[i], path[i + 1]));
+  if (wrap && path.length >= 3) bands.push(band(path[path.length - 1], path[0]));
+
+  // ---- bodies ----
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = INK;
+  for (const q of bands) if (q) fillPoly(ctx, q);
+  // junction patches: the convex hull of the two incident bands' facing ends,
+  // which is what squares off a 90° corner instead of leaving it chamfered
+  for (let i = 0; i + 1 < bands.length; i++) {
+    const a = bands[i];
+    const b = bands[i + 1];
+    if (a && b) fillPoly(ctx, convexHull([a[1], a[2], b[0], b[3]]));
+  }
+  if (wrap && bands.length >= 3) {
+    const a = bands[bands.length - 1];
+    const b = bands[0];
+    if (a && b) fillPoly(ctx, convexHull([a[1], a[2], b[0], b[3]]));
+  }
+  ctx.restore();
+
+  // ---- outlines + labels ----
   ctx.strokeStyle = ACCENT;
-  ctx.lineWidth = hair * 2;
-  for (let i = 1; i < pts.length; i++) seg(pts[i - 1], pts[i]);
-  if (ring.hover) {
-    ctx.setLineDash([hair * 7, hair * 5]);
-    seg(pts[pts.length - 1], ring.hover);
-    if (ring.closing) seg(ring.hover, pts[0]);
-    ctx.setLineDash([]);
+  ctx.lineWidth = hair * 1.6;
+  const committed = ring.closed ? bands.length : pts.length - 1;
+  bands.forEach((q, i) => {
+    if (!q) return;
+    const pending = i >= committed;
+    ctx.setLineDash(pending ? [hair * 7, hair * 5] : []);
+    ctx.beginPath();
+    ctx.moveTo(q[0].x, q[0].y);
+    for (let k = 1; k < q.length; k++) ctx.lineTo(q[k].x, q[k].y);
+    ctx.closePath();
+    ctx.stroke();
+    const a = path[i];
+    const b = path[(i + 1) % path.length];
+    label(a, b, pending);
+  });
+  ctx.setLineDash([]);
+
+  // ---- right-angle markers ----
+  // Only at a TRUE right angle, and only while the lock is on: the marker is
+  // there to confirm the snap did what the user wanted, so drawing it at 87°
+  // would be the opposite of useful. The square is the standard plan notation
+  // — two half-length legs off the vertex, closed across.
+  if (ring.angleSnap && path.length >= 3) {
+    const n = path.length;
+    // an open path has no corner at either end; a wrapped one is corners all
+    // the way round
+    const from = wrap ? 0 : 1;
+    const to = wrap ? n - 1 : n - 2;
+    // twice, halo first: the marker straddles the wall body it belongs to, and
+    // a single accent stroke disappears against that dark band
+    for (const [color, width] of [
+      [PAPER, hair * 4],
+      [ACCENT, hair * 1.6],
+    ] as const) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      for (let i = from; i <= to; i++) {
+        drawRightAngle(ctx, path[i], path[(i - 1 + n) % n], path[(i + 1) % n], zoom, half);
+      }
+    }
   }
 
+  if (ring.closed) return;
+
+  // ---- centreline corner dots + the close target ----
   ctx.fillStyle = '#fff';
   for (const p of pts) {
     ctx.beginPath();
@@ -778,6 +882,48 @@ function drawDrawRing(
     ctx.lineWidth = hair * (ring.closing ? 2.4 : 1.4);
     ctx.stroke();
   }
+}
+
+/** Is the corner at `v`, between `a` and `b`, square to within half a degree? */
+function isRightAngle(v: Point, a: Point, b: Point): boolean {
+  const u = { x: a.x - v.x, y: a.y - v.y };
+  const w = { x: b.x - v.x, y: b.y - v.y };
+  const lu = Math.hypot(u.x, u.y);
+  const lw = Math.hypot(w.x, w.y);
+  if (lu < 1e-6 || lw < 1e-6) return false;
+  return Math.abs((u.x * w.x + u.y * w.y) / (lu * lw)) < RIGHT_ANGLE_EPS;
+}
+
+/** cos of the tolerance either side of 90° (≈0.5°). */
+const RIGHT_ANGLE_EPS = 0.009;
+
+/**
+ * The plan-notation square at a right-angle corner: a leg along each wall and
+ * a line closing them. Sized in SCREEN pixels so it stays readable at any
+ * zoom, but never larger than the walls it marks — a 90° corner between two
+ * short stubs must not sprout a box bigger than either.
+ */
+function drawRightAngle(
+  ctx: CanvasRenderingContext2D,
+  v: Point,
+  a: Point,
+  b: Point,
+  zoom: number,
+  half: number
+): void {
+  if (!isRightAngle(v, a, b)) return;
+  const leg = (p: Point): Point => {
+    const d = Math.hypot(p.x - v.x, p.y - v.y);
+    const r = Math.min(11 / zoom, d * 0.4, Math.max(half * 2, 11 / zoom));
+    return { x: v.x + ((p.x - v.x) / d) * r, y: v.y + ((p.y - v.y) / d) * r };
+  };
+  const p1 = leg(a);
+  const p2 = leg(b);
+  ctx.beginPath();
+  ctx.moveTo(p1.x, p1.y);
+  ctx.lineTo(p1.x + p2.x - v.x, p1.y + p2.y - v.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.stroke();
 }
 
 /**

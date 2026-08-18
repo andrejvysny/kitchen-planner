@@ -13,6 +13,9 @@ import { OutputPane } from './OutputPane';
 import { PropsPanel } from './PropsPanel';
 import { Sidebar } from './Sidebar';
 import { WorkshopPane } from './WorkshopPane';
+import { unitPrefs } from '../../model/prefs';
+import { formatLength, parseLength } from '../../model/units';
+import { useNativeChange } from './fields/useNativeChange';
 
 /**
  * The workspace row: sidebar, the two canvas panes, properties panel — ported
@@ -157,12 +160,18 @@ function Mode2dToggle(): ReactElement {
 }
 
 /**
- * The four plan tools. Three of them are the same single-gesture tool slot, so
+ * The plan tools. The two of them that are gestures share one tool slot, so
  * clicking one arms it and clicking it again drops back to 'select'; ⚠ is a
  * display layer and stays orthogonal. Everything is read off EditorState — the
  * `.active` classes are a projection of it, never a second copy.
  *
- * Which buttons exist follows the workspace (WS-SPEC §4.4): the room tools are
+ * There is ONE wall tool: a drag makes a rectangle, clicks make a polygon.
+ * While it is armed the cluster grows a width box, because the width applies to
+ * the room about to be drawn and nothing else — it is a tool preference on
+ * EditorState, not design data, so no undo step is taken for changing it (a
+ * PLACED wall's width lives on the Room and is edited in the wall inspector).
+ *
+ * Which buttons exist follows the workspace (WS-SPEC §4.4): the wall tool is
  * Plan's job, measuring and checks belong to arranging too, and in the
  * Workshop/Output workspaces the cluster is covered by an overlay pane — the
  * component returns null there so the DOM stays honest. No cleanup is needed
@@ -184,21 +193,26 @@ function ToolButtons(): ReactElement | null {
       {ws === 'plan' && (
         <>
           <button
-            id="btn-room"
-            className={cls('room')}
-            title="Add a room — click in the plan, or hover a wall to attach it"
-            onClick={toggle('room')}
-          >
-            ▧
-          </button>
-          <button
             id="btn-draw-room"
             className={cls('drawRoom')}
-            title="Draw a room — click each corner, click the first again (or Enter) to close"
+            title="Draw walls — drag a room, or click wall by wall; close the loop for a room, cross one to split it"
             onClick={toggle('drawRoom')}
           >
             ✎
           </button>
+          {editor.isTool('drawRoom') && (
+            <>
+              <button
+                id="btn-angle-snap"
+                className={editor.angleSnap ? 'active' : undefined}
+                title="Snap walls to 15° steps — Shift inverts this while you draw"
+                onClick={() => editor.setAngleSnap(!editor.angleSnap)}
+              >
+                ⟂
+              </button>
+              <WallWidthField />
+            </>
+          )}
         </>
       )}
       <button
@@ -218,6 +232,39 @@ function ToolButtons(): ReactElement | null {
         ⚠
       </button>
     </div>
+  );
+}
+
+/**
+ * Wall width for the tool that is about to draw. Uncontrolled and committed on
+ * the DOM's native `change` like every other field (src/ui/react/fields/), but
+ * it writes to EditorState rather than the Store: there is no design mutation
+ * here and therefore no `store.commit()` and no undo step.
+ */
+function WallWidthField(): ReactElement {
+  const editor = useEditor();
+  useChannel('units');
+  const input = useRef<HTMLInputElement>(null);
+  const prefs = unitPrefs();
+
+  useNativeChange(input, (el) => {
+    const m = parseLength(el.value, prefs);
+    if (m !== null) editor.setWallWidth(m);
+    el.value = formatLength(editor.wallWidth, prefs);
+  });
+
+  return (
+    <label id="wall-width" title="Width of the walls being drawn">
+      <input
+        type="text"
+        inputMode="decimal"
+        data-unit={prefs.unit}
+        data-cls="draw-wall-width"
+        defaultValue={formatLength(editor.wallWidth, prefs)}
+        ref={input}
+      />
+      <span>{prefs.unit}</span>
+    </label>
   );
 }
 

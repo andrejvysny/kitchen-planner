@@ -6,6 +6,7 @@ import {
   underlayPixel,
   underlayScaleFrom,
   UNDERLAY_START_WIDTH,
+  UNDERLAY_OPACITY,
 } from '../../src/model/underlay';
 import type { Underlay } from '../../src/model/types';
 
@@ -43,7 +44,7 @@ describe('sanitizeUnderlay', () => {
     expect(sanitizeUnderlay(U({ opacity: 4 }))!.opacity).toBe(1);
     const noOp = { ...U() } as Record<string, unknown>;
     delete noOp.opacity;
-    expect(sanitizeUnderlay(noOp)!.opacity).toBe(0.5);
+    expect(sanitizeUnderlay(noOp)!.opacity).toBe(UNDERLAY_OPACITY);
   });
 
   it('accepts only literal booleans for the flags', () => {

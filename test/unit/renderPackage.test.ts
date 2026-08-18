@@ -7,6 +7,7 @@
 
 import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
+import { DESIGN_VERSION } from '../../src/model/migrate';
 import { OAK } from '../../src/model/catalog';
 import { buildRenderManifest, type ManifestInput } from '../../src/model/renderManifest';
 import { buildRenderPackage, PACKAGE_FILENAME, PACKAGE_FILES } from '../../src/model/renderPackage';
@@ -48,7 +49,7 @@ function item(over: Partial<Item> & Pick<Item, 'id' | 'defId'>): Item {
 
 function mkDesign(): Design {
   return {
-    version: 6,
+    version: DESIGN_VERSION,
     rooms: [rect4x3()],
     openings: [],
     items: [item({ id: 'it-cabinet', defId: 'base-cabinet', roomId: 'A' })],

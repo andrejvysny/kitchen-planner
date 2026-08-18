@@ -9,6 +9,7 @@ import {
   openingsOfWall,
   rectangleSizeOf,
   wallByIdIn,
+  DEFAULT_WALL_W,
 } from '../../src/model/rooms';
 import { snapItem } from '../../src/model/snapping';
 import { DESIGN_KEY, UNDERLAY_KEY } from '../../src/model/storageKeys';
@@ -97,7 +98,7 @@ describe('sanitizeDesign', () => {
     expect(sanitizeDesign({ version: 1, corners: RECT() })).toBeNull();
     expect(sanitizeDesign({ version: 4, corners: RECT() })).toBeNull();
     // no step ABOVE the current version either
-    expect(sanitizeDesign({ version: 7, rooms: [] })).toBeNull();
+    expect(sanitizeDesign({ version: DESIGN_VERSION + 1, rooms: [] })).toBeNull();
   });
 
   it('keeps a zero-room design instead of rejecting it — a fresh design may have no rooms yet', () => {
@@ -118,7 +119,7 @@ describe('sanitizeDesign', () => {
       room: { wallColor: '#112233', wallHeight: 2.8, wallThickness: 0.2 },
     })!;
     expect(d).not.toBeNull();
-    expect(d.version).toBe(6);
+    expect(d.version).toBe(DESIGN_VERSION);
     expect(d.rooms).toHaveLength(1);
     expect(d.rooms[0].name).toBe('Room 1');
     expect(d.rooms[0].style.wallColor).toBe('#112233');
@@ -788,8 +789,8 @@ describe('rooms CRUD', () => {
     expect(newSide.a).toMatchObject(b0);
     expect(newSide.b).toMatchObject(a0);
     // the host wall flipped exterior → partition (documented side effect)
-    expect(hostSide.faceOffset).toBeCloseTo(0.05);
-    expect(newSide.faceOffset).toBeCloseTo(0.05);
+    expect(hostSide.faceOffset).toBeCloseTo(DEFAULT_WALL_W / 2);
+    expect(newSide.faceOffset).toBeCloseTo(DEFAULT_WALL_W / 2);
 
     expect(signedArea(r.corners)).toBeGreaterThan(0);
     expect(store.activeRoomId).toBe(r.id);

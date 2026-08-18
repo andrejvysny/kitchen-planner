@@ -115,6 +115,13 @@ export interface Room {
   style: RoomStyle;
   /** per-wall visibility override, keyed by wall id; missing = 'auto' */
   wallVisibility?: Record<string, WallVisMode>;
+  /**
+   * Per-wall WIDTH override in metres, keyed by wall id; missing falls back to
+   * `style.wallThickness`. Named `wallWidths`, not `wallThickness`, so it can
+   * never be misread as the room-wide `RoomStyle.wallThickness` it overrides.
+   * Resolved in one place: `allWalls` (src/model/rooms.ts).
+   */
+  wallWidths?: Record<string, number>;
   /** ceiling visibility override; missing = 'auto' */
   ceilingVisibility?: WallVisMode;
 }
@@ -317,8 +324,34 @@ export interface Underlay {
   locked: boolean;
 }
 
+/**
+ * A wall chain that encloses nothing — a divider, a peninsula, a corner stub.
+ *
+ * The counterpart to a `Room`'s ring, and deliberately the same SHAPE: a list
+ * of `Corner`s whose ids are unique design-wide, so a segment is named by its
+ * start corner exactly like a room wall is, and an `Opening` can sit on one
+ * without knowing which kind of wall it found. The chain is OPEN — the last
+ * corner does not join back to the first — which is the only structural
+ * difference from a room, and why it carries its own thickness rather than
+ * borrowing a `RoomStyle`.
+ *
+ * Its centreline IS the polyline (the slab straddles it, `faceOffset` t/2),
+ * because a free wall has no interior side to measure a face from.
+ */
+export interface FreeWall {
+  id: string;
+  /** open polyline of >= 2 corners, in centreline coords */
+  corners: Corner[];
+  /** wall width (m) */
+  thickness: number;
+  /** wall height (m); missing = the active room's, else a default */
+  height?: number;
+  /** per-segment width override, keyed by segment (start corner) id */
+  wallWidths?: Record<string, number>;
+}
+
 export interface Design {
-  version: 6;
+  version: 7;
   /** ≥1 room; rooms[0] is the fallback active room and the shared-edge owner tiebreak */
   rooms: Room[];
   /** design-global; `wallId` (a globally unique corner id) alone names the wall */
@@ -333,6 +366,11 @@ export interface Design {
   /** var id applied to a new item's accent colour when set */
   defaultAccentVar?: string;
   scene: Scene;
+  /**
+   * Wall chains belonging to no room. Optional so a design that has none stays
+   * byte-identical to what earlier versions wrote.
+   */
+  walls?: FreeWall[];
   /** tracing photo placement; the image itself is stored outside the design */
   underlay?: Underlay;
 }

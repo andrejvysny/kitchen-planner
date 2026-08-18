@@ -9,12 +9,17 @@
  * as `store.openFronts` and `store.activeRoomId`. A tool choice is not part of
  * the design.
  *
- * Plan2D's six tool fields are read-only MIRRORS of this, reconciled by its
+ * Plan2D's tool fields are read-only MIRRORS of this, reconciled by its
  * `syncFromEditor()`; its `setX()` methods only ever write back here. The React
  * tool buttons call `setTool`/`setChecks` directly.
  */
 
-export type ToolId = 'select' | 'place' | 'measure' | 'calibrate' | 'room' | 'drawRoom';
+/**
+ * `drawRoom` is the ONE wall tool: drag a rectangle or click corner by corner.
+ * The old separate `room` (drop-a-preset) tool folded into it — a drag IS the
+ * preset drop, with the size under the cursor instead of fixed at 4×3.
+ */
+export type ToolId = 'select' | 'place' | 'measure' | 'calibrate' | 'drawRoom';
 
 export class EditorState {
   /** the gesture mode the plan is in; 'select' is the resting state */
@@ -23,6 +28,23 @@ export class EditorState {
   armedDefId: string | null = null;
   /** clearance-warning overlay: a display layer, not a tool, so it is orthogonal */
   checksOn = false;
+  /**
+   * Width (m) the wall tool draws with — `DEFAULT_WALL_W` (src/model/rooms.ts)
+   * repeated as a literal, because this module stays import-free by contract.
+   * A tool PREFERENCE, exactly like
+   * `armedDefId`: ephemeral, never serialized, never in an undo step. It seeds
+   * the new room's `style.wallThickness`; per-wall overrides are design data
+   * and live on the Room (`wallWidths`).
+   */
+  wallWidth = 0.115;
+  /**
+   * Angle snapping for the wall tool: ON by default, because a floor plan is
+   * overwhelmingly right angles and a wall a degree off reads as a mistake.
+   * Shift INVERTS it for the duration of the keypress, so the escape hatch is
+   * always one modifier away in either direction. A tool preference like
+   * `wallWidth` — ephemeral, never serialized, never undone.
+   */
+  angleSnap = true;
 
   private subs = new Set<() => void>();
   private version = 0;
@@ -59,6 +81,20 @@ export class EditorState {
   setChecks(on: boolean): void {
     if (this.checksOn === on) return;
     this.checksOn = on;
+    this.bump();
+  }
+
+  setAngleSnap(on: boolean): void {
+    if (this.angleSnap === on) return;
+    this.angleSnap = on;
+    this.bump();
+  }
+
+  /** Clamped to the same range as a per-wall override (src/model/store.ts). */
+  setWallWidth(m: number): void {
+    const next = Math.min(0.4, Math.max(0.05, m));
+    if (this.wallWidth === next || !Number.isFinite(next)) return;
+    this.wallWidth = next;
     this.bump();
   }
 

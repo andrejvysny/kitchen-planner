@@ -50,7 +50,12 @@ export interface KeyMods {
   shift: boolean;
 }
 
-/** First match wins, so ORDER IS LOAD-BEARING (Shift+Ctrl+Z before Ctrl+Z). */
+/**
+ * First match that CAN RUN wins, so ORDER IS LOAD-BEARING (Shift+Ctrl+Z before
+ * Ctrl+Z). A key may appear more than once: the earlier row is tried first, and
+ * a command whose `canExecute` says no hands the key to the next candidate —
+ * see `matchBindings`.
+ */
 export const KEY_BINDINGS: readonly KeyBinding[] = [
   {
     key: 'escape',
@@ -66,6 +71,24 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   { key: 'z', mod: true, shift: false, commandId: 'history.undo' },
   { key: 'y', mod: true, commandId: 'history.redo' },
   { key: 'd', mod: true, commandId: 'selection.duplicate' },
+
+  // The wall tool's dimension box comes FIRST, and `draw.*`'s canExecute is
+  // what makes that safe: while a ring is in flight Backspace edits the typed
+  // length and a digit appends to it; at rest both fall through to the
+  // bindings below (delete the selection, switch workspace). First match wins,
+  // so these rows must stay above their at-rest twins.
+  { key: 'backspace', commandId: 'draw.backspace' },
+  { key: '0', mod: false, commandId: 'draw.digit0' },
+  { key: '1', mod: false, commandId: 'draw.digit1' },
+  { key: '2', mod: false, commandId: 'draw.digit2' },
+  { key: '3', mod: false, commandId: 'draw.digit3' },
+  { key: '4', mod: false, commandId: 'draw.digit4' },
+  { key: '5', mod: false, commandId: 'draw.digit5' },
+  { key: '6', mod: false, commandId: 'draw.digit6' },
+  { key: '7', mod: false, commandId: 'draw.digit7' },
+  { key: '8', mod: false, commandId: 'draw.digit8' },
+  { key: '9', mod: false, commandId: 'draw.digit9' },
+  { key: '.', mod: false, commandId: 'draw.digitDot' },
 
   { key: 'delete', commandId: 'selection.delete' },
   { key: 'backspace', commandId: 'selection.delete' },
@@ -101,17 +124,37 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   { key: '?', mod: false, commandId: 'help.shortcuts', allowInModal: true },
 ];
 
-/** First binding whose key and modifier constraints all hold, or null. */
+/**
+ * EVERY binding whose key and modifier constraints hold, in table order.
+ *
+ * One key may legitimately carry several meanings that are told apart by
+ * CONTEXT rather than by modifiers — Backspace types into the wall tool's
+ * dimension box while a ring is in flight and deletes the selection at rest;
+ * a digit is a length there and a workspace switch here. Which one applies is
+ * the command's `canExecute`, not the table's, so the table hands the caller
+ * the whole candidate list and `KeyboardController` takes the first that can
+ * actually run. Order is still load-bearing — it is the priority.
+ */
+export function matchBindings(
+  key: string,
+  mods: KeyMods,
+  bindings: readonly KeyBinding[] = KEY_BINDINGS
+): KeyBinding[] {
+  const out: KeyBinding[] = [];
+  for (const b of bindings) {
+    if (b.key !== key) continue;
+    if (b.mod !== undefined && b.mod !== mods.mod) continue;
+    if (b.shift !== undefined && b.shift !== mods.shift) continue;
+    out.push(b);
+  }
+  return out;
+}
+
+/** The highest-priority candidate, ignoring whether its command can run. */
 export function matchBinding(
   key: string,
   mods: KeyMods,
   bindings: readonly KeyBinding[] = KEY_BINDINGS
 ): KeyBinding | null {
-  for (const b of bindings) {
-    if (b.key !== key) continue;
-    if (b.mod !== undefined && b.mod !== mods.mod) continue;
-    if (b.shift !== undefined && b.shift !== mods.shift) continue;
-    return b;
-  }
-  return null;
+  return matchBindings(key, mods, bindings)[0] ?? null;
 }

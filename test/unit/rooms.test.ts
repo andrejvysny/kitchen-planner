@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { insetPolygon, projectOnWall, signedArea } from '../../src/model/geometry';
 import {
   allWalls,
+  DEFAULT_WALL_W,
   defaultRoomStyle,
   makeRoom,
   mirrorOpening,
@@ -91,8 +92,8 @@ describe('shared-edge detection', () => {
   it('faceOffset is thickness/2 on shared walls and 0 elsewhere', () => {
     const walls = allWalls([rectA(), rectB()]);
     for (const w of walls) {
-      expect(w.thickness).toBeCloseTo(0.1);
-      expect(w.faceOffset).toBeCloseTo(w.shared ? 0.05 : 0);
+      expect(w.thickness).toBeCloseTo(DEFAULT_WALL_W);
+      expect(w.faceOffset).toBeCloseTo(w.shared ? DEFAULT_WALL_W / 2 : 0);
     }
     expect(walls.filter((w) => w.faceOffset > 0)).toHaveLength(2);
   });

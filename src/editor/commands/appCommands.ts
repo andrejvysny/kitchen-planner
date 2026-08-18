@@ -27,6 +27,14 @@ const NUDGE_COARSE = 0.1;
 const ROT_COARSE = Math.PI / 2;
 const ROT_FINE = Math.PI / 12;
 
+/**
+ * Characters the wall tool's dimension box takes. Digits plus a decimal point:
+ * the value is parsed by src/model/units.ts in the user's own unit, so '2400'
+ * is 2.4 m in a mm profile — a unit SUFFIX is not typed here, since every
+ * letter key is a shortcut.
+ */
+const DIMENSION_KEYS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.'] as const;
+
 const itemSelected = (ctx: EditorContext): boolean => ctx.store.selection.kind === 'item';
 
 /** Move the selected item by (dx, dy) meters — non-structural, then commit. */
@@ -101,14 +109,19 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
   {
     id: 'selection.delete',
     label: 'Delete',
-    // 'wall' is deliberately inside the guard and outside the switch: that is
-    // what the keyboard map did, and a wall has no delete operation of its own.
+    // A room's wall still has no delete of its own (you delete the room, or
+    // move its corners) — but a FREE-STANDING chain is its own object, so
+    // deleting one is exactly what Delete should do there.
     canExecute: (ctx) => ctx.store.selection.kind !== 'none',
     execute: (ctx) => {
       const sel = ctx.store.selection;
       if (sel.kind === 'item') ctx.store.deleteItem(sel.id);
       else if (sel.kind === 'opening') ctx.store.deleteOpening(sel.id);
       else if (sel.kind === 'corner') ctx.store.deleteCorner(sel.id);
+      else if (sel.kind === 'wall') {
+        const chain = ctx.store.freeWallOf(sel.id);
+        if (chain) ctx.store.deleteFreeWall(chain.id);
+      }
       ctx.store.commit();
     },
   },
@@ -147,7 +160,6 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
       else if (editor.isTool('place')) plan.setArmed(null);
       else if (editor.isTool('calibrate')) plan.setCalibrate(false);
       else if (editor.isTool('measure')) plan.setMeasure(false);
-      else if (editor.isTool('room')) plan.setRoomTool(false);
       // two-stage: the ring in progress goes first, the tool only when empty
       else if (editor.isTool('drawRoom')) plan.cancelDrawRoom();
       else store.select({ kind: 'none' });
@@ -158,6 +170,25 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     label: 'Finish',
     canExecute: (ctx) => ctx.editor.isTool('drawRoom'),
     execute: (ctx) => ctx.plan.closeDrawRoom(),
+  },
+
+  /*
+   * Type-in dimensions for the wall tool. These sit ABOVE the workspace digits
+   * in the binding table, and `canExecute` is what keeps that honest: while a
+   * ring is in flight a digit is a length, at rest it is still a workspace
+   * switch. A command that cannot run does not swallow its key.
+   */
+  ...DIMENSION_KEYS.map((ch) => ({
+    id: `draw.digit${ch === '.' ? 'Dot' : ch}`,
+    label: `Dimension ${ch}`,
+    canExecute: (ctx: EditorContext) => ctx.plan.drawInputActive(),
+    execute: (ctx: EditorContext) => ctx.plan.drawDigit(ch),
+  })),
+  {
+    id: 'draw.backspace',
+    label: 'Dimension backspace',
+    canExecute: (ctx) => ctx.plan.drawInputActive(),
+    execute: (ctx) => ctx.plan.drawBackspace(),
   },
 
   /**

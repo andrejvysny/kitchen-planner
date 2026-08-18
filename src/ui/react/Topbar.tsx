@@ -10,7 +10,8 @@ import { useAppServices, useEditor, useStore } from './services';
 import { navInput, setNavInput } from '../../model/navPref';
 import { emptyDesign, sanitizeDesign } from '../../model/store';
 import { isMac, NAV_INPUTS, type NavInput } from '../../view3d/wheelInput';
-import { catalogOpen, setCatalogOpen, setCheatsheetOpen, setHint } from '../shellState';
+import { catalogOpen, setCatalogOpen, setCheatsheetOpen, setHint, setPdfImport } from '../shellState';
+import { isPdf } from '../pdfImport';
 import { applyCalibration, importUnderlay } from '../underlayImport';
 import { workspace, type WorkspaceId } from '../workspaceState';
 import {
@@ -196,14 +197,18 @@ function UnderlayInput(): ReactElement {
     const el = input.current!;
     const f = el.files?.[0];
     el.value = ''; // same file twice in a row must still fire a change
-    if (f) await importUnderlay(store, f);
+    if (!f) return;
+    // a plan usually arrives as a PDF, and usually as one sheet of several —
+    // that route goes through the page picker instead of straight to the store
+    if (isPdf(f)) setPdfImport(f);
+    else await importUnderlay(store, f, plan);
   };
 
   return (
     <input
       type="file"
       id="underlay-input"
-      accept="image/*"
+      accept="image/*,application/pdf,.pdf"
       hidden
       ref={input}
       onChange={() => void onPick()}

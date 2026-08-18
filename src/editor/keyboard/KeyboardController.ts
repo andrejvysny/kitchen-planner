@@ -1,5 +1,5 @@
 import type { CommandRegistry } from '../commands/registry';
-import { KEY_BINDINGS, matchBinding, type KeyBinding } from './bindings';
+import { KEY_BINDINGS, matchBindings, type KeyBinding } from './bindings';
 
 export interface KeyboardOptions {
   /** true while a modal owns the keyboard (the Part Studio today) */
@@ -57,20 +57,27 @@ export class KeyboardController {
   }
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
-    const binding = matchBinding(
+    const candidates = matchBindings(
       e.key.toLowerCase(),
       { mod: e.ctrlKey || e.metaKey, shift: e.shiftKey },
       this.bindings
     );
-    if (!binding) return;
 
-    if (!binding.allowWhileTyping && isTyping(e.target)) return;
-    if (!binding.allowWhileTyping && !binding.allowInModal && this.opts.modalOpen()) return;
+    // Table order is the priority, and a candidate that cannot run passes the
+    // key on rather than swallowing it — that is what lets one key mean two
+    // things in two contexts (Backspace: the wall tool's dimension box while a
+    // ring is in flight, the selection at rest). The gates are evaluated PER
+    // candidate for the same reason: a draw binding blocked by an open modal
+    // must not hide the workspace binding sitting below it.
+    for (const binding of candidates) {
+      if (!binding.allowWhileTyping && isTyping(e.target)) continue;
+      if (!binding.allowWhileTyping && !binding.allowInModal && this.opts.modalOpen()) continue;
 
-    // preventDefault only on a command that actually ran, so a binding whose
-    // canExecute says no still reaches the browser (Ctrl+D with no selection)
-    if (this.commands.execute(binding.commandId) && binding.preventDefault !== false) {
-      e.preventDefault();
+      // preventDefault only on a command that actually ran, so a binding whose
+      // canExecute says no still reaches the browser (Ctrl+D with no selection)
+      if (!this.commands.execute(binding.commandId)) continue;
+      if (binding.preventDefault !== false) e.preventDefault();
+      return;
     }
   };
 }

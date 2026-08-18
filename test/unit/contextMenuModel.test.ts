@@ -46,8 +46,8 @@ describe('contextMenu — the entry matrix', () => {
     expect(ids(ROOM_ACTIVE)).toEqual(['rename-room', 'shape-rect', 'shape-l']);
   });
 
-  it('empty floor in Plan offers the two room-creation tools', () => {
-    expect(ids(EMPTY)).toEqual(['add-room', 'draw-room']);
+  it('empty floor in Plan offers the one wall tool', () => {
+    expect(ids(EMPTY)).toEqual(['draw-room']);
   });
 });
 

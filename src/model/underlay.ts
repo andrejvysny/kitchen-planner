@@ -11,8 +11,8 @@
 import { clamp } from './geometry';
 import type { Point, Underlay } from './types';
 
-/** Faint enough to trace over, strong enough to read. */
-export const UNDERLAY_OPACITY = 0.5;
+/** Strong enough to read a scanned plan; the slider dials it back to trace. */
+export const UNDERLAY_OPACITY = 0.85;
 /** How wide a freshly imported photo is laid out (m) — a typical flat. */
 export const UNDERLAY_START_WIDTH = 8;
 /** Long edge of the stored image (px); bigger buys no accuracy, only quota. */
@@ -79,6 +79,21 @@ export function underlayPixel(u: Underlay, p: Point): Point {
   const c = Math.cos(-u.rotation);
   const s = Math.sin(-u.rotation);
   return { x: (dx * c - dy * s) / u.scale, y: (dx * s + dy * c) / u.scale };
+}
+
+/**
+ * The image's four corners in WORLD space, `[topLeft, topRight, bottomRight,
+ * bottomLeft]` — the inverse of `underlayPixel`, and what `Plan2D.zoomFit`
+ * needs to frame a reference that has no room around it yet.
+ */
+export function underlayCorners(u: Underlay, imgW: number, imgH: number): Point[] {
+  const c = Math.cos(u.rotation);
+  const s = Math.sin(u.rotation);
+  const at = (px: number, py: number): Point => ({
+    x: u.x + (px * c - py * s) * u.scale,
+    y: u.y + (px * s + py * c) * u.scale,
+  });
+  return [at(0, 0), at(imgW, 0), at(imgW, imgH), at(0, imgH)];
 }
 
 /** Is the world point over the `imgW × imgH` image? Used to claim a drag. */

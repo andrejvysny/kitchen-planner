@@ -244,9 +244,6 @@ export function ContextMenu(): ReactElement | null {
       }
 
       /* ---- empty floor ---- */
-      case 'add-room':
-        plan.setRoomTool(true);
-        return;
       case 'draw-room':
         plan.setDrawRoom(true);
         return;

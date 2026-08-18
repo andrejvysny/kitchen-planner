@@ -1,7 +1,7 @@
 /**
  * ShellState — the chrome's own ephemeral state: the status-bar hint text,
- * whether the catalog drawer is open, the elevation view's wall label, and
- * whether the shortcut sheet is up.
+ * whether the catalog drawer is open, the elevation view's wall label, whether
+ * the shortcut sheet is up, and the PDF waiting for a page to be chosen.
  *
  * None of them belongs to the Design (never serialized, never in an undo step)
  * nor to EditorState (they are not tools — a hint is a message, the drawer is a
@@ -19,6 +19,7 @@ let hintText = '';
 let drawerOpen = false;
 let wallLabelText = 'Wall';
 let sheetOpen = false;
+let pdfFile: File | null = null;
 
 const listeners = new Set<() => void>();
 
@@ -73,6 +74,26 @@ export function cheatsheetOpen(): boolean {
 export function setCheatsheetOpen(open: boolean): void {
   if (sheetOpen === open) return;
   sheetOpen = open;
+  emit();
+}
+
+export function pdfImport(): File | null {
+  return pdfFile;
+}
+
+/**
+ * The PDF awaiting a page choice, or null when no picker is up (WS-SPEC §5.4's
+ * reference-photo flow, extended to plan sets).
+ *
+ * A File, not a page number: the picker is the thing that opens the document,
+ * so the shell only has to say WHICH file is being imported and the component
+ * owns everything expensive. Chrome, like the cheatsheet — never Design data,
+ * never undone — and set from the file input, which sits in the topbar, far
+ * from the overlay that renders the thumbnails.
+ */
+export function setPdfImport(f: File | null): void {
+  if (pdfFile === f) return;
+  pdfFile = f;
   emit();
 }
 

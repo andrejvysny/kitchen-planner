@@ -423,7 +423,7 @@ describe('buyRows', () => {
     const door = rows.find((r) => r.label === 'Door')!;
     expect(door.qty).toBe(2);
     expect(door.options).toBe('Hinge: left; Swing: in');
-    expect(door.dMm).toBe(100); // room wall thickness
+    expect(door.dMm).toBe(115); // room wall thickness (DEFAULT_WALL_W)
     expect(door.hMm).toBe(2050);
     expect(rows.find((r) => r.label === 'Window')!.options).toBe('Sill: 900 mm');
   });

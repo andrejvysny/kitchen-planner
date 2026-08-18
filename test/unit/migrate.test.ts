@@ -28,7 +28,7 @@ function v5Design(): Raw {
 
 describe('DESIGN_VERSION / MIN_MIGRATABLE_VERSION', () => {
   it('pins the current constants', () => {
-    expect(DESIGN_VERSION).toBe(6);
+    expect(DESIGN_VERSION).toBe(7);
     expect(MIN_MIGRATABLE_VERSION).toBe(5);
   });
 });
@@ -96,18 +96,31 @@ describe('migrate5to6', () => {
 });
 
 describe('migrateDesign', () => {
-  it('steps a v5 payload up to version 6', () => {
+  it('steps a v5 payload all the way up to DESIGN_VERSION', () => {
     const d = migrateDesign(v5Design())!;
     expect(d).not.toBeNull();
-    expect(d.version).toBe(6);
+    expect(d.version).toBe(DESIGN_VERSION);
     expect(Array.isArray(d.rooms)).toBe(true);
     expect((d.rooms as Raw[]).length).toBe(1);
+    // …and picked up every later step on the way: v7 added free wall chains
+    expect(d.walls).toEqual([]);
   });
 
-  it('passes a v6 payload through unchanged', () => {
+  it('v6 → v7 only adds the empty free-wall list', () => {
     const v6: Raw = { version: 6, rooms: [], openings: [], items: [], customParts: [] };
-    const out = migrateDesign({ ...v6 });
-    expect(out).toEqual(v6);
+    const out = migrateDesign({ ...v6 })!;
+    expect(out).toEqual({ ...v6, version: 7, walls: [] });
+  });
+
+  it('passes a current payload through unchanged', () => {
+    const now: Raw = {
+      version: DESIGN_VERSION,
+      rooms: [],
+      openings: [],
+      items: [],
+      customParts: [],
+    };
+    expect(migrateDesign({ ...now })).toEqual(now);
   });
 
   it('returns null for a version below MIN_MIGRATABLE_VERSION (no migration path)', () => {
@@ -118,7 +131,7 @@ describe('migrateDesign', () => {
 
   it('returns null for an absurd/unknown version with no registered step', () => {
     expect(migrateDesign({ version: 999 })).toBeNull();
-    expect(migrateDesign({ version: 7 })).toBeNull();
+    expect(migrateDesign({ version: DESIGN_VERSION + 1 })).toBeNull();
   });
 
   it('returns null when the version field is missing, non-numeric or non-integer', () => {

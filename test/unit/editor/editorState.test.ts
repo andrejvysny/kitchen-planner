@@ -93,7 +93,7 @@ describe('EditorState', () => {
 
     offA();
     offA();
-    ed.setTool('room');
+    ed.setTool('drawRoom');
     expect(seen).toEqual(['b']);
     // the version still advanced — a bump is state, not a side effect of listening
     expect(ed.getVersion()).toBe(1);

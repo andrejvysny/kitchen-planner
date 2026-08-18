@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EditorState } from '../../src/editor/editorState';
 import { toCatalogDef } from '../../src/model/parts';
 import { demoDesign, Store } from '../../src/model/store';
+import { DEFAULT_WALL_W } from '../../src/model/rooms';
 import { Plan2D } from '../../src/plan2d/plan2d';
 
 // src/plan2d/plan2d.ts — the EditorState seam. Plan2D is constructed DETACHED
@@ -34,8 +35,6 @@ describe('Plan2D ↔ EditorState', () => {
     expect(editor.tool).toBe('measure');
     plan.setCalibrate(true);
     expect(editor.tool).toBe('calibrate');
-    plan.setRoomTool(true);
-    expect(editor.tool).toBe('room');
     plan.setDrawRoom(true);
     expect(editor.tool).toBe('drawRoom');
     plan.setArmed(toCatalogDef(store.partOf('base-cabinet')!));
@@ -56,22 +55,21 @@ describe('Plan2D ↔ EditorState', () => {
       armedDefId: null,
       measure: false,
       calibrate: false,
-      room: false,
       draw: false,
       checks: false,
+      wallWidth: DEFAULT_WALL_W,
     });
 
     for (const [tool, field] of [
       ['measure', 'measure'],
       ['calibrate', 'calibrate'],
-      ['room', 'room'],
       ['drawRoom', 'draw'],
     ] as const) {
       editor.setTool(tool);
       const st = plan.toolState();
       expect(st[field], `${tool} → toolState().${field}`).toBe(true);
       // exactly one gesture tool at a time
-      expect([st.measure, st.calibrate, st.room, st.draw].filter(Boolean)).toHaveLength(1);
+      expect([st.measure, st.calibrate, st.draw].filter(Boolean)).toHaveLength(1);
     }
 
     editor.setTool('place', 'base-cabinet');
@@ -87,10 +85,21 @@ describe('Plan2D ↔ EditorState', () => {
       armedDefId: null,
       measure: false,
       calibrate: false,
-      room: false,
       draw: false,
       checks: true,
+      wallWidth: DEFAULT_WALL_W,
     });
+  });
+
+  it('the wall width is a tool preference, mirrored into toolState()', () => {
+    const { editor, plan } = setup();
+    editor.setWallWidth(0.24);
+    expect(plan.toolState().wallWidth).toBeCloseTo(0.24, 12);
+    // clamped to the same range a per-wall override takes
+    editor.setWallWidth(9);
+    expect(plan.toolState().wallWidth).toBeCloseTo(0.4, 12);
+    editor.setWallWidth(0.001);
+    expect(plan.toolState().wallWidth).toBeCloseTo(0.05, 12);
   });
 
   it('the armed def object survives the round-trip through the editor', () => {
@@ -128,10 +137,8 @@ describe('Plan2D ↔ EditorState', () => {
 
     editor.setTool('measure');
     expect(last(hints)).toMatch(/measure/i);
-    editor.setTool('room');
-    expect(last(hints)).toMatch(/place a room/i);
     editor.setTool('drawRoom');
-    expect(last(hints)).toMatch(/each corner/i);
+    expect(last(hints)).toMatch(/rectangle|corner/i);
     editor.setTool('calibrate');
     expect(last(hints)).toMatch(/known|distance/i);
     editor.setTool('select');
@@ -148,7 +155,7 @@ describe('Plan2D ↔ EditorState', () => {
     plan.dispose(); // idempotent
     hints.length = 0;
 
-    editor.setTool('room');
+    editor.setTool('drawRoom');
     expect(hints).toEqual([]);
     expect(plan.toolState().measure).toBe(true); // frozen at the last sync
   });

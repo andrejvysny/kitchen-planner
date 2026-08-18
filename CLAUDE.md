@@ -206,6 +206,91 @@ view state like the selection (`store.activeRoomId`, `'activeRoom'` event) —
 never serialized, never in an undo step. Room-scoped mutations take a
 trailing `roomId?` defaulting to the active room.
 
+**The wall tool is ONE tool with two gestures, and it works in CENTRELINE
+space.** `EditorState.tool === 'drawRoom'` (the old separate `room` drop-tool is
+gone): a DRAG makes an axis-aligned rectangle, CLICKS make a polygon ring closed
+on the first corner or with Enter. `Plan2D.drawPts` are wall centrelines, not
+the face ring a `Room` stores, and `commitRing` converts once at the end:
+
+- `faceRingPlan(rooms, ring, half)` (rooms.ts, pure) decides per edge how far it
+  moves inward, PLUS which existing walls have to move to meet it. The offset is
+  NOT uniform, because `Room.corners` means two things: the room-side FACE on an
+  exterior wall (`faceOffset` 0) and the CENTRELINE on a partition
+  (`faceOffset` t/2). An edge drawn onto a neighbour's centreline stays put;
+  every other edge insets by half the wall width.
+- `store.alignWallToCentreline(wallId)` moves that neighbour's ring edge out onto
+  its own centreline so the two rings can hold the SAME edge — which is all
+  `allWalls` needs to see a partition. The host's interior does not move: the
+  t/2 it gives up is exactly the t/2 `faceOffset` hands back. Refused (and the
+  edge stays exterior) when the wall is already shared or an end anchors another
+  partition. Both halves come from ONE `faceRingPlan` call against ONE snapshot —
+  promoting changes the centrelines, so re-deriving between the two is a bug.
+- Snapping is to `wallCentrelines(rooms).segments` — each wall's own extent
+  offset perpendicular by `bandCenter`, so a segment ends exactly where its wall
+  does and exactly where promotion puts it. The MITRED `rings` from the same call
+  are a different thing: they are where two centrelines meet, which is where the
+  plan draws its corner handles (`cornerHandlePositions`, shared with
+  `Plan2D.hitCorner` so draw and hit-test cannot diverge) and which must never be
+  a snap target — a mitre overshoots the wall end by half a thickness.
+  `snapRectSides` snaps a drag-rectangle's four sides INDEPENDENTLY, unlike
+  `snapRoomRect`'s whole-rectangle slide, because a room laid alongside another
+  needs its shared side and both flanking sides flush at once.
+- Angle snapping (15° steps) is ON by default and Shift INVERTS it;
+  `editor.angleSnap` is the preference and `#btn-angle-snap` the toggle. A true
+  right angle draws the plan-notation square. Typing digits sets an exact segment
+  length through `parseLength` (the `draw.digit*` commands — see the keyboard
+  note on first-match-that-can-run).
+
+**A chain need not close, and what it becomes depends on what it touches.**
+`closeDrawRoom` reads the finished chain three ways, in order:
+
+1. back on its own first corner → a ROOM (`commitRing`, above);
+2. crossing one room's ring twice → a SPLIT (`store.splitRoom` →
+   `splitRoomByChain`, pure in rooms.ts). The chain is clipped to its two ring
+   crossings and becomes the shared edge of both halves; the outer arcs stay on
+   the original ring. That works because the two meanings of `corners` hold at
+   once — the cut edge is a partition, so its ring edge IS its centreline,
+   while the untouched arcs are still exterior face. **Both halves become new
+   rooms**: the original's name/style/overrides do not survive a cut that
+   describes only part of what it used to. Items are re-homed by position,
+   openings by nearest wall (`reprojectOpeningsNearest`).
+3. anything else → FREE WALLS (`store.addFreeWall`).
+
+**`design.walls` is the second source of walls** (`FreeWall` — an OPEN chain of
+`Corner`s, its own thickness, sharing the design-wide corner-id space so a
+segment is named by its start corner exactly like a room wall). Its centreline
+IS the stored polyline; there is no interior side to inset to, so `faceOffset`
+is t/2 and the slab straddles it. `store.allWalls()` = `designWalls(rooms,
+walls)` is the ONE choke point the plan renderer, View3D and `wallJoints`
+already went through, which is why a divider needed no code of its own in any
+of them — it arrives as one more `RoomWall` carrying `roomId === NO_ROOM` and a
+`freeWallId`. The weld/shared-edge machinery deliberately does NOT see them
+(`store.roomWalls()`): a chain that encloses nothing can never be half of a
+partition. `DESIGN_VERSION` is **7**; v6→v7 only adds the empty list, and the
+bump exists so an older build refuses the file instead of dropping every
+divider on the next save.
+
+**Wall width is PER WALL.** `Room.wallWidths` (optional, keyed by wall id,
+mirroring `wallVisibility` exactly — same sanitize, split-remap and
+duplicate-remap paths) overrides `style.wallThickness`, and `allWalls` is the ONE
+place it resolves. A partition is one physical wall, so `linkShared` writes the
+OWNER's width onto both twins. `DEFAULT_WALL_W` is **0.115** (a real single-leaf
+partition, not a round 100 mm). `store.wallWidth`/`setWallWidth`/
+`hasWallWidthOverride` are the API; the wall inspector edits one wall and the
+Furnish panel still sets the room-wide default. A free chain holds the same
+`wallWidths` map, so those three resolve against whichever holder owns the
+wall — room or chain.
+
+**A reference plan can be a PDF.** `src/ui/pdfImport.ts` loads pdf.js through a
+DYNAMIC import (its own chunk — nothing pays for it until a PDF is picked) and
+`<PdfPagePicker/>` asks WHICH page before anything is placed; the chosen page is
+rasterized to the same `{src, w, h}` bitmap a photo produces and goes through the
+shared `placeUnderlay`. That tail also frames the reference
+(`plan.zoomFitWhenReady()` — `zoomFit` fits underlay corners as well as room
+corners) and ARMS the calibrate tool, because an uncalibrated reference makes
+every wall traced off it the wrong size. `shellState.pdfImport()` is which file
+is waiting for a page choice.
+
 Rooms that end up flush with each other are WELDED into a partition, since
 `allWalls` only sees a seam when two rings hold the very same edge reversed.
 `nextWeldSeam(rooms, roomId)` (rooms.ts, pure) reports one contact stretch at
@@ -243,7 +328,9 @@ or null, `updateUnderlay(patch)` moves/scales it. Consequence, by design: the
 transform is undoable, swapping/removing the photo is not. `exportJson` carries
 the photo as an extra top-level `underlaySrc` field and sanitizeDesign strips it
 (Topbar.tsx's load handler re-installs it after `replaceDesign`). renderPlan
-draws it first, under the grid, behind `opts.underlay` (off in `PRINT_OPTS`);
+draws it just ABOVE the grid, behind `opts.underlay` (off in `PRINT_OPTS`) —
+the grid used to sit on top and moiréd the scanned lines it was there to help
+trace;
 the decoded `HTMLImageElement` is cached in renderPlan.ts keyed by src, and a
 miss clears the map so exactly one photo is ever held. All underlay maths
 (sanitize, calibration, hit test) is pure in src/model/underlay.ts.
@@ -410,16 +497,17 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   `step` in the DISPLAY unit (×10 with Shift), and restoring the model's own
   value when the input parses to nothing.
 - **`EditorState` (src/editor/editorState.ts) is the single source of tool
-  truth**: `tool` (`select | place | measure | calibrate | room | drawRoom`),
+  truth**: `tool` (`select | place | measure | calibrate | drawRoom`),
   `armedDefId` (only meaningful under `place`, and `setTool` nulls it on every
-  other switch) and the orthogonal `checksOn` display layer. Ephemeral like
+  other switch), the orthogonal `checksOn` display layer, and the wall tool's
+  two preferences `wallWidth` / `angleSnap`. Ephemeral like
   `store.openFronts` — never serialized, never undone. Plan2D's six public tool
-  fields (`armedDef/measureOn/calibrateOn/roomToolOn/drawRoomOn/checksOn`) are
+  fields (`armedDef/measureOn/calibrateOn/drawRoomOn/checksOn`) are
   READ-ONLY MIRRORS written only by its `syncFromEditor()`, which the
   constructor subscribes (not `attach()` — a detached view still tracks the
   tool). A tool change there runs the **leaving-tool cleanup** — calibrate →
-  `resetCalibrate`, place → ghosts, measure → `resetMeasure`, room →
-  `roomGhost`, drawRoom → `resetDrawRing` — which is what replaced
+  `resetCalibrate`, place → ghosts, measure → `resetMeasure`, drawRoom →
+  `resetDrawRing` — which is what replaced
   `closeOtherTools(keep)`. `syncFromEditor` NEVER writes the editor back
   (re-entrancy), and `resolveArmed` is null-safe on purpose: `store.defOf`
   THROWS, so a stale armed id must resolve to null, not an exception. The
@@ -441,15 +529,19 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   carries what used to be part of the key match (`Ctrl+D` needs an item), which
   is what lets the keyboard swallow a key only when the command actually ran.
 - **The key map is DATA**: `src/editor/keyboard/bindings.ts` is a pure,
-  DOM-free `KeyBinding[]` + `matchBinding`, and `KeyboardController` is the
+  DOM-free `KeyBinding[]` + `matchBindings`, and `KeyboardController` is the
   `attach(target)`/`dispose()` adapter around it. Three behaviours are pinned by
   test/unit/editor/keyboard.test.ts because they are easy to lose: Escape runs
   even while TYPING (`allowWhileTyping`) and never calls `preventDefault`; every
   other binding is suppressed while typing or while the studio is open, unless
   it opts out with `allowInModal` (the workspace digits 1-4 do, so you can
   always leave the Workshop by keyboard); and
-  `preventDefault` fires only on a command that ran. First match wins, so table
-  ORDER is load-bearing (Shift+Ctrl+Z above Ctrl+Z).
+  `preventDefault` fires only on a command that ran. **First match that CAN RUN
+  wins**, so table ORDER is load-bearing (Shift+Ctrl+Z above Ctrl+Z): one key may
+  appear twice and `canExecute` picks between them by context — a digit is a wall
+  dimension while a ring is in flight (`draw.digit*`) and a workspace switch at
+  rest, Backspace likewise. The gates (typing, modal) are evaluated PER
+  candidate, so a blocked row never hides the one below it.
 - `src/editor/input/types.ts` and `src/editor/tools/Tool.ts` are **type
   declarations with no runtime** — the Phase C contracts. No `ToolManager`
   yet, on purpose; it lands with the first tool that exercises it. See

@@ -1,6 +1,6 @@
 {
   "manifestVersion": 1,
-  "designVersion": 6,
+  "designVersion": 7,
   "appVersion": "0.0.0-golden",
   "exportedAt": "2026-08-18T00:00:00.000Z",
   "units": "m",
@@ -123,7 +123,7 @@
       "center": {
         "x": 2,
         "y": 1.55,
-        "z": -0.05
+        "z": -0.0575
       },
       "width": 1.4,
       "height": 1.2,
@@ -137,7 +137,7 @@
         "y": 0,
         "z": 0
       },
-      "wallThickness": 0.1,
+      "wallThickness": 0.115,
       "sill": 0.95,
       "interior": false
     }
@@ -171,7 +171,7 @@
       "id": "room-kitchen",
       "name": "Kitchen",
       "wallHeight": 2.6,
-      "wallThickness": 0.1,
+      "wallThickness": 0.115,
       "floorAreaM2": 12,
       "centroid": {
         "x": 2,

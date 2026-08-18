@@ -78,7 +78,7 @@ const entry = (page: Page, cmd: string) => page.locator(`#context-menu button[da
 test.describe('plan canvas', () => {
   test.beforeEach(async ({ app }) => {
     await app.click('#ws-tab-plan');
-    await expect(app.locator('#btn-room')).toBeVisible();
+    await expect(app.locator('#btn-draw-room')).toBeVisible();
     await pinViewport(app);
   });
 
@@ -247,13 +247,14 @@ test.describe('plan canvas', () => {
     await expect.poll(() => app.evaluate(() => window.__kp.store.design.rooms.length)).toBe(1);
   });
 
-  test('right-clicking outside every room offers the room tools, and arming one switches the tool', async ({
+  test('right-clicking outside every room offers the wall tool, and arming it switches the tool', async ({
     app,
   }) => {
     await rightClickPlan(app, 4.6, 1.5); // clear of the 4x3 room and of its wall band
 
     await expect(menu(app)).toBeVisible();
-    await expect(entry(app, 'add-room')).toBeVisible();
+    // one creation entry now — the drag/click gestures are both this tool
+    await expect(entry(app, 'add-room')).toHaveCount(0);
     await entry(app, 'draw-room').click();
 
     await expect(menu(app)).toHaveCount(0);

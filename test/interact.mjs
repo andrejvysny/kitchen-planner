@@ -1326,11 +1326,14 @@ await page.evaluate(() => {
 });
 await page.reload({ waitUntil: 'networkidle' });
 await bootReady();
-const resetFresh = await page.evaluate(() => {
+// what a freshly loaded design reports, so these checks say "migrated to the
+// CURRENT version" instead of pinning a number that a new entity will bump
+const DESIGN_VERSION = await page.evaluate(() => window.__kp.store.design.version);
+const resetFresh = await page.evaluate((v) => {
   const d = window.__kp.store.design;
   // the old 3-corner v1 payload must NOT survive — demo design loads instead
-  return d.version === 6 && d.rooms[0].corners.length === 4 && d.items.length > 0;
-});
+  return d.version === v && d.rooms[0].corners.length === 4 && d.items.length > 0;
+}, DESIGN_VERSION);
 results.push(['pre-v5 autosave resets to a fresh design', resetFresh]);
 
 await page.evaluate(() => {
@@ -1348,24 +1351,26 @@ await page.evaluate(() => {
 });
 await page.reload({ waitUntil: 'networkidle' });
 await bootReady();
-const migrated = await page.evaluate(() => {
+const migrated = await page.evaluate((v) => {
   const d = window.__kp.store.design;
   const room = d.rooms && d.rooms[0];
   return (
     Array.isArray(d.items) &&
     Array.isArray(d.openings) &&
     !!d.scene &&
-    d.version === 6 &&
+    d.version === v &&
     d.rooms.length === 1 &&
     !!room.style &&
     room.corners.length === 3 &&
     // v5 corners were centrelines; the migration insets them by t/2 onto the
-    // wall face — corner 'a' sits on the offset y = 0 edge, so y ≈ 0.05
-    Math.abs(room.corners[0].y - 0.05) < 0.005 &&
-    room.corners[0].x > 0.05
+    // wall face — corner 'a' sits on the offset y = 0 edge. Read the thickness
+    // off the migrated room rather than pinning a number, so the default wall
+    // width can change without this asserting the old one.
+    Math.abs(room.corners[0].y - room.style.wallThickness / 2) < 0.005 &&
+    room.corners[0].x > room.style.wallThickness / 2
   );
-});
-results.push(['v5 autosave migrates to a single v6 room', migrated]);
+}, DESIGN_VERSION);
+results.push(['v5 autosave migrates to a single current-version room', migrated]);
 
 // 22. per-wall visibility override forces wall groups shown/hidden in 3D
 const wallVis = async (mode) => {
@@ -1808,7 +1813,7 @@ const zoneApplFresh = await page.evaluate(() => {
 });
 results.push(['oven slots into an appliance niche and rides the tower', zoneApplFresh]);
 
-// 30. multi-room UI (N1-N3, N12): the add-room tool, click-to-activate,
+// 30. multi-room UI (N1-N3, N12): the wall tool's drag gesture, click-to-activate,
 // the Rooms group in the outline, and the elevation following the active room.
 await page.keyboard.press('Escape');
 await page.click('#btn-new'); // deterministic single 4x3 room, no items
@@ -1826,23 +1831,36 @@ const clickWorld = async (x, y) => {
   await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gc);
 };
 
-// WS-SPEC §4.4: the room tools render only in the Plan workspace and the
+// WS-SPEC §4.4: the wall tool renders only in the Plan workspace and the
 // suite boots into Furnish (the default). Switch once here — everything from
 // N1 on is plan editing and the later sequences don't assume Furnish.
 await page.click('#ws-tab-plan');
-await waitUntil(() => !!document.getElementById('btn-room'));
+await waitUntil(() => !!document.getElementById('btn-draw-room'));
 results.push([
   'workspace tab switches the workspace state (plan)',
   (await page.evaluate(() => window.__kp.workspace())) === 'plan',
 ]);
 
-// N1 — the tool arms, previews and drops a free-standing room clear of the first
-await page.click('#btn-room');
+// N1 — the wall tool arms, and a DRAG builds a free-standing room clear of the
+// first. Drag and click are the same tool now, so this is the drag half; the
+// click-corner-by-corner half is exercised at N-draw below.
+await page.click('#btn-draw-room');
 const roomToolArmed = await page.evaluate(() => ({
-  on: window.__kp.plan.toolState().room,
-  active: document.getElementById('btn-room').classList.contains('active'),
+  on: window.__kp.plan.toolState().draw,
+  active: document.getElementById('btn-draw-room').classList.contains('active'),
 }));
-await clickWorld(8.0, 1.5); // ~4 m clear of the 4x3 room's right wall
+// drag a ~4x3 rectangle whose centrelines are clear of the 4x3 room's walls
+const dragRoom = async (x0, y0, x1, y1) => {
+  const a = await worldToScreen(x0, y0);
+  const b = await worldToScreen(x1, y1);
+  const gc = await page.evaluate(() => window.__kp.plan.debug().gestureCount);
+  await page.mouse.move(roomBb.x + a.x, roomBb.y + a.y);
+  await page.mouse.down();
+  await page.mouse.move(roomBb.x + b.x, roomBb.y + b.y, { steps: 6 });
+  await page.mouse.up();
+  await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gc);
+};
+await dragRoom(6.5, 0.5, 10.5, 3.5);
 const added = await page.evaluate(() => {
   const st = window.__kp.store;
   const rooms = st.design.rooms;
@@ -1850,12 +1868,12 @@ const added = await page.evaluate(() => {
     n: rooms.length,
     activeIsNew: st.activeRoomId === rooms[rooms.length - 1].id,
     sel: st.selection.kind,
-    toolOff: window.__kp.plan.toolState().room === false,
+    toolOff: window.__kp.plan.toolState().draw === false,
     shared: st.allWalls().some((w) => w.shared),
   };
 });
 results.push([
-  'add room tool places a second room',
+  'wall tool drag places a second room',
   roomToolArmed.on &&
     roomToolArmed.active &&
     added.n === 2 &&
@@ -2238,8 +2256,8 @@ const n10setup = await page.evaluate(() => {
   return { version: st.design.version, rect: st.rectangleSize() };
 });
 results.push([
-  'v5 payload migrates to an editable v6 rectangle',
-  n10setup.version === 6 && !!n10setup.rect,
+  'v5 payload migrates to an editable rectangle at the current version',
+  n10setup.version === DESIGN_VERSION && !!n10setup.rect,
 ]);
 
 const bb10 = await paneOffset();
@@ -2729,6 +2747,7 @@ const drawn = await page.evaluate(() => {
     n: st.design.rooms.length,
     corners: r.corners.length,
     area: st.floorArea(r.id),
+    t: r.style.wallThickness,
     active: st.activeRoomId === r.id,
     toolOff: window.__kp.plan.toolState().draw === false,
     ortho: r.corners.every((c, i) => {
@@ -2744,7 +2763,10 @@ results.push([
     drawn.n === 2 &&
     drawn.corners === 6 &&
     drawn.ortho &&
-    Math.abs(drawn.area - 19) < 1 &&
+    // the ring is drawn on wall CENTRELINES and inset by t/2 to the face, so
+    // the enclosed area is the centreline L minus a half-thickness border
+    Math.abs(drawn.area - 19) < 1.5 &&
+    drawn.t > 0 &&
     drawn.active &&
     drawn.toolOff,
 ]);
@@ -2755,26 +2777,50 @@ results.push([
   (await page.evaluate(() => window.__kp.store.design.rooms.length)) === 1,
 ]);
 
-// 37. auto-share (F1): a free-standing room dropped near an existing one snaps
-// flush and the contact becomes a partition — no "attach to wall" step.
+// 37. auto-share (F1): a room DRAWN along an existing wall's centreline becomes
+// a partition — no "attach to wall" step, no stub segments, and the host room
+// keeps every millimetre of its interior (alignWallToCentreline).
 await page.click('#btn-new');
 await resetReady();
 await page.evaluate(() => {
   window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 });
 });
-await page.click('#btn-room');
-// 2.1 m clear of the right wall, so the tool takes the FREE branch, but the
-// ghost's left side is within snapping reach of that wall's line
-const flushGhost = await (async () => {
-  const s = await worldToScreen(6.1, 1.5);
-  await page.mouse.move(drawBb.x + s.x, drawBb.y + s.y);
-  await waitUntil(() => !!window.__kp.plan.overlayState().roomGhost);
-  return page.evaluate(() => {
-    const g = window.__kp.plan.overlayState().roomGhost;
-    return { attached: g ? g.attached : null, flush: g ? g.flush : null, x: g ? g.poly[0].x : -1 };
-  });
-})();
-await clickAt(6.1, 1.5);
+await page.click('#btn-draw-room');
+
+// read the host's right wall off the model rather than assuming the demo's
+// dimensions: the drag has to start ON that wall's centreline to share it
+const host = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const room = st.design.rooms[0];
+  const right = st
+    .allWalls()
+    .filter((w) => w.roomId === room.id)
+    .reduce((best, w) => ((w.a.x + w.b.x) / 2 > (best.a.x + best.b.x) / 2 ? w : best));
+  const face = Math.max(...room.corners.map((c) => c.x));
+  return {
+    // exterior wall: its centreline lies half a thickness OUTSIDE the ring
+    centre: face + right.thickness / 2,
+    y0: Math.min(right.a.y, right.b.y),
+    y1: Math.max(right.a.y, right.b.y),
+    face,
+    interior: st.floorArea(room.id),
+  };
+});
+
+const dragAt = async (x0, y0, x1, y1) => {
+  const a = await worldToScreen(x0, y0);
+  const b = await worldToScreen(x1, y1);
+  const gc = await page.evaluate(() => window.__kp.plan.debug().gestureCount);
+  await page.mouse.move(drawBb.x + a.x, drawBb.y + a.y);
+  await page.mouse.down();
+  await page.mouse.move(drawBb.x + b.x, drawBb.y + b.y, { steps: 6 });
+  await page.mouse.up();
+  await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gc);
+};
+// start 6 cm off the centreline so the SNAP is what puts it there, spanning
+// exactly the host wall's own extent
+await dragAt(host.centre + 0.06, host.y0, host.centre + 3, host.y1);
+
 const welded = await page.evaluate(() => {
   const st = window.__kp.store;
   const shared = st.allWalls().filter((w) => w.shared);
@@ -2782,21 +2828,72 @@ const welded = await page.evaluate(() => {
     rooms: st.design.rooms.length,
     shared: shared.length,
     owners: shared.filter((w) => w.shared.owner).length,
-    len: shared.length ? shared[0].len : 0,
+    // the partition straddles its ring edge — that is what keeps both
+    // interiors where they were drawn
+    straddles: shared.every((w) => Math.abs(w.faceOffset - w.thickness / 2) < 1e-9),
+    // no weld crumbs: every wall in the design is a real span
+    shortest: Math.min(...st.allWalls().map((w) => w.len)),
+    hostFace: Math.max(...st.design.rooms[0].corners.map((c) => c.x)),
     corners: st.design.rooms.map((r) => r.corners.length),
+    toolOff: window.__kp.plan.toolState().draw === false,
   };
 });
 results.push([
-  'a free room dropped flush shares the wall it touches',
-  flushGhost.attached === false &&
-    flushGhost.flush === true &&
-    Math.abs(flushGhost.x - 4) < 1e-6 &&
-    welded.rooms === 2 &&
+  'a room drawn on a wall centreline shares it, with no stub and no lost interior',
+  welded.rooms === 2 &&
     welded.shared === 2 &&
     welded.owners === 1 &&
-    Math.abs(welded.len - 3) < 1e-6 &&
-    welded.corners.every((n) => n === 4),
+    welded.straddles &&
+    welded.shortest > 0.5 &&
+    // the host's RING edge moved out to the centreline, and faceOffset hands
+    // the interior straight back — the host room is not one millimetre smaller
+    Math.abs(welded.hostFace - host.centre) < 1e-6 &&
+    welded.corners.every((n) => n === 4) &&
+    welded.toolOff,
 ]);
+// 38. angle snap: on by default, Shift inverts it, and the toggle turns it off
+await page.click('#btn-new');
+await resetReady();
+await page.evaluate(() => {
+  window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 });
+});
+await page.click('#btn-draw-room');
+const snapDefault = await page.evaluate(() => ({
+  on: window.__kp.editor.angleSnap,
+  active: document.getElementById('btn-angle-snap').classList.contains('active'),
+}));
+
+// one corner, then hover a point ~6.7° off horizontal — inside the 15° step's
+// 0° bucket, so the lock pulls the segment flat
+await clickAt(7, 1);
+const offAxis = await (async () => {
+  const s = await worldToScreen(10, 1.35);
+  await page.mouse.move(drawBb.x + s.x, drawBb.y + s.y);
+  await waitUntil(() => !!window.__kp.plan.overlayState().drawRing?.hover);
+  return page.evaluate(() => window.__kp.plan.overlayState().drawRing.hover);
+})();
+results.push([
+  'angle snap is on by default and flattens an off-axis segment',
+  snapDefault.on === true && snapDefault.active === true && Math.abs(offAxis.y - 1) < 1e-6,
+]);
+
+// the toggle turns it off, and the same hover keeps its true angle
+await page.click('#btn-angle-snap');
+const freeHover = await (async () => {
+  const s = await worldToScreen(10, 1.35);
+  await page.mouse.move(drawBb.x + s.x, drawBb.y + s.y - 1);
+  await page.mouse.move(drawBb.x + s.x, drawBb.y + s.y);
+  await waitUntil(() => Math.abs(window.__kp.plan.overlayState().drawRing.hover.y - 1) > 1e-6);
+  return page.evaluate(() => window.__kp.plan.overlayState().drawRing.hover);
+})();
+results.push([
+  'the angle-snap toggle releases the lock',
+  (await page.evaluate(() => window.__kp.editor.angleSnap)) === false &&
+    Math.abs(freeHover.y - 1) > 0.1,
+]);
+await page.click('#btn-angle-snap'); // leave it as the app defaults
+await page.keyboard.press('Escape');
+await page.keyboard.press('Escape');
 
 let pass = 0;
 for (const [name, ok] of results) {

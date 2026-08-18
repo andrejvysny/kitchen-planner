@@ -18,6 +18,9 @@ import { DESIGN_VERSION, migrateDesign } from './migrate';
 import { applianceTowerPart, samplePart, sanitizePart, toCatalogDef } from './parts';
 import {
   allWalls,
+  DEFAULT_WALL_W,
+  designWalls,
+  splitRoomByChain,
   defaultRoomStyle,
   makeRoom,
   nextWeldSeam,
@@ -44,6 +47,7 @@ import type {
   CustomPartDef,
   Design,
   DesignVar,
+  FreeWall,
   Item,
   Opening,
   Point,
@@ -108,6 +112,13 @@ const MIN_ROOM_SIDE = 1;
 const MIN_WALL_SEG = 0.1;
 /** Smallest drawn ring worth keeping (m²) — below this it is a stray click. */
 const MIN_ROOM_AREA = 0.5;
+/**
+ * Wall width range, shared by `sanitizeWallWidths`, `setWallWidth` and the
+ * inspector's Thickness field — one definition so a hand-edited file and a
+ * typed value clamp identically.
+ */
+export const MIN_WALL_W = 0.05;
+export const MAX_WALL_W = 0.4;
 /** Each pass consumes one seam; a room has far fewer neighbours than this. */
 const MAX_WELD_PASSES = 12;
 
@@ -459,8 +470,124 @@ export class Store {
     return roomContaining(this.design.rooms, p);
   }
 
+  /**
+   * Every wall in the design — room rings AND free-standing chains.
+   *
+   * The single choke point the plan renderer, View3D and `wallJoints` all go
+   * through, which is why a divider needs no code of its own in any of them:
+   * it arrives as one more `RoomWall`, with `roomId === NO_ROOM`.
+   *
+   * The weld/shared-edge machinery deliberately does NOT see free walls — it
+   * goes through `roomWalls()` instead, because a chain that encloses nothing
+   * can never be half of a partition and must never be nudged as if it were.
+   */
   allWalls(): RoomWall[] {
+    return designWalls(this.design.rooms, this.design.walls);
+  }
+
+  /** Room-ring walls only — the shared-edge/weld view of the design. */
+  private roomWalls(): RoomWall[] {
     return allWalls(this.design.rooms);
+  }
+
+  /**
+   * Cut a room in two with a drawn wall chain. BOTH halves become new rooms
+   * (the user's call): the original's name, style and per-wall overrides do not
+   * survive, so nothing silently keeps an identity that now describes only part
+   * of what it used to. Its ITEMS are re-homed by position, and its openings
+   * follow their walls' geometry via the usual nearest-wall reprojection.
+   *
+   * Returns the two new rooms, or null when the chain is not a clean cut —
+   * the caller then treats it as a free-standing wall. Caller commits.
+   */
+  splitRoom(roomId: string, chain: Point[]): [Room, Room] | null {
+    const room = roomById(this.design.rooms, roomId);
+    if (!room) return null;
+    const cut = splitRoomByChain(room, chain);
+    if (!cut) return null;
+
+    const before = room.corners.map((c) => ({ ...c }));
+    const style = room.style;
+    const made: Room[] = cut.rings.map((ring, i) => {
+      const r: Room = {
+        id: uid('room'),
+        name: `Room ${this.design.rooms.length + i}`,
+        corners: ring.map((p) => ({ id: uid('c'), x: p.x, y: p.y })),
+        style: { ...style },
+        wallVisibility: {},
+      };
+      return normalizeRoom(this.design, r);
+    });
+
+    const own = new Set(before.map((c) => c.id));
+    const mine = this.design.openings.filter((o) => own.has(o.wallId));
+    const idx = this.design.rooms.indexOf(room);
+    this.design.rooms.splice(idx, 1, ...made);
+
+    // openings sat on the OLD ring; put each on whichever new wall is nearest
+    // the place it used to be — the same rule a shape-preset swap uses
+    if (mine.length) {
+      const after = made.flatMap((r) => r.corners);
+      reprojectOpeningsNearest(before, after, mine);
+    }
+    // items keep their world position; only the cached roomId has to move
+    for (const it of this.design.items) {
+      if (it.roomId !== roomId) continue;
+      it.roomId = (roomContaining(made, { x: it.x, y: it.y }) ?? made[0]).id;
+    }
+    this.setActiveRoom(made[0].id);
+    this.notify({ structural: true });
+    return [made[0], made[1]];
+  }
+
+  /**
+   * Add a free-standing wall chain from a centreline polyline. The polyline IS
+   * the stored geometry — unlike a room ring, there is no face to inset to,
+   * because a chain has no interior side. Points closer together than a wall
+   * segment collapse. Returns null when fewer than two survive. Caller commits.
+   */
+  addFreeWall(points: Point[], thickness: number, height?: number): FreeWall | null {
+    const corners: Corner[] = [];
+    for (const p of points) {
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+      const last = corners[corners.length - 1];
+      if (last && dist(last, p) < MIN_WALL_SEG) continue;
+      corners.push({ id: uid('c'), x: p.x, y: p.y });
+    }
+    if (corners.length < 2) return null;
+    const chain: FreeWall = {
+      id: uid('wall'),
+      corners,
+      thickness: clamp(thickness, MIN_WALL_W, MAX_WALL_W),
+      ...(height ? { height } : {}),
+      wallWidths: {},
+    };
+    (this.design.walls ??= []).push(chain);
+    this.notify({ structural: true });
+    return chain;
+  }
+
+  /**
+   * Remove a free-standing chain and every opening sitting on it. Returns
+   * whether anything went. Caller commits.
+   */
+  deleteFreeWall(id: string): boolean {
+    const list = this.design.walls;
+    const i = list?.findIndex((c) => c.id === id) ?? -1;
+    if (!list || i < 0) return false;
+    const own = new Set(list[i].corners.map((c) => c.id));
+    this.design.openings = this.design.openings.filter((o) => !own.has(o.wallId));
+    list.splice(i, 1);
+    if (this.selection.kind === 'wall' && own.has(this.selection.id)) {
+      this.select({ kind: 'none' });
+    }
+    this.notify({ structural: true });
+    return true;
+  }
+
+  /** The free-standing chain a wall id belongs to, or undefined. */
+  freeWallOf(wallId: string): FreeWall | undefined {
+    return this.design.walls?.find((c) => c.corners.some((k) => k.id === wallId));
   }
 
   wallsOf(roomId: string): RoomWall[] {
@@ -471,8 +598,9 @@ export class Store {
     return this.wallsOf(this.activeRoomId);
   }
 
+  /** Any wall by id — a room's or a free chain's. Ids are unique design-wide. */
   wallById(id: string): RoomWall | undefined {
-    return wallByIdIn(this.design.rooms, id);
+    return this.allWalls().find((w) => w.id === id);
   }
 
   /** The other side of a shared partition, if any. */
@@ -494,6 +622,12 @@ export class Store {
   cornerById(id: string): Corner | undefined {
     for (const room of this.design.rooms) {
       const c = room.corners.find((k) => k.id === id);
+      if (c) return c;
+    }
+    // free chains share the corner id space, so they are searched here too —
+    // dragging a divider's end is the same gesture as dragging a room corner
+    for (const chain of this.design.walls ?? []) {
+      const c = chain.corners.find((k) => k.id === id);
       if (c) return c;
     }
     return undefined;
@@ -647,7 +781,7 @@ export class Store {
   }
 
   private sharedCount(): number {
-    return this.allWalls().filter((w) => w.shared).length;
+    return this.roomWalls().filter((w) => w.shared).length;
   }
 
   /** Min-corner of a spot clear of every existing room: right of them all. */
@@ -849,6 +983,11 @@ export class Store {
     const p = at ?? wallPoint(g, t);
     const nc: Corner = { id: uid('c'), x: p.x, y: p.y };
     c.splice(idx + 1, 0, nc);
+    // a cut wall stays ONE physical wall in two pieces: the far half inherits
+    // the near half's width override, or a welded split would silently retimber
+    // half of a thickened wall back to the room default
+    const width = room.wallWidths?.[wallId];
+    if (width !== undefined) (room.wallWidths ??= {})[nc.id] = width;
     // openings past the split belong to the new (second) wall
     for (const o of this.design.openings) {
       if (o.wallId === wallId && o.offset > t) {
@@ -1373,6 +1512,91 @@ export class Store {
     this.notify({ structural: false });
   }
 
+  /**
+   * Move an EXTERIOR wall's ring edge outward onto its own centreline, so a
+   * room drawn along that centreline ends up sharing the edge.
+   *
+   * A `Room`'s ring means two different things by wall (see the type docs): the
+   * room-side FACE while a wall is exterior, the CENTRELINE once it is a
+   * partition, since `faceOffset` goes 0 → t/2. Promoting a wall therefore
+   * needs its ring edge moved by exactly that t/2 — and because the offset is
+   * the same t/2 the new `faceOffset` subtracts back, **the room's interior
+   * does not move at all**. Without this the second room can only meet the
+   * first on its existing ring edge, which pushes the shared slab half a
+   * thickness INTO the first room — `addRoom({against})`'s documented side
+   * effect, and the source of the notched junctions the wall tool replaces.
+   *
+   * Refused (returning false, caller falls back to an exterior edge) when the
+   * wall is already shared, or when either end anchors another partition:
+   * moving such a corner would silently un-share the seam it holds together.
+   * Nothing is committed here — the caller's `addRoom` announces the change.
+   */
+  alignWallToCentreline(wallId: string): boolean {
+    const wall = wallByIdIn(this.design.rooms, wallId);
+    if (!wall || wall.shared) return false;
+    const room = roomById(this.design.rooms, wall.roomId);
+    if (!room) return false;
+    const locked = new Set<string>();
+    for (const w of this.roomWalls()) if (w.shared) locked.add(w.a.id).add(w.b.id);
+    if (locked.has(wall.a.id) || locked.has(wall.b.id)) return false;
+
+    // outward = against the inward normal, by the half thickness faceOffset
+    // will hand straight back once the wall is a partition
+    const d = wall.thickness / 2;
+    for (const id of [wall.a.id, wall.b.id]) {
+      const c = this.cornerById(id);
+      if (!c) return false;
+      c.x -= wall.inward.x * d;
+      c.y -= wall.inward.y * d;
+    }
+    this.renormalizeRoom(room.id);
+    return true;
+  }
+
+  /* ---------------- wall width ---------------- */
+
+  /**
+   * This wall's width in metres — the per-wall override if it carries one, else
+   * its room's `style.wallThickness`. Resolved through `allWalls`, so a
+   * partition answers with the ONE width both sides share (the owner's),
+   * whichever twin was named.
+   */
+  wallWidth(wallId: string): number {
+    const w = wallByIdIn(this.design.rooms, wallId);
+    if (w) return w.thickness;
+    return roomById(this.design.rooms, this.activeRoomId)?.style.wallThickness ?? 0.1;
+  }
+
+  /**
+   * Override one wall's width, or clear it back to the room default with null.
+   * A partition is one physical wall: the override always lands on the OWNER's
+   * room, so thickening it from either side changes the same wall.
+   * Geometry moves, so this is structural. Caller commits.
+   */
+  setWallWidth(wallId: string, m: number | null): void {
+    const w = this.ownerWall(wallId);
+    if (!w) return;
+    // a free chain carries its own override map — same shape, different owner
+    const holder = w.freeWallId
+      ? this.design.walls?.find((c) => c.id === w.freeWallId)
+      : roomById(this.design.rooms, w.roomId);
+    if (!holder) return;
+    const map = (holder.wallWidths ??= {});
+    if (m === null) delete map[w.id];
+    else map[w.id] = clamp(m, MIN_WALL_W, MAX_WALL_W);
+    this.notify({ structural: true });
+  }
+
+  /** Whether this wall carries a per-wall override (vs. the room default). */
+  hasWallWidthOverride(wallId: string): boolean {
+    const w = this.ownerWall(wallId);
+    if (!w) return false;
+    const holder = w.freeWallId
+      ? this.design.walls?.find((c) => c.id === w.freeWallId)
+      : roomById(this.design.rooms, w.roomId);
+    return holder?.wallWidths?.[w.id] !== undefined;
+  }
+
   setAllWallVisibility(mode: WallVisMode, roomId = this.activeRoomId): void {
     const room = roomById(this.design.rooms, roomId);
     if (!room) return;
@@ -1442,6 +1666,13 @@ export function normalizeRoom(d: Design, room: Room): Room {
     }
     room.wallVisibility = remapped;
   }
+  if (room.wallWidths) {
+    const remapped: Record<string, number> = {};
+    for (const [id, m] of Object.entries(room.wallWidths)) {
+      remapped[walls.get(id)?.endId ?? id] = m;
+    }
+    room.wallWidths = remapped;
+  }
   return room;
 }
 
@@ -1508,7 +1739,17 @@ export function sanitizeDesign(raw: unknown): Design | null {
       }
       room.wallVisibility = moved;
     }
+    if (remap.size && room.wallWidths && typeof room.wallWidths === 'object') {
+      const moved: Record<string, number> = {};
+      for (const [id, m] of Object.entries(room.wallWidths)) {
+        moved[remap.get(id) ?? id] = m;
+      }
+      room.wallWidths = moved;
+    }
   }
+
+  // ---- free-standing chains (same id space as the rooms' corners) ----
+  d.walls = sanitizeFreeWalls(d.walls, seenCorners);
 
   // ---- per-room style / name / visibility ----
   rooms.forEach((room, i) => {
@@ -1524,6 +1765,7 @@ export function sanitizeDesign(raw: unknown): Design | null {
     const name = typeof room.name === 'string' ? room.name.trim() : '';
     room.name = (name || `Room ${i + 1}`).slice(0, 40);
     room.wallVisibility = sanitizeWallVisibility(room.wallVisibility);
+    room.wallWidths = sanitizeWallWidths(room.wallWidths);
     if (room.ceilingVisibility !== 'show' && room.ceilingVisibility !== 'hide') {
       delete room.ceilingVisibility;
     }
@@ -1746,6 +1988,51 @@ function sanitizeWallVisibility(raw: unknown): Record<string, WallVisMode> {
   if (raw && typeof raw === 'object') {
     for (const [id, mode] of Object.entries(raw as Record<string, unknown>)) {
       if (mode === 'show' || mode === 'hide') out[id] = mode;
+    }
+  }
+  return out;
+}
+
+/**
+ * Free-standing wall chains. Drops anything that is not an open polyline of at
+ * least two real corners, and re-ids any corner that collides with one already
+ * seen — the ids share ONE space with the rooms' corners, because a wall id
+ * alone has to name exactly one wall whichever kind it belongs to.
+ */
+function sanitizeFreeWalls(raw: unknown, seen: Set<string>): FreeWall[] {
+  if (!Array.isArray(raw)) return [];
+  const out: FreeWall[] = [];
+  for (const w of raw as FreeWall[]) {
+    if (!w || typeof w !== 'object' || !Array.isArray(w.corners)) continue;
+    const corners: Corner[] = [];
+    for (const c of w.corners) {
+      if (!c || typeof c !== 'object') continue;
+      if (!Number.isFinite(c.x) || !Number.isFinite(c.y)) continue;
+      const id = typeof c.id === 'string' && c.id && !seen.has(c.id) ? c.id : uid('c');
+      seen.add(id);
+      corners.push({ id, x: c.x, y: c.y });
+    }
+    if (corners.length < 2) continue;
+    const t = typeof w.thickness === 'number' && Number.isFinite(w.thickness) ? w.thickness : null;
+    out.push({
+      id: typeof w.id === 'string' && w.id ? w.id : uid('wall'),
+      corners,
+      thickness: clamp(t ?? DEFAULT_WALL_W, MIN_WALL_W, MAX_WALL_W),
+      ...(typeof w.height === 'number' && Number.isFinite(w.height)
+        ? { height: clamp(w.height, 0.5, 6) }
+        : {}),
+      wallWidths: sanitizeWallWidths(w.wallWidths),
+    });
+  }
+  return out;
+}
+
+/** Per-wall width overrides, clamped to the same range the inspector offers. */
+function sanitizeWallWidths(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (raw && typeof raw === 'object') {
+    for (const [id, m] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof m === 'number' && Number.isFinite(m)) out[id] = clamp(m, MIN_WALL_W, MAX_WALL_W);
     }
   }
   return out;

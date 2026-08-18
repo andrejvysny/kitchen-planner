@@ -45,8 +45,12 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
   { group: 'Edit', keys: 'Delete  ·  Backspace', does: 'Remove the selection' },
 
   { group: 'Tools', keys: 'Esc', does: 'Cancel the live tool, then clear the selection' },
-  { group: 'Tools', keys: 'Enter', does: 'Close the room you are drawing' },
+  { group: 'Tools', keys: 'Enter', does: 'Finish the walls you are drawing (a closed loop makes a room)' },
+  { group: 'Tools', keys: 'Shift while drawing', does: 'Invert the 15° angle snap for one wall' },
+  { group: 'Tools', keys: 'Digits while drawing', does: 'Type the exact wall length' },
   { group: 'Tools', keys: 'Shift while placing', does: 'Keep the tool armed and place several' },
+
+  { group: 'Mouse', keys: 'Drag with the wall tool', does: 'Draw a rectangular room' },
 
   { group: 'Mouse', keys: 'Drag empty space', does: 'Pan the plan' },
   { group: 'Mouse', keys: 'Scroll', does: 'Zoom the plan' },

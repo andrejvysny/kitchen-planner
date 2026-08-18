@@ -37,9 +37,12 @@ export interface PlanToolPort {
   setArmed(def: null): void;
   setCalibrate(on: boolean): void;
   setMeasure(on: boolean): void;
-  setRoomTool(on: boolean): void;
   cancelDrawRoom(): void;
   closeDrawRoom(): void;
+  /** whether a keystroke should feed the wall tool's dimension box */
+  drawInputActive(): boolean;
+  drawDigit(ch: string): void;
+  drawBackspace(): void;
 }
 
 /**
