@@ -1,0 +1,94 @@
+{
+  "_source": "render/manifest/examples/kitchen-min.json",
+  "_axisRule": "glTF/three (x, y_up, z) -> Blender (x, -z, y); end to end, plan (px, py) at height h -> Blender (px, -py, h).",
+  "_comment": [
+    "Hand-derived BLENDER-frame values for the golden manifest. tests/test_convert.py",
+    "recomputes every number through kprender.convert and compares, so a sign flip in",
+    "the conversion layer fails CI with no Blender in the loop. The runtime `--probe`",
+    "flag dumps the same quantities out of a real Blender session, which is how a human",
+    "confirms the rest of the pipeline (import, constraints, units) agrees.",
+    "",
+    "Two entries checked by hand, longhand, as the cross-check on the generator:",
+    "",
+    "1. camera.position. Manifest (glTF): x=5.2, y=1.65 (up), z=4.8. The map takes",
+    "   (x, y, z) -> (x, -z, y), so X = 5.2, Y = -4.8, Z = 1.65. Sanity: the app's plan",
+    "   coordinates for that pose were (5.2, 4.8) with the eye 1.65 m off the floor, and",
+    "   plan y grows DOWN the screen while Blender +Y grows away from the viewer -- hence",
+    "   the negation, and hence Z carrying the height.",
+    "",
+    "2. sun.rotationEuler. sunDirection points FROM the scene TOWARD the sun:",
+    "   (0.579228, 0.573576, -0.579228) glTF -> (0.579228, 0.579228, 0.573576) Blender.",
+    "   Light travels the other way, d = (-0.579228, -0.579228, -0.573576), and a lamp",
+    "   emits along its local -Z, so rx = acos(-dz) = acos(0.573576) = 0.959931 rad = 55",
+    "   degrees -- exactly 90 - 35, the manifest's elevation, as a zenith angle should be.",
+    "   rz = atan2(-dx, dy) = atan2(0.579228, -0.579228) = 135 degrees = 2.356194 rad,",
+    "   which is the manifest's azimuth 135 in radians; azimuth 0 = +z in the app and",
+    "   the map sends +z to -Y, so a lamp Euler Z equal to the azimuth is the expected",
+    "   coincidence, not a fluke.",
+    "",
+    "Note that the Sky Texture's sun_rotation (0.785398 = 45 deg) is a DIFFERENT number",
+    "for a different convention: bearing CCW from +X, i.e. azimuth - 90."
+  ],
+  "camera": {
+    "position": [5.2, -4.8, 1.65],
+    "target": [2.0, -1.5, 1.1],
+    "up": [0.0, 0.0, 1.0],
+    "fovYDeg": 50,
+    "sensorFit": "VERTICAL"
+  },
+  "sun": {
+    "towardSun": [0.579228, 0.579228, 0.573576],
+    "travel": [-0.579228, -0.579228, -0.573576],
+    "rotationEuler": [0.959931, 0.0, 2.356194],
+    "skyTextureRotation": 0.785398,
+    "skyTextureElevation": 0.610865
+  },
+  "lights": [
+    {
+      "itemId": "it-pendant",
+      "kind": "point",
+      "on": true,
+      "position": [2.0, -1.5, 1.904],
+      "direction": [0.0, 0.0, -1.0],
+      "rotationEuler": [0.0, 0.0, 0.0],
+      "wattsAtBoost1": 73.0
+    },
+    {
+      "itemId": "it-spot",
+      "kind": "spot",
+      "on": true,
+      "position": [3.2, -0.7, 2.54],
+      "direction": [-0.098039, -0.098039, -0.990342],
+      "rotationEuler": [0.139096, 0.0, 2.356194],
+      "wattsAtBoost1": 102.75
+    },
+    {
+      "itemId": "it-strip",
+      "kind": "bar",
+      "on": false,
+      "position": [0.9, -0.12, 1.4],
+      "direction": [0.0, 0.0, -1.0],
+      "rotationEuler": [0.0, 0.0, 0.0],
+      "wattsAtBoost1": 22.5
+    }
+  ],
+  "portals": [
+    {
+      "openingId": "op-window",
+      "center": [2.0, 0.05, 1.55],
+      "normalInward": [0.0, -1.0, 0.0],
+      "tangent": [1.0, 0.0, 0.0],
+      "localX": [1.0, 0.0, 0.0],
+      "localY": [0.0, 0.0, -1.0],
+      "localZ": [0.0, 1.0, 0.0],
+      "matrixWorld": [
+        [1.0, 0.0, 0.0, 2.0],
+        [0.0, 0.0, 1.0, 0.05],
+        [0.0, -1.0, 0.0, 1.55],
+        [0.0, 0.0, 0.0, 1.0]
+      ],
+      "sizeX": 1.3,
+      "sizeY": 1.1
+    }
+  ]
+}

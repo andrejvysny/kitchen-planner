@@ -1,0 +1,43 @@
+[project]
+name = "kprender"
+version = "0.1.0"
+description = "Blender/Cycles render worker for the Kitchen Planner render package (interior-render.zip)."
+requires-python = ">=3.11"
+# INTENTIONALLY EMPTY. Everything under kprender/ runs inside Blender's own
+# bundled Python at render time, where `pip install` is not an option — so the
+# render-time code is STDLIB ONLY. pytest/ruff below are DEV-only tools for the
+# bpy-free half of the package; nothing in kprender/ may ever import them.
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[tool.uv]
+# Not an installable distribution: `uv run pytest` only needs the dev tools in
+# the environment, and tests/conftest.py puts this directory on sys.path.
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".blender", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    # RUF001/002/003 flag "ambiguous" Unicode. The derivations in these
+    # docstrings are maths, and MINUS SIGN / MULTIPLICATION SIGN / EN DASH are
+    # what maths looks like — the same typography the repo's CLAUDE.md and
+    # README use. None of it appears in an identifier or a comparison.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests keep hand-derived reference numbers inline; long literal rows are fine.
+"tests/*" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
