@@ -15,7 +15,10 @@ interior-render.zip  --[render.sh]-->  out.png
 ```
 
 No API, queue, or job UI yet — this milestone is the data layer, the
-interchange format and a hand-runnable native worker.
+interchange format and a hand-runnable native worker. **First time here?
+`NEXT_STEPS.md` (this directory) is the local-machine checklist: first
+render, texture pinning, correctness checks, calibration, and the milestone-2
+service plan.**
 
 ## Requirements
 
