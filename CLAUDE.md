@@ -433,6 +433,25 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   yet, on purpose; it lands with the first tool that exercises it. See
   src/editor/README.md for the extraction order (Measure first, **Select
   last**).
+- **The right-click menu is a pure model plus a thin hit façade.**
+  `contextMenu(hit, workspace, opts)` (src/ui/contextMenuModel.ts, framework-free
+  and unit-tested) decides WHICH entries a hit earns; src/ui/react/ContextMenu.tsx
+  only draws them and maps each id onto an EXISTING mutation or command — the
+  item entries go through `commands.execute()` so the menu and the keyboard
+  share one path and one undo step, which is also why they select first. What
+  is under the pointer comes from `Plan2D.hitAt(clientX, clientY)` (a
+  `ContextHit`, src/plan2d/planHit.ts) and `View3D.pickItem(e)`: both delegate
+  to the private testers the CLICK paths already run — the plan cascade is
+  item → wall → room → empty, minus the drag handles, with an opening reported
+  as its host wall and `t` in METRES (what `store.splitWall` takes). No new
+  geometry lives in either. Every entry carries its gesture as a trailing
+  `hint`, and an entry that cannot work is OMITTED, never disabled (the last
+  room has no Delete, the active room no "Make active"). The two "…" entries
+  reach into the inspector by selector — `input[data-cls="wall-len"]` and
+  `#section-walls` exist for them — so those are pinned in
+  e2e/dom-contract.spec.ts. Popup dismissal is `useMenuDismiss`
+  (src/ui/react/hooks/), shared with the two topbar dropdowns.
+
 - Chrome state that is neither design nor tool lives in
   src/ui/shellState.ts — the status-bar hint text, the catalog drawer's open
   flag and the elevation view's wall label, a module singleton shaped like

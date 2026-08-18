@@ -909,6 +909,71 @@ body {
   text-align: center;
 }
 
+/* ---------- Canvas context menu (WS-SPEC §5.1) ---------- */
+
+/* Fixed, not absolute: it is positioned from the pointer's VIEWPORT coordinates
+   and clamped to the window in ContextMenu.tsx, so it must not inherit any
+   pane's scroll or offset parent. z-index 50 clears `.workspace-pane` (30),
+   which covers the canvases in the Workshop/Output workspaces. */
+.context-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 4px;
+}
+
+.context-menu:focus {
+  outline: none;
+}
+
+.context-menu button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 7px 10px;
+  text-align: left;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.context-menu button:hover,
+.context-menu button:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.context-menu button.danger {
+  color: var(--danger);
+}
+
+.context-menu button.danger:hover,
+.context-menu button.danger:focus-visible {
+  background: #faf0ef;
+}
+
+/* the gesture that does the same thing — present to teach it, muted so it
+   never competes with the label */
+.ctx-hint {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 400;
+}
+
 /* ---------- Properties panel ---------- */
 
 #props {

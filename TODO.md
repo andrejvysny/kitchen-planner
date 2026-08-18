@@ -99,7 +99,9 @@ pane head, and the zone canvas' footer caption is clipped at the pane's width.
 
 ## Phase 2 — discoverability + onboarding
 
-- [ ] WP 2.1 context menu (plan + 3D) + pure `contextMenuModel`
+- [x] WP 2.1 context menu (plan + 3D) + pure `contextMenuModel`
+      (`Plan2D.hitAt` / `View3D.pickItem` façades; no per-item "Open fronts"
+      entry — `store.openFronts` has no per-ITEM toggle to call)
 - [ ] WP 2.2 cursor hint chip
 - [ ] WP 2.3 hover affordances in the plan
 - [ ] WP 2.4 empty states

@@ -1,12 +1,10 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
-  type Dispatch,
   type KeyboardEvent,
   type ReactElement,
-  type RefObject,
-  type SetStateAction,
 } from 'react';
 import { useAppServices, useEditor, useStore } from './services';
 import { navInput, setNavInput } from '../../model/navPref';
@@ -25,6 +23,7 @@ import {
   exportSnapshotPng,
 } from './exportActions';
 import { useChannel } from './hooks/useStore';
+import { useMenuDismiss } from './hooks/useMenuDismiss';
 
 /**
  * The top bar. B1 ported the markup from index.html node-for-node; B2/B3 moved
@@ -239,32 +238,6 @@ function HistoryButtons(): ReactElement {
   );
 }
 
-/* ================= dropdown plumbing ================= */
-
-/**
- * Click-away close, shared by the two topbar dropdowns. Pointerdown, not click:
- * it must fire before a menu item's own click — and must NOT close when the
- * press lands on the button (that would fight its toggle) or inside the menu
- * (the item still needs its click). Cleanup keeps a StrictMode double mount
- * from stacking listeners.
- */
-function useMenuDismiss(
-  open: boolean,
-  setOpen: Dispatch<SetStateAction<boolean>>,
-  btn: RefObject<HTMLElement | null>,
-  menu: RefObject<HTMLElement | null>
-): void {
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent): void => {
-      const t = e.target as Node;
-      if (!menu.current!.contains(t) && !btn.current!.contains(t)) setOpen(false);
-    };
-    document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
-  }, [open, setOpen, btn, menu]);
-}
-
 /* ================= settings ================= */
 
 const NAV_LABELS: Record<NavInput, string> = {
@@ -288,7 +261,8 @@ function SettingsMenu(): ReactElement {
   const [open, setOpen] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
-  useMenuDismiss(open, setOpen, btn, menu);
+  const closeMenu = useCallback(() => setOpen(false), []);
+  useMenuDismiss(open, closeMenu, menu, btn);
 
   return (
     <div className="topbar-menu-wrap">
@@ -435,7 +409,8 @@ function ExportMenu(): ReactElement {
   const [glbBusy, setGlbBusy] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
-  useMenuDismiss(open, setOpen, btn, menu);
+  const closeMenu = useCallback(() => setOpen(false), []);
+  useMenuDismiss(open, closeMenu, menu, btn);
 
   /** Every entry closes the menu; only the GLB one keeps running after it does. */
   const run = (fn: () => void) => (): void => {

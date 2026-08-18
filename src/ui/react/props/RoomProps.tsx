@@ -256,7 +256,10 @@ function ShapeSection({ room }: { room: Room }): ReactElement {
 function WallsSection({ style }: { style: RoomStyle }): ReactElement {
   const store = useStore();
   return (
-    <div className="prop-section">
+    // #section-walls is the context menu's "Wall colour…" destination: wall
+    // finishes are a room-level style here, so that entry scrolls to this
+    // section rather than opening anything of its own.
+    <div className="prop-section" id="section-walls">
       <div className="prop-section-title">Walls</div>
       <VarChips
         current={style.wallColor}

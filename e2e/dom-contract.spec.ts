@@ -199,6 +199,7 @@ const WALL_SELECTED: readonly ContractEntry[] = [
   vis('#props-inner .props-title'),
   vis('#props-inner .props-sub'),
   vis('#props-inner .prop-row'), // Length, Thickness
+  vis('input[data-cls="wall-len"]'), // the context menu's "Set wall length…" target
   vis('#props-inner .btn-row'), // Visibility choice row + "Add corner in the middle"
 ];
 
@@ -292,6 +293,18 @@ const SETTINGS_MENU: readonly ContractEntry[] = [
   vis('#settings-menu.open'),
   vis('#navinput-group'),
   vis('#btn-navinput'),
+];
+
+/**
+ * src/ui/react/ContextMenu.tsx — the canvas right-click menu (WS-SPEC §5.1).
+ * Unlike every other group here, this one exists only WHILE the menu is open,
+ * so it is asserted inside a step that opens it and closed again right after.
+ */
+const CONTEXT_MENU: readonly ContractEntry[] = [
+  vis('#context-menu'),
+  vis('#context-menu button[data-cmd="add-corner"]'),
+  vis('#context-menu button[data-cmd="add-door"]'),
+  vis('#context-menu .ctx-hint'),
 ];
 
 /** Runs every entry in a group; a failure names the exact missing selector. */
@@ -480,6 +493,29 @@ test('DOM contract: selector table stays present across every pinned app state',
     await expect(app.locator('.studio')).toHaveCount(0);
     const partsAfter = await app.evaluate(() => window.__kp.store.design.customParts.length);
     expect(partsAfter).toBe(partsBefore);
+  });
+
+  // ---- context menu (open over a wall, assert, dismiss) ----
+  await test.step('canvas context menu', async () => {
+    const p = await app.evaluate(() => {
+      const kp = window.__kp;
+      kp.plan.setViewport({ zoom: 60, panX: 120, panY: 120 });
+      const v = kp.plan.viewport();
+      const g = kp.store.allWalls()[0];
+      const off = g.faceOffset - g.thickness / 2;
+      const wx = g.a.x + g.dir.x * (g.len / 2) + g.inward.x * off;
+      const wy = g.a.y + g.dir.y * (g.len / 2) + g.inward.y * off;
+      return { x: wx * v.zoom + v.panX, y: wy * v.zoom + v.panY };
+    });
+    const box = (await app.locator('#canvas2d').boundingBox())!;
+    await app.mouse.click(box.x + p.x, box.y + p.y, { button: 'right' });
+    await assertContract(app, CONTEXT_MENU);
+    await app.keyboard.press('Escape');
+    await expect(app.locator('#context-menu')).toHaveCount(0);
+    // a right-click SELECTS what it acts on (src/ui/react/ContextMenu.tsx), so
+    // the wall it landed on is the live selection now — put the corner back,
+    // because the assertion at the end of this test is that it survived.
+    await app.evaluate((id) => window.__kp.store.select({ kind: 'corner', id }), cornerId);
   });
 
   // ---- export menu ----

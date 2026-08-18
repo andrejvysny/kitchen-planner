@@ -834,7 +834,7 @@ export class View3D {
   private onDblClick(e: MouseEvent): void {
     // armed placement owns clicks — a dblclick would already have placed items
     if (this.getArmed()) return;
-    const ray = this.pointerRay(e as PointerEvent);
+    const ray = this.pointerRay(e);
     const hits = ray.intersectObjects(this.itemsGroup.children, true);
     for (const h of hits) {
       let unit: string | null = null;
@@ -1108,7 +1108,9 @@ export class View3D {
 
   /* ---------------- picking & dragging ---------------- */
 
-  private pointerRay(e: PointerEvent): THREE.Raycaster {
+  // MouseEvent, not PointerEvent: only clientX/clientY are read, and the
+  // dblclick / contextmenu paths hand it a plain MouseEvent.
+  private pointerRay(e: MouseEvent): THREE.Raycaster {
     this.flushRebuild(); // picking must hit the geometry the user is looking at
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(
@@ -1126,7 +1128,13 @@ export class View3D {
     return ray.ray.intersectPlane(plane, out) ? out : null;
   }
 
-  private pickItem(e: PointerEvent): Item | null {
+  /**
+   * The item under a pointer event, or null. Public because the context menu
+   * (src/ui/react/ContextMenu.tsx) is the 3D counterpart of `Plan2D.hitAt`:
+   * one raycast against the SAME item group the click path uses, so the menu
+   * can never disagree with what a left-click would have selected.
+   */
+  pickItem(e: MouseEvent): Item | null {
     const ray = this.pointerRay(e);
     const hits = ray.intersectObjects(this.itemsGroup.children, true);
     for (const h of hits) {

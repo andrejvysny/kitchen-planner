@@ -48,6 +48,7 @@ export function WallProps({ wallId }: { wallId: string }): ReactElement | null {
           items={[wall]}
           read={(w) => w.len}
           onCommit={(m) => store.setWallLength(wallId, m)}
+          cls="wall-len"
           min={0.3}
           max={30}
         />

@@ -5,6 +5,7 @@ import type { CamPreset } from '../../view3d/view3d';
 import { wallLabel } from '../shellState';
 import { workspace } from '../workspaceState';
 import { SceneOverlay, ViewOverlay } from './CanvasOverlays';
+import { ContextMenu } from './ContextMenu';
 import { useChannel } from './hooks/useStore';
 import { OutputPane } from './OutputPane';
 import { PropsPanel } from './PropsPanel';
@@ -37,7 +38,9 @@ import { WorkshopPane } from './WorkshopPane';
  * two canvas overlays WS-SPEC §2.3 moved off the top bar (<ViewOverlay/> over
  * #canvases, <SceneOverlay/> in #pane3d) arrive the same way, from
  * src/ui/react/CanvasOverlays.tsx. <OutputPane/> (WP 1.8) is the same shape,
- * one workspace over.
+ * one workspace over. <ContextMenu/> (WP 2.1) is the same shape again: it holds
+ * the open popup's state and finds the two canvases from its own effect, which
+ * runs after this component's children are in the document.
  */
 export function Workspace(): ReactElement {
   const { plan, elevation, view3d } = useAppServices();
@@ -88,6 +91,7 @@ export function Workspace(): ReactElement {
         <ViewOverlay />
         <WorkshopPane />
         <OutputPane />
+        <ContextMenu />
       </section>
 
       <PropsPanel />

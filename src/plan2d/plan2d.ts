@@ -17,6 +17,7 @@ import { findHost } from '../model/attach';
 import { toCatalogDef } from '../model/parts';
 import type { EditorState, ToolId } from '../editor/editorState';
 import { hitRadius, PinchGesture } from './pinch';
+import type { ContextHit } from './planHit';
 import { underlayHits } from '../model/underlay';
 import {
   bandCenter,
@@ -890,6 +891,41 @@ export class Plan2D {
       if (Math.abs(pr.side - bandCenter(g)) <= g.thickness / 2 + tol) return g.id;
     }
     return null;
+  }
+
+  /**
+   * What is under a VIEWPORT point (clientX/clientY), as a value — the read-only
+   * half of `onPointerDown`, for callers that want to know rather than to drag.
+   * The context menu (src/ui/react/ContextMenu.tsx) is the only one today.
+   *
+   * Deliberately NOT the full pointerdown cascade: the drag handles (corner,
+   * rotate, wall-bend midpoint) are gestures with no menu of their own, and the
+   * underlay is a tracing aid, so all four fall through to whatever they sit
+   * over. What is left is the object cascade — item → wall → room — with an
+   * opening reported as its host wall.
+   *
+   * No new geometry: every branch delegates to the private tester the pointer
+   * path already uses. Detached (no canvas) it reports 'empty' rather than
+   * throwing, the same null-safety rule `resolveArmed` follows.
+   */
+  hitAt(clientX: number, clientY: number): ContextHit {
+    if (!this.attached) return { kind: 'empty' };
+    const rect = this.canvas.getBoundingClientRect();
+    const w = this.toWorld(clientX - rect.left, clientY - rect.top);
+
+    const item = this.hitItem(w);
+    if (item) return { kind: 'item', itemId: item.id };
+
+    const opening = this.hitOpening(w);
+    const wallId = opening ? opening.wallId : this.hitWall(w);
+    if (wallId) {
+      const g = this.store.wallById(wallId);
+      // an opening can outlive its wall for one notify; fall through if so
+      if (g) return { kind: 'wall', wallId, t: clamp(projectOnWall(g, w).t, 0, g.len) };
+    }
+
+    const roomId = this.hitRoom(w);
+    return roomId ? { kind: 'room', roomId } : { kind: 'empty' };
   }
 
   private onPointerDown(e: PointerEvent): void {
