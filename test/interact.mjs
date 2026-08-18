@@ -2278,11 +2278,19 @@ results.push([
 ]);
 
 await page.click('#ws-tab-furnish'); // base-cabinet tile lives in Furnish's catalog
-// Furnish defaults to Split, Plan to 2D-only — the canvas just narrowed, and
-// Plan2D only auto-fits zoom/pan on its OWN first resize (view3d.ts-style
-// "framed" flag), never again after — so the pane offset AND the zoom/pan
-// baked in back in Plan (full-width) are both stale for the new narrower
-// canvas. Re-fit explicitly, the same way n10setup above does entering Plan.
+// Furnish defaults to Split, Plan to 2D-only — the canvas just narrowed. The
+// ResizeObserver that updates Plan2D's own cssW/cssH bookkeeping fires
+// asynchronously, so wait for it to actually catch up with the live DOM
+// width before re-fitting — otherwise zoomFit() below re-fits against the
+// STALE (pre-switch, full-width) cssW and nothing changes. Plan2D also only
+// auto-fits zoom/pan on its own FIRST resize ever (view3d.ts-style "framed"
+// flag, never again after), so this re-fit has to be explicit, the same way
+// n10setup above does entering Plan.
+await waitUntil(() => {
+  const vp = window.__kp.plan.viewport();
+  const rect = document.getElementById('canvas2d').getBoundingClientRect();
+  return Math.abs(vp.cssW - rect.width) < 1;
+});
 await page.evaluate(() => window.__kp.plan.zoomFit());
 const bb10b = await paneOffset();
 await page.click('.cat-item[data-def-id="base-cabinet"]');
@@ -2295,29 +2303,18 @@ const aimPt10 = {
   y: (bottomWall10.a.y + bottomWall10.b.y) / 2 + bottomWall10.inward.y * 0.25,
 };
 const aimScr10 = await worldToScreen(aimPt10.x, aimPt10.y);
-const bb10c = await paneOffset();
-const vpB = await page.evaluate(() => window.__kp.plan.viewport());
-console.log(
-  'DEBUG vpB (right before click)',
-  JSON.stringify({ bb10c, vpB, aimScr10, clickAt: { x: bb10b.x + aimScr10.x, y: bb10b.y + aimScr10.y } })
-);
 const n10n0 = await count();
 await page.mouse.click(bb10b.x + aimScr10.x, bb10b.y + aimScr10.y);
 await waitUntil((n) => window.__kp.store.design.items.length > n, n10n0);
-const placedDbg10 = await page.evaluate((bw) => {
+const placed10 = await page.evaluate((bw) => {
   const items = window.__kp.store.design.items;
   const it = items[items.length - 1];
   const expected = {
     x: (bw.a.x + bw.b.x) / 2 + bw.inward.x * (it.d / 2),
     y: (bw.a.y + bw.b.y) / 2 + bw.inward.y * (it.d / 2),
   };
-  return { it: { x: it.x, y: it.y, d: it.d, rotation: it.rotation }, expected, wall: bw };
+  return Math.hypot(it.x - expected.x, it.y - expected.y);
 }, bottomWall10);
-console.log('DEBUG n10 wall-snap', JSON.stringify({ aimPt10, ...placedDbg10 }, null, 2));
-const placed10 = Math.hypot(
-  placedDbg10.it.x - placedDbg10.expected.x,
-  placedDbg10.it.y - placedDbg10.expected.y
-);
 results.push(['wall-snap placement on a migrated design', placed10 < 0.05]);
 
 // N11 — measuring between a corner of room 1 and a corner of room 2 reports
