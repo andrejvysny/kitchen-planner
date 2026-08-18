@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { editor, plan, store, view } from '../../app/bootstrap';
+import { APP_VERSION } from '../../app/version';
 import { buildBom } from '../../model/export';
 import { bomHtml, cutListCsv, shoppingListCsv } from '../../model/exportFormats';
 import { navInput, setNavInput } from '../../model/navPref';
+import { buildRenderManifest } from '../../model/renderManifest';
+import { buildRenderPackage, PACKAGE_FILENAME } from '../../model/renderPackage';
 import { emptyDesign, sanitizeDesign } from '../../model/store';
 import { openPrintSheet } from '../../print/sheet';
 import { isMac, NAV_INPUTS, type NavInput } from '../../view3d/wheelInput';
@@ -408,6 +411,7 @@ function FileGroup(): ReactElement {
 /** Cut list / shopping list CSVs, the BOM sheet, the plan sheet. */
 function ExportMenu(): ReactElement {
   const [open, setOpen] = useState(false);
+  const [renderBusy, setRenderBusy] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
 
@@ -464,6 +468,36 @@ function ExportMenu(): ReactElement {
     setOpen(false);
   };
 
+  const onRender = async (): Promise<void> => {
+    setOpen(false);
+    setRenderBusy(true);
+    try {
+      const { blob, materials } = await view.exportRenderGLB();
+      const manifest = buildRenderManifest(store.design, {
+        camera: view.cameraPose(),
+        materials,
+        render: { widthPx: 1920, heightPx: 1080, tier: 'final', sensorFit: 'vertical' },
+        appVersion: APP_VERSION,
+      });
+      const zip = buildRenderPackage({
+        manifest,
+        glb: new Uint8Array(await blob.arrayBuffer()),
+        design: store.design,
+      });
+      download(
+        // `.slice()` re-types the buffer as plain ArrayBuffer (Uint8Array's
+        // default type param is ArrayBufferLike, which BlobPart rejects)
+        URL.createObjectURL(new Blob([zip.slice()], { type: 'application/zip' })),
+        PACKAGE_FILENAME
+      );
+      setHint('interior-render.zip exported — render it with render/render.sh');
+    } catch {
+      setHint('Render package export failed — try again after a reload.');
+    } finally {
+      setRenderBusy(false);
+    }
+  };
+
   return (
     <div className="topbar-menu-wrap">
       <button
@@ -489,6 +523,9 @@ function ExportMenu(): ReactElement {
         </button>
         <button data-export="plan" onClick={onPlan}>
           Plan sheet…
+        </button>
+        <button data-export="render" disabled={renderBusy} onClick={() => void onRender()}>
+          Render package (.zip)…
         </button>
       </div>
     </div>

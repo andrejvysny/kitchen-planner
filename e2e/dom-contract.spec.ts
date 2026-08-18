@@ -231,6 +231,7 @@ const EXPORT_MENU: readonly ContractEntry[] = [
   vis('[data-export="buy"]'),
   vis('[data-export="sheet"]'),
   vis('[data-export="plan"]'),
+  vis('[data-export="render"]'),
 ];
 
 /** Runs every entry in a group; a failure names the exact missing selector. */
