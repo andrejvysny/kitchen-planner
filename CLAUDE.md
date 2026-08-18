@@ -85,8 +85,8 @@ cutouts (a sink turns the worktop into a prism with holes). `Panel.motion`
 cavity-derived travel); the open/closed POSE is ephemeral view state
 (`store.openFronts`, like the selection — never in the Design, no undo/
 autosave contamination) applied by pivot groups in src/view3d/partMeshes.ts
-without any rebuild (dblclick a front in 3D, or the topbar "Open fronts"
-toggle). Meshes carry `name = panel.id` and `userData.role`. A future
+without any rebuild (dblclick a front in 3D, or the "Open fronts" toggle on
+the 3D pane's own overlay). Meshes carry `name = panel.id` and `userData.role`. A future
 manufacturing export serializes the SAME panel list — never derive board
 dimensions from meshes. Anything geometric belongs in the panel generator,
 anything cosmetic in the mesh layer.
@@ -140,8 +140,10 @@ older or unknown (callers fall back to a fresh/demo design).
   `custom`-mode only: `resolveInterior`'s `auto` branch never emits one, so a
   rail always comes from a hand-authored `elements` list (a preset or the
   zone canvas' ＋Rail button).
-- **Manufacturing export** (src/model/export.ts + exportFormats.ts, wired via
-  the topbar `Export ▾` menu in src/ui/react/Topbar.tsx): `buildBom(design)` iterates
+- **Manufacturing export** (src/model/export.ts + exportFormats.ts, reached
+  from BOTH the topbar's `Export ▾` menu and the Output workspace's cards —
+  one handler set in src/ui/react/exportActions.ts, so the two surfaces cannot
+  drift): `buildBom(design)` iterates
   `design.items`, resolves each to `partPanels(part, itemDims,
   hostContexts(design).get(item.id))` and dedupes into `CutRow`s (cut
   list) plus bought products/openings/hardware into `BuyRow`s (shopping
@@ -271,11 +273,16 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   attach. Never call `forceContextLoss()`. e2e/lifecycle.spec.ts is the leak
   gate.
 - React owns the application DOM: index.html is `<div id="react-root">` plus
-  the module script, and src/ui/react/App.tsx renders the former markup
-  node-for-node (Topbar / Sidebar / Workspace / PropsPanel / StatusBar are
-  organizational splits — the rendered tree is identical, and
+  the module script, and src/ui/react/App.tsx renders the shell (Topbar /
+  Sidebar / Workspace / PropsPanel / StatusBar are organizational splits;
   e2e/layout.spec.ts pins the boot geometry). The shell holds NO state and
-  never re-renders. **src/ui/ui.ts and `mountLegacyUI()` are GONE** — React owns
+  never re-renders. The TOPBAR is file- and workspace-level only: the four
+  `#ws-tab-*` tabs, undo/redo, New/Save/Load, `Export ▾` (`#btn-export` — which
+  now also holds `#btn-png` and `#btn-glb`) and the `#btn-settings` gear (units,
+  `#btn-navinput`). What steers the DRAWING rather than the document sits over
+  the drawing instead: `#view-toggle` and the day/night + open-fronts pair are
+  <ViewOverlay/>/<SceneOverlay/> in src/ui/react/CanvasOverlays.tsx, which
+  return null outside Plan/Furnish. **src/ui/ui.ts and `mountLegacyUI()` are GONE** — React owns
   every element in the shell, including the recovery banner
   (src/ui/react/RecoveryBanner.tsx, rendered as the first child of `#app`), and
   src/app/bootstrap.ts creates no DOM at all. What was global about the old
@@ -284,7 +291,7 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
 - **Components take the app's object graph from a context, never from the
   bootstrap.** `src/app/services.ts` `createServices()` builds the one
   `AppServices` ({store, editor, plan, elevation, view3d, studio, commands,
-  keyboard, bridge, needsRecoveryBanner}); `src/ui/react/services.tsx` provides
+  keyboard, bridge, switchWorkspace, needsRecoveryBanner}); `src/ui/react/services.tsx` provides
   it and `useAppServices()` / `useStore()` / `useEditor()` / `useCommands()`
   read it. **src/ui/react/App.tsx is the ONLY module allowed to import
   src/app/bootstrap** — it installs the provider — and an eslint
@@ -292,6 +299,30 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   listed exception) keeps it that way. The point is not multi-tenancy: it is
   that a new editor service must not become one more bootstrap export plus 28
   new imports.
+- **The shell is four WORKSPACES, and `src/ui/workspaceState.ts` is which one.**
+  `plan | furnish | workshop | output` — a device preference (WORKSPACE_KEY,
+  default `furnish`), never design data, never undone — plus the ephemeral
+  `workshopTarget` ({defId, itemId?, returnTo}) that says which part the
+  Workshop opens on and where "Back" goes. Module singleton with ONE listener
+  Set, shaped like src/ui/shellState.ts; StoreBridge carries it as the
+  `'workspace'` channel. **`createServices().switchWorkspace` is the ONE guarded
+  switch** — the topbar tabs, `‹ Back` and the `workspace.*` commands behind
+  keys 1-4 (`WorkspacePort` in EditorContext, `allowInModal` so the digits work
+  over the studio) all go through it, so the Part-Studio dirty confirm and the
+  two resets (`editor.setTool('select')`, `setCatalogOpen(false)`) are written
+  once; a refused close returns false and ABORTS the switch. A workspace is a
+  different TASK, so surfaces scope to it: the room tools render in Plan only
+  and measure/checks in Plan+Furnish (React), `CatalogSection.workspace` splits
+  the catalog ('Room & utilities' = plan, the rest = furnish, `#catalog-search`
+  over it), and the sidebar swaps to <WorkshopPartsPanel/> / an Output caption.
+  Workshop and Output are OVERLAY PANES over `#canvases`
+  (src/ui/react/WorkshopPane.tsx, OutputPane.tsx — `.workspace-pane`, z-index 30
+  above `.canvas-overlay`'s 20): they COVER the two canvases and never unmount
+  them, which is what keeps the WebGL context and both view attachments alive
+  across a round trip (e2e/lifecycle.spec.ts). Each covering pane calls
+  `view3d.setActive(false)` on entry and restores on exit only if `#pane3d` is
+  not `.hidden` — the 2D/3D toggle owns that flag, so read it, never duplicate
+  it.
 - The whole left sidebar is React's (src/ui/react/Sidebar.tsx + CatalogPanel /
   OutlinePanel / VariablesPanel): which tab is open is component state, and the
   panels carry BOTH `.active` and `hidden` because style.css hides on
@@ -304,7 +335,15 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   memoized <CatalogTile/>s skip the thumbnail redraw on arming ticks. The Part
   Studio is an AppServices singleton (`studio`) with a no-op close callback: save
   and delete both `store.commit()`, so the 'history' channel is the refresh. It
-  is the last imperative DOM in the app, deliberately out of scope.
+  is the last imperative DOM in the app, deliberately out of scope — but it is
+  NOT a modal any more: `open(existing, host)` builds `.studio-hosted` into the
+  Workshop pane's host div (no backdrop, no ✕, Escape only clears the in-studio
+  selection), save keeps it open (`syncFooter` patches the footer in place),
+  Cancel is `Revert`, and deleting the part lands on the type picker. Every
+  route in — the catalog's ＋/✎ tiles, the Workshop sidebar's rows, the props
+  panel's "Edit part template…" / "Customize part…" — goes through
+  `openInWorkshop`, and <WorkshopPane/> is the only thing that hands it a
+  host.
 - **Fields commit on the DOM's native `change` event, never React's onChange**
   — src/ui/react/fields/ is the shared set (SwatchRow, MaterialRow, VarChips,
   ChoiceRow, ToggleRow, SliderRow, StepperRow, RotToggle, Number/Length/Angle
@@ -373,8 +412,9 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   of the old keyboard map, and each mutating one still ends in `store.commit()`
   — **snapshot undo is untouched, commands are not history steps**. Because
   src/editor may not import src/ui or src/app, and src/plan2d already imports
-  `editorState`, Plan2D and PartStudio arrive as the STRUCTURAL `PlanToolPort`
-  / `ModalPort` declared in commands/types.ts, wired in `createServices()` —
+  `editorState`, Plan2D, PartStudio and the workspace switch arrive as the
+  STRUCTURAL `PlanToolPort` / `ModalPort` / `WorkspacePort` declared in
+  commands/types.ts, wired in `createServices()` —
   that inversion is what killed the old bootstrap↔ui.ts cycle. `canExecute`
   carries what used to be part of the key match (`Ctrl+D` needs an item), which
   is what lets the keyboard swallow a key only when the command actually ran.
@@ -383,7 +423,9 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   `attach(target)`/`dispose()` adapter around it. Three behaviours are pinned by
   test/unit/editor/keyboard.test.ts because they are easy to lose: Escape runs
   even while TYPING (`allowWhileTyping`) and never calls `preventDefault`; every
-  other binding is suppressed while typing or while the modal is open; and
+  other binding is suppressed while typing or while the studio is open, unless
+  it opts out with `allowInModal` (the workspace digits 1-4 do, so you can
+  always leave the Workshop by keyboard); and
   `preventDefault` fires only on a command that ran. First match wins, so table
   ORDER is load-bearing (Shift+Ctrl+Z above Ctrl+Z).
 - `src/editor/input/types.ts` and `src/editor/tools/Tool.ts` are **type
@@ -416,7 +458,10 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   constructs headless, so the mirrors are unit-testable without a canvas.
   e2e/catalog-outline.spec.ts does the same for the sidebar's two ported
   panels (arm/disarm marker, place, ＋/✎ into the studio, group order and
-  counts, row + room-row activation by click and by Enter).
+  counts, row + room-row activation by click and by Enter);
+  e2e/sidebar.spec.ts pins the per-workspace sidebar swap and
+  e2e/output.spec.ts byte-compares an Output card's CSV against the Export
+  menu's.
   e2e/recovery.spec.ts owns the recovery banner: it is the one spec that does
   NOT use the `app` fixture, because its subject is the state of localStorage
   BEFORE boot and the fixture clears storage as part of setup.
@@ -458,11 +503,17 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   NKBA/Neufert source in a comment. `catalog.ts`'s `isDecorative`/
   `noCollide` opts an item out of every collision check (lights, sockets,
   rugs, wall panels).
-- `window.__kp = {store, plan, view}` is exposed for tests/debugging — keep it.
+- `window.__kp` is exposed for tests/debugging — keep it, and keep it FLAT:
+  {store, plan, view, elev, editor, bridge, workspace, setWorkspace, navInput,
+  setNavInput, debug}. Its shape is a contract typed in e2e/kp.d.ts, so a
+  rename in src/ breaks the specs at typecheck. `setWorkspace` is
+  services.switchWorkspace, not the raw setter — a spec must change workspace
+  through the same guard a user does.
 - Storage keys all live in src/model/storageKeys.ts: writes target
   `interior-planner-{design,parts,nav}-v1`, reads fall back to the legacy
-  `kitchen-planner-*` keys (never deleted). `UNDERLAY_KEY` (the tracing photo)
-  is new-name only — it has no legacy twin. `DESIGN_VERSION` is 6.
+  `kitchen-planner-*` keys (never deleted). `UNDERLAY_KEY` (the tracing photo),
+  `WORKSPACE_KEY` (the open workspace) and `UNIT_PREFS_KEY` are new-name only —
+  they postdate the rename and have no legacy twin. `DESIGN_VERSION` is 6.
   `sanitizeDesign()` (store.ts) is the single validation/repair gate for
   autosave and file import: it runs `migrateDesign()` first (versioned step
   map, `MIN_MIGRATABLE_VERSION` 5) and returns null when there is no path.

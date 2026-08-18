@@ -1,5 +1,6 @@
 import '../style.css';
 import { navInput, setNavInput } from '../model/navPref';
+import { workspace } from '../ui/workspaceState';
 import { setMacOverride } from '../view3d/wheelInput';
 import { renderCounts } from '../ui/react/debugCounters';
 import { createServices, type AppServices } from './services';
@@ -37,6 +38,10 @@ export const services: AppServices = createServices();
   setNavInput,
   editor: services.editor,
   bridge: services.bridge,
+  // which of the four workspaces is showing, and the ONE guarded switch —
+  // specs change workspace the way the tabs do, guard included
+  workspace,
+  setWorkspace: services.switchWorkspace,
   // React commit counters — a test seam, like Plan2D's debug().drawCount
   debug: { renderCounts },
 };

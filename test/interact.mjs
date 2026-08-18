@@ -1808,6 +1808,10 @@ const clickWorld = async (x, y) => {
 // N1 on is plan editing and the later sequences don't assume Furnish.
 await page.click('#ws-tab-plan');
 await waitUntil(() => !!document.getElementById('btn-room'));
+results.push([
+  'workspace tab switches the workspace state (plan)',
+  (await page.evaluate(() => window.__kp.workspace())) === 'plan',
+]);
 
 // N1 — the tool arms, previews and drops a free-standing room clear of the first
 await page.click('#btn-room');
@@ -2633,6 +2637,10 @@ const clickAt = async (x, y) => {
 // Furnish default — return to Plan for the room tools (WS-SPEC §4.4)
 await page.click('#ws-tab-plan');
 await waitUntil(() => !!document.getElementById('btn-draw-room'));
+results.push([
+  'the reloaded page lands in the persisted workspace and switches back to plan',
+  (await page.evaluate(() => window.__kp.workspace())) === 'plan',
+]);
 
 await page.click('#btn-draw-room');
 const drawArmed = await page.evaluate(() => ({

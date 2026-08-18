@@ -83,7 +83,19 @@ green gate above runs per WP.
       declined re-open confirm leaves workshopTarget naming the other part)
 - [x] WP 1.7 topbar slimming + settings menu + canvas overlays
 - [x] WP 1.8 output pane (six export cards)
-- [ ] WP 1.9 test + docs migration sweep; Phase 1 exit criteria walk
+- [x] WP 1.9 test + docs migration sweep; Phase 1 exit criteria walk —
+      `window.__kp` gains `workspace`/`setWorkspace` (the GUARDED switch) +
+      e2e/kp.d.ts; interact and tools.spec assert the seam; screenshot.mjs
+      gains one shot per workspace; README workflow rewritten around the four
+      workspaces, CLAUDE.md gains the workspace-shell contract and drops the
+      "Part Studio is a modal" / topbar-owns-view-and-scene claims.
+
+**Phase 1 shipped.** Gate: lint · typecheck · **657 unit** · build · interact
+**106/106** (was 104 — two workspace-state assertions added) · **51/51
+Playwright** (layout.spec's topbar-height check passed here too) · exit-criteria
+walk **34/34**, no console errors. Known cosmetic follow-ups, both out of WP 1.9's
+scope: `#wsp-back` inherits `.btn { flex: 1 }` and stretches across the Workshop
+pane head, and the zone canvas' footer caption is clipped at the pane's width.
 
 ## Phase 2 — discoverability + onboarding
 

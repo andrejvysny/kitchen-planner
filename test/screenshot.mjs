@@ -36,7 +36,8 @@ await page.mouse.click(pane.x + pane.width / 2, pane.y + pane.height / 2);
 await page.waitForTimeout(500);
 await page.screenshot({ path: '/tmp/shot-2d.png' });
 
-// part studio
+// part studio — the +New tile routes into the Workshop workspace, which hosts
+// the studio over the canvases (no modal, no backdrop, Escape never closes)
 await page.click('#view-toggle button[data-view="split"]');
 await page.waitForTimeout(300);
 const newPart = await page.locator('.cat-new');
@@ -44,9 +45,10 @@ await newPart.click();
 await page.waitForTimeout(1500);
 await page.screenshot({ path: '/tmp/shot-studio.png' });
 
-// multi-room: add a room against a wall, split view
-await page.keyboard.press('Escape');
-await page.keyboard.press('Escape');
+// multi-room: add a room against a wall, split view. "Back" is how you leave
+// the Workshop now, and it returns to the workspace the +New tile came from.
+await page.click('#wsp-back');
+await page.waitForTimeout(400);
 await page.click('#view-toggle button[data-view="split"]');
 await page.waitForTimeout(300);
 await page.evaluate(() => {
@@ -58,6 +60,26 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(1200);
 await page.screenshot({ path: '/tmp/shot-rooms.png' });
+
+// one shot per workspace: the four task-focused modes the tabs switch between
+await page.click('#ws-tab-plan');
+await page.waitForTimeout(800);
+await page.screenshot({ path: '/tmp/shot-ws-plan.png' });
+
+await page.click('#ws-tab-furnish');
+await page.waitForTimeout(800);
+await page.screenshot({ path: '/tmp/shot-ws-furnish.png' });
+
+// the Workshop sidebar's preset rows open the studio in the pane
+await page.click('#ws-tab-workshop');
+await page.waitForTimeout(400);
+await page.click('.wsp-row.wsp-preset');
+await page.waitForTimeout(1800);
+await page.screenshot({ path: '/tmp/shot-ws-workshop.png' });
+
+await page.click('#ws-tab-output');
+await page.waitForTimeout(900);
+await page.screenshot({ path: '/tmp/shot-ws-output.png' });
 
 console.log('ERRORS:', errors.length ? errors.join('\n') : 'none');
 await browser.close();

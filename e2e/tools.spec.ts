@@ -43,6 +43,8 @@ async function clickPlan(page: Page, x: number, y: number): Promise<void> {
 test.beforeEach(async ({ app }) => {
   await app.click('#ws-tab-plan');
   await expect(app.locator('#btn-room')).toBeVisible();
+  // the tab and window.__kp.workspace() are the same state, not two of them
+  expect(await app.evaluate(() => window.__kp.workspace())).toBe('plan');
 });
 
 const toolState = (page: Page) => page.evaluate(() => window.__kp.plan.toolState());

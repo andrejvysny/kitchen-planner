@@ -573,6 +573,12 @@ body {
   flex: none;
 }
 
+/* .btn's flex: 1 is meant for .btn-row groups — a lone button in the pane
+   head must not stretch across the pane */
+.workspace-pane-head .btn {
+  flex: none;
+}
+
 .workspace-pane-caption {
   font-size: 11px;
   font-weight: 600;

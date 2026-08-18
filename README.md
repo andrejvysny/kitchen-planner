@@ -31,55 +31,57 @@ work autosaves to the browser (`localStorage`) on every action.
 
 ## The design workflow
 
-The app is a **2D floor plan + live 3D view** (split screen by default, toggle
-with `2D | Split | 3D`).
+Work is split into four workspaces, switched from the tabs in the top bar or
+with the keys `1`–`4`. All four hold the same design; what changes is the
+shell around it — the catalog, the tools and what covers the canvases follow
+the task at hand. The choice is remembered per device, so the app reopens
+where you left it.
 
-**1 · Sketch your rooms.**
-Set width/depth numerically in the right panel, or drag the ■ corner handles.
-Drag a ◆ wall-midpoint (or double-click a wall) to add a corner and bend the
-outline — L-shapes, U-shapes, anything. Select a wall to type its exact length;
-orthogonal rooms keep their shape when you do. Use **▧ ＋ Add room** to start
-another room: drop it free-standing, or hover an existing wall to grow the new
-room off it — that wall becomes a shared partition, built once and visible
-from both sides. Click a room's floor (or its row in *Components*) to make it
-active; every room keeps its own wall/floor/worktop colours, wall height and
-wall-visibility overrides. Wall lengths and floor area are always labelled.
+**1 · Plan.** Draw and dimension the shell. Set width/depth numerically in the
+right panel, or drag the ■ corner handles. Drag a ◆ wall midpoint (or
+double-click a wall) to add a corner and bend the outline — L-shapes,
+U-shapes, anything. Select a wall to type its exact length; orthogonal rooms
+keep their shape when you do. Use **▧ ＋ Add room** to start another room:
+drop it free-standing, or hover an existing wall to grow the new room off it,
+and that wall becomes a shared partition, built once and visible from both
+sides. Click a room's floor (or its row in *Components*) to make it active;
+every room keeps its own wall/floor/worktop colours, wall height and
+wall-visibility overrides. The catalog here is *Room & utilities* — doors,
+windows, water supply and power outlets — which snap onto walls; drag to slide
+one along its wall, select it to edit width / height / sill / distance from
+the corner. A door on a shared partition shows correctly, mirrored, from
+either room. The room tools are in this workspace and nowhere else.
 
-**2 · Place openings and utilities.**
-*Room & utilities* in the catalog: **doors, windows, water supply, power
-outlets**. They snap onto walls; drag to slide along a wall, select to edit
-width / height / sill / distance-from-corner. A door on a shared partition
-shows correctly, mirrored, from either room.
+**2 · Furnish.** Fill the rooms. The catalog switches to furniture,
+appliances, lighting and your own parts, with a search box over it. Click a
+tile, then click in the plan (or directly in the 3D view) — items snap into
+whichever room they land in, rotate to face away from the nearest wall, sit
+flush against it, snap edge-to-edge into runs, and show live clearance
+dimensions to the nearest corners while you drag. `Shift`-click places
+several. Everything is parametric: every cabinet is a zone-tree part
+(*Customize part…* forks one instance), and appliances are separate products —
+a sink or hob drops into a worktop, cutting a real hole in it, an oven slides
+into an appliance niche, and both move with their host cabinet. Double-click
+any door or drawer in 3D (or hit *Open fronts*) to preview it open. Pendants,
+ceiling spots and LED strips are real light sources with shadows; select a
+fixture to adjust brightness and warmth, and toggle **☀ Day / ☾ Night** to
+judge the mood.
 
-**3 · Furnish.**
-Click a catalog item, then click in the plan (or directly in the 3D view) —
-items snap into whichever room they land in. Items automatically rotate to
-face away from the nearest wall and sit flush against it, snap edge-to-edge
-into runs, and show live clearance dimensions (cm) to the nearest corners
-while you drag. `Shift`-click places several. Everything is **parametric**:
-every cabinet is a zone-tree part (customize one instance via *Customize
-part…*), and appliances are separate products — a sink or hob drops INTO a
-worktop (cutting a real hole in it), an oven slides into an appliance niche,
-and they all move with their host cabinet. Double-click any door or drawer in
-3D (or hit *Open fronts*) to preview it open — shelves, internal drawers and
-drawer boxes are really in there.
+Live spatial checks run in the background as you work, in Plan and Furnish
+alike: overlapping items and things poking through a wall are flagged red;
+tight door swings, walkways, work aisles, bed access and cabinet-front
+clearance are amber (NKBA/Neufert minimums); a kitchen's sink/hob/fridge work
+triangle gets an informational nudge. Nothing is ever blocked — every finding
+is a hint, not a wall. Errors always show; toggle **⚠** to also see warnings
+and hints, in both the plan and the properties panel.
 
-Live spatial checks run in the background as you work: overlapping items and
-things poking through a wall are flagged red; tight door swings, walkways,
-work aisles, bed access and cabinet-front clearance are amber (NKBA/Neufert
-minimums); a kitchen's sink/hob/fridge work triangle gets an informational
-nudge. Nothing is ever blocked — every finding is a hint, not a wall. Errors
-always show; toggle **⚠** to also see warnings and hints, in both the plan and
-the properties panel.
-
-**4 · Light it.**
-Pendants, ceiling spots and LED strips are real light sources with shadows.
-Select a fixture to adjust brightness and warmth. Toggle **☀ Day / ☾ Night**
-to judge the mood.
-
-**5 · Create your own parts (Part Studio).**
-*＋ New part* opens a full editor with a live, orbitable 3D preview. Three
-part types cover essentially any furniture:
+**3 · Workshop.** Build the parts themselves. The sidebar becomes a list of
+your own parts plus the built-in presets, and the pane over the canvases holds
+the Part Studio — a full editor with a live, orbitable 3D preview. Every route
+into it lands here: *＋ New part*, ✎ on a catalog tile, *Edit part template…*
+and *Customize part…* in the properties panel. Saving keeps the editor open,
+*Revert* reloads the saved part, and **‹ Back** returns to the workspace you
+came from. Three part types cover essentially any furniture:
 
 - **Cabinet** — a carcass whose front you split into **zones**, Mozaik-style:
   click a zone, split it horizontally or vertically, drag the dividers to
@@ -92,26 +94,36 @@ part types cover essentially any furniture:
   and wall-mounting are toggles.
 - **Worktop / board** — draw any outline (L/U presets included) with the same
   corner-and-midpoint editing as a room, add rectangular cutouts for sinks
-  and hobs, set thickness and height off the floor. Great for continuous
-  worktops, bar tops and floating shelves.
-- **Free boards** — compose arbitrary furniture from individual boards and
-  cylinders: pick a board in the preview, nudge it with the arrow keys or
-  type exact positions, choose front/accent colour, grooved-front style or
-  cylinder shape. Covers tables, benches, wardrobes, room dividers.
+  and hobs, set thickness and height off the floor. For continuous worktops,
+  bar tops and floating shelves.
+- **Free boards** — compose furniture from individual boards and cylinders:
+  pick a board in the preview, nudge it with the arrow keys or type exact
+  positions, choose front/accent colour, grooved-front style or cylinder
+  shape. Covers tables, benches, wardrobes, room dividers.
 
-Saved parts appear under *My parts*, can be edited later (✎ on the tile) or
-duplicated as variants, and are kept in a shared library so new designs start
-with them. Every custom part is generated through the same panel-list model
-that a manufacturing / cut-list export would read from — geometry lives in
-one place, never guessed back out of a mesh.
+Saved parts appear under *My parts*, can be edited later or duplicated as
+variants, and are kept in a shared library so new designs start with them.
+Every custom part is generated through the same panel-list model that the
+cut-list export reads from — geometry lives in one place, never guessed back
+out of a mesh.
+
+**4 · Output.** Take the design off the screen. The pane holds one card per
+document: the A4 plan sheet, the printable bill of materials, the cut list
+and shopping list as CSV, a PNG snapshot of the 3D view and the GLB scene
+export. Every card runs the same code as the matching entry in the top bar's
+**Export ▾** menu, against the current design.
+
+The 2D and 3D panes sit side by side in Plan and Furnish, with the
+`2D | Split | 3D` toggle over the canvases; the Workshop and Output panes
+cover them without unloading them, so switching back is instant.
 
 ## Export
 
 | Button | Output |
 |---|---|
 | **Save / Load** | The full design as JSON — rooms, items, openings, and your custom parts (self-contained, shareable) |
-| **Snapshot** | PNG of the current 3D view |
-| **Blender** | `interior.glb` — the fully modelled interior for photorealistic rendering |
+| **Export ▾ → 3D snapshot (PNG)** | PNG of the current 3D view |
+| **Export ▾ → Blender export (GLB)** | `interior.glb` — the fully modelled interior for photorealistic rendering |
 | **Export ▾ → Cut list (CSV)** | `interior-cutlist.csv` — every board to manufacture, generated from the same panel IR the 3D renderer uses (dimensions, material, colour, hinge/slide notes) |
 | **Export ▾ → Shopping list (CSV)** | `interior-shopping-list.csv` — bought appliances/furniture/lighting, wall openings, and hardware (hinges, drawer slides) implied by the cabinets |
 | **Export ▾ → Printable sheet…** | A self-contained A4 HTML bill of materials (cut list + shopping list + hardware, grouped by room) opened in a new tab, ready to print or save as PDF |
@@ -136,12 +148,13 @@ materials and lighting:
 
 | Key | Action |
 |---|---|
+| `1` … `4` | Plan / Furnish / Workshop / Output workspace |
 | `R` / `Shift+R` | rotate selection 90° / 15° |
 | arrow keys / `Shift`+arrows | nudge 1 cm / 10 cm |
 | `Ctrl+Z` / `Ctrl+Shift+Z` or `Ctrl+Y` | undo / redo |
 | `Ctrl+D` | duplicate item |
 | `Delete` / `Backspace` | remove selection |
-| `Esc` | cancel placement · close dialog · deselect |
+| `Esc` | cancel placement · clear the studio selection · deselect |
 | mouse wheel / drag empty space | zoom / pan the plan |
 
 ## Architecture
@@ -179,6 +192,8 @@ src/
     meshKit.ts        shared mesh vocabulary (slabs, plinths, prisms…)
     partMeshes.ts     panel list → meshes + openable-front pivot groups
   ui/
+    workspaceState.ts which of the four workspaces is showing (+ the
+                      Workshop's current target)
     shellState.ts     chrome state: status hint, catalog drawer, wall label
     outlineModel.ts   pure grouping for the Components outline
     partstudio/       Part Studio: type picker, zone canvas, polygon canvas,

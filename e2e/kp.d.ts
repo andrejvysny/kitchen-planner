@@ -4,6 +4,7 @@ import type { ElevationView } from '../src/plan2d/elevation';
 import type { View3D } from '../src/view3d/view3d';
 import type { EditorState } from '../src/editor/editorState';
 import type { StoreBridge } from '../src/ui/react/storeBridge';
+import type { WorkspaceId } from '../src/ui/workspaceState';
 
 /**
  * The debug/testing handle installed by src/app/bootstrap.ts. Specs drive the app
@@ -26,6 +27,10 @@ declare global {
       editor: EditorState;
       /** Store + EditorState → React adapter; nothing subscribes yet */
       bridge: StoreBridge;
+      /** which of the four workspaces is showing */
+      workspace: () => WorkspaceId;
+      /** the ONE guarded switch (services.switchWorkspace) — false = refused */
+      setWorkspace: (w: WorkspaceId) => boolean;
       /** React commit counters — the seam e2e/transient-perf.spec.ts asserts on */
       debug: { renderCounts: Record<string, number> };
     };
