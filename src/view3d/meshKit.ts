@@ -3,10 +3,13 @@ import { APPLIANCE_BLACK, PLINTH_COLOR } from '../model/catalog';
 import { signedArea } from '../model/geometry';
 import type { Design, Item, Point, RoomStyle } from '../model/types';
 import { counterFin, type ResolvedFinish } from '../model/variables';
-import { texturedMaterial } from './textures';
+import { stampMaterial, texturedMaterial } from './textures';
 
 export { PLINTH_COLOR } from '../model/catalog';
 export { counterFin } from '../model/variables';
+// the semantic-name stamp lives with texturedMaterial (which needs it too),
+// but every mesh builder reaches for it through the mesh vocabulary
+export { stampMaterial, type MaterialStamp } from './textures';
 
 /**
  * Shared procedural-mesh vocabulary. Local space: x = width, y = up (0 at
@@ -33,11 +36,13 @@ export function shade(hex: string, f: number): string {
 }
 
 export function matte(color: string): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0.03 });
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0.03 });
+  return stampMaterial(m, { kind: 'plain', fallback: 'matte' });
 }
 
 export function wood(color: string): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.62, metalness: 0.02 });
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.62, metalness: 0.02 });
+  return stampMaterial(m, { kind: 'plain', fallback: 'wood' });
 }
 
 /** A paintable surface: user colour + optional built-in PBR material id. */
@@ -58,10 +63,15 @@ export function surfMat(
   if (fin.material) {
     const m = texturedMaterial(fin.material, color, fin.rot === true);
     if (m) {
-      if (tint !== 1) m.color.multiplyScalar(tint);
+      // the tint lands AFTER construction, so the stamped name has to follow it
+      if (tint !== 1) {
+        m.color.multiplyScalar(tint);
+        stampMaterial(m, { kind: 'library', matId: fin.material, rot: fin.rot === true });
+      }
       return m;
     }
   }
+  // `color` is already shaded here, so matte/wood stamp the final colour
   return fallback === 'wood' ? wood(color) : matte(color);
 }
 
@@ -97,15 +107,17 @@ function scaleCylUV(geo: THREE.CylinderGeometry, r: number, h: number): void {
 }
 
 export function steelMat(): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color: '#b6babd', roughness: 0.38, metalness: 0.65 });
+  const m = new THREE.MeshStandardMaterial({ color: '#b6babd', roughness: 0.38, metalness: 0.65 });
+  return stampMaterial(m, { kind: 'product', product: 'steel' });
 }
 
 export function applianceGlass(): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({
+  const m = new THREE.MeshStandardMaterial({
     color: APPLIANCE_BLACK,
     roughness: 0.25,
     metalness: 0.4,
   });
+  return stampMaterial(m, { kind: 'product', product: 'appliance-glass' });
 }
 
 export function box(

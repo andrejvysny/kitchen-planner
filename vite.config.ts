@@ -1,9 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import pkg from './package.json' with { type: 'json' };
 
 export default defineConfig({
   base: './',
   plugins: [react()],
+  // Stamped into the render manifest (src/app/version.ts) — a plain string
+  // literal at build/dev time, not a runtime read of package.json.
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   build: {
     // three.js alone is ~500 kB minified; it gets its own cached chunk
     chunkSizeWarningLimit: 600,

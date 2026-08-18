@@ -6,6 +6,7 @@ import {
   exportCutCsv,
   exportGlb,
   exportPlanSheet,
+  exportRenderPackage,
   exportSnapshotPng,
 } from './exportActions';
 import { useChannel } from './hooks/useStore';
@@ -26,6 +27,7 @@ export function OutputPane(): ReactElement | null {
   useChannel('workspace');
   const { store, view3d } = useAppServices();
   const [glbBusy, setGlbBusy] = useState(false);
+  const [renderBusy, setRenderBusy] = useState(false);
   const active = workspace() === 'output';
 
   useEffect(() => {
@@ -49,6 +51,15 @@ export function OutputPane(): ReactElement | null {
       await exportGlb(view3d);
     } finally {
       setGlbBusy(false);
+    }
+  };
+
+  const onRender = async (): Promise<void> => {
+    setRenderBusy(true);
+    try {
+      await exportRenderPackage(store, view3d);
+    } finally {
+      setRenderBusy(false);
     }
   };
 
@@ -100,6 +111,14 @@ export function OutputPane(): ReactElement | null {
           action={glbBusy ? 'Exporting…' : 'Export GLB'}
           disabled={glbBusy}
           onRun={() => void onGlb()}
+        />
+        <OutCard
+          id="out-card-render"
+          title="Render package (.zip)"
+          desc="Manifest + canonical GLB + design, for render/render.sh"
+          action={renderBusy ? 'Exporting…' : 'Export package'}
+          disabled={renderBusy}
+          onRun={() => void onRender()}
         />
       </div>
       <div className="out-foot">All exports come from the same design — nothing to sync.</div>

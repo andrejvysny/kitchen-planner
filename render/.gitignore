@@ -1,0 +1,6 @@
+.blender/
+materials/textures/
+out/
+__pycache__/
+.venv/
+*.blend1

@@ -12,6 +12,7 @@ import {
   matte,
   PLINTH_COLOR,
   prism,
+  stampMaterial,
   surfMat,
 } from './meshKit';
 
@@ -52,6 +53,11 @@ interface UnitData {
   targetT: number;
 }
 
+/** The routed groove strip: a fixed product surface, not a paintable colour. */
+function grooveMat(): THREE.MeshStandardMaterial {
+  return stampMaterial(matte(GROOVE), { kind: 'product', product: 'groove' });
+}
+
 function panelMaterial(
   p: Panel,
   front: Finish,
@@ -59,13 +65,15 @@ function panelMaterial(
   counter: Finish
 ): THREE.Material {
   if (p.slot === 'glass') {
-    return new THREE.MeshStandardMaterial({
+    const glass = new THREE.MeshStandardMaterial({
       color: '#bcd2d8',
       roughness: 0.1,
       metalness: 0.1,
       transparent: true,
       opacity: 0.35,
     });
+    // the library's own glass entry is what a renderer should rebuild from
+    return stampMaterial(glass, { kind: 'library', matId: 'glass', rot: false });
   }
   // 'counter' panels follow the room worktop style (per-item override wins),
   // the item's PBR material paints the 'front' slot; accent/plinth stay flat
@@ -118,7 +126,7 @@ function panelMesh(
   const grooveAt = (host: THREE.Group, x: number, y: number, z: number): void => {
     if (!p.groove) return;
     const gy = p.groove === 'top' ? y + h - 0.012 : y;
-    box(host, w, 0.012, d + 0.002, matte(GROOVE), x, gy, z - 0.002);
+    box(host, w, 0.012, d + 0.002, grooveMat(), x, gy, z - 0.002);
   };
   if (p.rotY) {
     const fg = new THREE.Group();
@@ -227,7 +235,7 @@ function motionUnit(
     tag(mesh, p);
     if (p.groove) {
       const gy = p.groove === 'top' ? p.y - yPivot + h - 0.012 : p.y - yPivot;
-      box(unit, w, 0.012, d + 0.002, matte(GROOVE), lx, gy, lz - 0.002);
+      box(unit, w, 0.012, d + 0.002, grooveMat(), lx, gy, lz - 0.002);
     }
   }
 }

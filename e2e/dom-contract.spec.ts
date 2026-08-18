@@ -242,6 +242,7 @@ const OUTPUT_PANE: readonly ContractEntry[] = [
   vis('#out-card-plan'),
   vis('#out-card-cut'),
   vis('#out-card-glb'),
+  vis('#out-card-render'),
 ];
 
 /** src/ui/partstudio/index.ts + typePicker.ts — the type-picker stage. */
@@ -284,6 +285,7 @@ const EXPORT_MENU: readonly ContractEntry[] = [
   vis('[data-export="plan"]'),
   vis('#btn-png[data-export="png"]'),
   vis('#btn-glb[data-export="glb"]'),
+  vis('[data-export="render"]'),
 ];
 
 /** The settings menu, toggled open by <SettingsMenu/> in src/ui/react/Topbar.tsx.

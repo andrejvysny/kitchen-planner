@@ -1,4 +1,12 @@
 import * as THREE from 'three';
+import {
+  materialName,
+  type LibraryMaterialDesc,
+  type MaterialDesc,
+  type PlainMaterialDesc,
+  type ProductMaterialDesc,
+  type ShellMaterialDesc,
+} from '../model/materialName';
 import { materialDef, type TexturePattern } from '../model/materials';
 
 /**
@@ -15,6 +23,37 @@ import { materialDef, type TexturePattern } from '../model/materials';
  */
 
 const SIZE = 512;
+
+/* ---------------- semantic material names ---------------- */
+
+/**
+ * A `MaterialDesc` minus its colour: `stampMaterial` reads that off the
+ * CONSTRUCTED material, so the six lowercase hex digits in a name always
+ * describe what the viewport actually shows — a CSS shorthand (`#abc`), a
+ * named colour or a post-construction tint multiply can never leak into it.
+ */
+export type MaterialStamp =
+  | Omit<LibraryMaterialDesc, 'hex6'>
+  | Omit<PlainMaterialDesc, 'hex6'>
+  | Omit<ShellMaterialDesc, 'hex6'>
+  | ProductMaterialDesc;
+
+/**
+ * Stamp a material's identity onto it: `.name` (the primary contract — glTF
+ * and Blender both carry names through, see src/model/materialName.ts) plus
+ * `userData.kp` (rides along as glTF `extras`). Naming only — no material
+ * parameter is touched, so the viewport is unaffected. Re-stamping after a
+ * colour change is how a tinted material keeps an honest name.
+ */
+export function stampMaterial<T extends THREE.Material>(mat: T, stamp: MaterialStamp): T {
+  const hex6 = (mat as THREE.Material & { color?: THREE.Color }).color?.getHexString() ?? '000000';
+  // always a fresh object: `userData` outlives this call and must not alias
+  // whatever the caller passed in
+  const desc: MaterialDesc = stamp.kind === 'product' ? { ...stamp } : { ...stamp, hex6 };
+  mat.name = materialName(desc);
+  mat.userData.kp = desc;
+  return mat;
+}
 
 /** physical size (m) covered by one texture tile */
 const TILE_M: Record<Exclude<TexturePattern, 'none'>, number> = {
@@ -278,7 +317,7 @@ export function texturedMaterial(
     mat.bumpMap = maps.bumpMap;
     mat.bumpScale = maps.bumpScale;
   }
-  return mat;
+  return stampMaterial(mat, { kind: 'library', matId, rot });
 }
 
 /** Small tinted preview of a material for UI swatches; null headless. */

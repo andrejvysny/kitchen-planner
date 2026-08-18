@@ -172,6 +172,14 @@ User texture uploads wait for an asset repository: texture bytes must never
 enter the Design, which is JSON-cloned per undo step and per autosave — the same
 rule the tracing photo already follows (`UNDERLAY_KEY`).
 
+Partly shipped by the render pipeline (milestone 1): every material is stamped
+with a semantic `kp:` name at creation (`src/model/materialName.ts`, mirrored
+by `render/worker/kprender/matnames.py`) — the render worker reads it to
+rebuild real OpenPBR materials, and the manual Blender workflow gets one name
+per material instead of GLTFExporter's per-instance defaults.
+`KHR_lights_punctual` in the plain `.glb` export remains open. The pipeline's
+own backlog: `render/NEXT_STEPS.md`.
+
 ## M21+ — Domain breadth
 
 Real product catalogs and an import architecture (OBJ/STEP/SKP) · electrical

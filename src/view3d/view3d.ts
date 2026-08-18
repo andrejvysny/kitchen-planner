@@ -3,13 +3,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import type { CatalogDef } from '../model/catalog';
+import { itemBaseY, SPOT_AIM, type CatalogDef } from '../model/catalog';
 import { polygonCentroid, wallPoint } from '../model/geometry';
 import { findHost } from '../model/attach';
 import { hostContexts } from '../model/worktops';
 import type { HostContext } from '../model/panels';
 import { snapItem } from '../model/snapping';
-import { openingsOfWall, roomById, styleOfItem, wallJoints, type RoomWall } from '../model/rooms';
+import { openingsOfWall, roomById, wallJoints, type RoomWall } from '../model/rooms';
 import type { Store } from '../model/store';
 import type { Corner, Item, Opening, Point } from '../model/types';
 import { AMBIENT_DAY, skyState } from '../model/sky';
@@ -22,7 +22,9 @@ import {
   stepFrontPoses,
   withClosedPoses,
 } from './partMeshes';
-import { prism, scaleBoxUV, surfMat } from './meshKit';
+import { prism, scaleBoxUV, stampMaterial, surfMat } from './meshKit';
+import { parseMaterialName, type MaterialDesc } from '../model/materialName';
+import type { ManifestCamera, ManifestMaterial } from '../model/renderManifest';
 import { resolveDevice } from '../model/navPref';
 import { isMac, wheelGesture, type WheelLike } from './wheelInput';
 
@@ -97,6 +99,24 @@ const navSpherical = new THREE.Spherical();
 function lightColor(warmth: number): THREE.Color {
   return scratchColor.copy(LIGHT_COOL).lerp(LIGHT_WARM, warmth);
 }
+
+/**
+ * Name a room-shell surface. Wall/floor/ceiling roughness is its own curve, so
+ * the shell identity WINS over whatever `surfMat` already stamped — but a
+ * library material that resolved underneath keeps its id and rotation, which is
+ * what lets a renderer rebuild the real oak floor instead of a flat brown one.
+ */
+function stampShell(
+  mat: THREE.MeshStandardMaterial,
+  surface: 'wall' | 'floor' | 'ceiling'
+): THREE.MeshStandardMaterial {
+  const prev = mat.userData.kp as MaterialDesc | undefined;
+  const lib = prev?.kind === 'library' ? prev : undefined;
+  return stampMaterial(mat, { kind: 'shell', surface, matId: lib?.matId, rot: lib?.rot ?? false });
+}
+
+/** How far down the forward axis a detached view's camera target is assumed to sit. */
+const CAMERA_TARGET_FALLBACK_M = 3;
 
 export class View3D {
   private store: Store;
@@ -188,7 +208,10 @@ export class View3D {
     // outside the groups the rebuild disposes
     this.ground = new THREE.Mesh(
       new THREE.CircleGeometry(40, 40),
-      new THREE.MeshStandardMaterial({ color: '#c8c9c4', roughness: 0.95 })
+      stampMaterial(new THREE.MeshStandardMaterial({ color: '#c8c9c4', roughness: 0.95 }), {
+        kind: 'product',
+        product: 'ground',
+      })
     );
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.position.y = -0.012;
@@ -579,9 +602,12 @@ export class View3D {
         style.floorMaterial,
         style.floorMaterialRot
       );
-      const floorMat = floorFin.material
-        ? surfMat(floorFin)
-        : new THREE.MeshStandardMaterial({ color: floorFin.color, roughness: 0.88 });
+      const floorMat = stampShell(
+        floorFin.material
+          ? surfMat(floorFin)
+          : new THREE.MeshStandardMaterial({ color: floorFin.color, roughness: 0.88 }),
+        'floor'
+      );
       floorMat.side = THREE.DoubleSide;
       const floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMat);
       floor.rotation.x = Math.PI / 2;
@@ -592,7 +618,7 @@ export class View3D {
       // ceiling (only visible from below)
       const ceil = new THREE.Mesh(
         new THREE.ShapeGeometry(shape),
-        new THREE.MeshStandardMaterial({ color: '#f6f5f1', roughness: 0.95 })
+        stampShell(new THREE.MeshStandardMaterial({ color: '#f6f5f1', roughness: 0.95 }), 'ceiling')
       );
       ceil.rotation.x = Math.PI / 2;
       ceil.position.y = H;
@@ -618,9 +644,12 @@ export class View3D {
           style.wallMaterial,
           style.wallMaterialRot
         );
-        const wallMat = wallFin.material
-          ? surfMat(wallFin)
-          : new THREE.MeshStandardMaterial({ color: wallFin.color, roughness: 0.94 });
+        const wallMat = stampShell(
+          wallFin.material
+            ? surfMat(wallFin)
+            : new THREE.MeshStandardMaterial({ color: wallFin.color, roughness: 0.94 }),
+          'wall'
+        );
         const openings = openingsOfWall(design, g).sort((a, b) => a.offset - b.offset);
 
         const addSeg = (x0: number, x1: number, y0: number, y1: number) => {
@@ -696,9 +725,12 @@ export class View3D {
         styles[0].wallMaterial,
         styles[0].wallMaterialRot
       );
-      const mat = fin.material
-        ? surfMat(fin)
-        : new THREE.MeshStandardMaterial({ color: fin.color, roughness: 0.94 });
+      const mat = stampShell(
+        fin.material
+          ? surfMat(fin)
+          : new THREE.MeshStandardMaterial({ color: fin.color, roughness: 0.94 }),
+        'wall'
+      );
       mat.polygonOffset = true;
       mat.polygonOffsetFactor = -1;
       mat.polygonOffsetUnits = -1;
@@ -713,7 +745,11 @@ export class View3D {
   }
 
   private buildOpening(wallGroup: THREE.Group, o: Opening, t: number, zc: number): void {
-    const frameMat = new THREE.MeshStandardMaterial({ color: '#e7e0d2', roughness: 0.7 });
+    // one frame material for jambs, head, sill and mullion, doors included
+    const frameMat = stampMaterial(
+      new THREE.MeshStandardMaterial({ color: '#e7e0d2', roughness: 0.7 }),
+      { kind: 'product', product: 'window-frame' }
+    );
     const g = new THREE.Group();
     g.position.set(o.offset, 0, zc);
 
@@ -733,13 +769,16 @@ export class View3D {
       frame(o.width, fw, 0, o.sill + fw / 2);
       const glass = new THREE.Mesh(
         new THREE.BoxGeometry(o.width - fw * 2, o.height - fw * 2, 0.02),
-        new THREE.MeshStandardMaterial({
-          color: '#cfe4ef',
-          roughness: 0.08,
-          metalness: 0.1,
-          transparent: true,
-          opacity: 0.32,
-        })
+        stampMaterial(
+          new THREE.MeshStandardMaterial({
+            color: '#cfe4ef',
+            roughness: 0.08,
+            metalness: 0.1,
+            transparent: true,
+            opacity: 0.32,
+          }),
+          { kind: 'product', product: 'window-glass' }
+        )
       );
       glass.position.set(0, o.sill + o.height / 2, 0);
       g.add(glass);
@@ -757,14 +796,20 @@ export class View3D {
       leaf.position.set(sign * (-o.width / 2 + fw), 0, out ? -t / 2 : t / 2);
       const slab = new THREE.Mesh(
         new THREE.BoxGeometry(o.width - fw * 2, o.height - fw - 0.02, 0.045),
-        new THREE.MeshStandardMaterial({ color: '#ece7db', roughness: 0.6 })
+        stampMaterial(new THREE.MeshStandardMaterial({ color: '#ece7db', roughness: 0.6 }), {
+          kind: 'product',
+          product: 'door-leaf',
+        })
       );
       slab.position.set((sign * (o.width - fw * 2)) / 2, (o.height - fw) / 2, 0);
       slab.castShadow = true;
       leaf.add(slab);
       const knob = new THREE.Mesh(
         new THREE.SphereGeometry(0.022, 12, 10),
-        new THREE.MeshStandardMaterial({ color: '#2b2b28', roughness: 0.3, metalness: 0.7 })
+        stampMaterial(
+          new THREE.MeshStandardMaterial({ color: '#2b2b28', roughness: 0.3, metalness: 0.7 }),
+          { kind: 'product', product: 'door-knob' }
+        )
       );
       knob.position.set(sign * (o.width - fw * 2 - 0.06), 1.02, out ? -0.045 : 0.045);
       leaf.add(knob);
@@ -792,7 +837,7 @@ export class View3D {
         const s = new THREE.SpotLight('#ffffff', 0, 8, 0.75, 0.45, 1.4);
         s.position.y = lightLocalY(def, item);
         const target = new THREE.Object3D();
-        target.position.set(0, -2.5, 0.35);
+        target.position.set(SPOT_AIM.x, SPOT_AIM.y, SPOT_AIM.z);
         s.target = target;
         group.add(target);
         light = s;
@@ -868,8 +913,7 @@ export class View3D {
     const entry = this.itemEntries.get(item.id);
     if (!entry) return;
     const def = this.store.defOf(item.defId);
-    const H = styleOfItem(this.store.design, item).wallHeight;
-    const y = def.kind === 'spot' ? H - 0.02 : item.elevation;
+    const y = itemBaseY(this.store.design, item, def);
     entry.group.position.set(item.x, y, item.y);
     entry.group.rotation.y = -item.rotation;
   }
@@ -1270,6 +1314,66 @@ export class View3D {
   }
 
   /**
+   * The camera as the render worker needs it: plain numbers in the glTF/three
+   * world frame, vertical fov, and the aspect the pose was framed at. Geometry
+   * is irrelevant to a camera, so this deliberately does NOT flush a rebuild.
+   * A view that never attached has no OrbitControls and therefore no target —
+   * a point down the forward axis stands in for one.
+   */
+  cameraPose(): ManifestCamera {
+    const cam = this.camera;
+    const p = cam.position;
+    const controls = this.controls as OrbitControls | undefined;
+    const t =
+      controls?.target ??
+      cam.getWorldDirection(new THREE.Vector3()).multiplyScalar(CAMERA_TARGET_FALLBACK_M).add(p);
+    return {
+      position: { x: p.x, y: p.y, z: p.z },
+      target: { x: t.x, y: t.y, z: t.z },
+      up: { x: 0, y: 1, z: 0 },
+      fovYDeg: cam.fov,
+      viewportAspect: cam.aspect,
+      nearM: cam.near,
+      farM: cam.far,
+    };
+  }
+
+  /**
+   * Hand `fn` an export-ready CLONE of the design: tints cleared (so none bakes
+   * into the exported materials), doors and drawers snapped closed (an open
+   * preview is view state, not model), light sources and the helper ground disc
+   * stripped. The clone shares its materials and geometry with the live scene —
+   * a caller may re-point `mesh.material`, but must never mutate one in place.
+   * The tints are restored whatever `fn` does.
+   */
+  private async withExportRoot<T>(fn: (root: THREE.Group) => Promise<T>): Promise<T> {
+    const tinted = new Map(this.appliedTints);
+    for (const id of tinted.keys()) this.setTint(id, null);
+    this.appliedTints.clear();
+    try {
+      const root = new THREE.Group();
+      root.name = 'Design';
+      const roomClone = this.roomGroup.clone(true);
+      roomClone.name = 'Rooms';
+      const allUnits = [...this.itemEntries.values()].flatMap((e) => e.units);
+      const itemsClone = withClosedPoses(allUnits, () => this.itemsGroup.clone(true));
+      itemsClone.name = 'Furniture';
+      root.add(roomClone, itemsClone);
+
+      const toRemove: THREE.Object3D[] = [];
+      root.traverse((o) => {
+        if ((o as THREE.Light).isLight || o.name === 'Ground') toRemove.push(o);
+      });
+      for (const o of toRemove) o.parent?.remove(o);
+
+      return await fn(root);
+    } finally {
+      for (const [id, color] of tinted) this.setTint(id, color);
+      this.appliedTints = tinted;
+    }
+  }
+
+  /**
    * Export the fully modelled interior (room shells + every item) as binary
    * glTF for Blender. Light sources and the helper ground disc are stripped —
    * materials and lighting are meant to be authored in Blender.
@@ -1277,34 +1381,116 @@ export class View3D {
   async exportGLB(): Promise<Blob> {
     this.flushRebuild();
     const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
-
-    // clear every tint (selection + warnings) so none bakes into exported materials
-    const tinted = new Map(this.appliedTints);
-    for (const id of tinted.keys()) this.setTint(id, null);
-    this.appliedTints.clear();
-
-    const root = new THREE.Group();
-    root.name = 'Design';
-    const roomClone = this.roomGroup.clone(true);
-    roomClone.name = 'Rooms';
-    // export closed geometry: open-preview poses are view state, not model
-    const allUnits = [...this.itemEntries.values()].flatMap((e) => e.units);
-    const itemsClone = withClosedPoses(allUnits, () => this.itemsGroup.clone(true));
-    itemsClone.name = 'Furniture';
-    root.add(roomClone, itemsClone);
-
-    const toRemove: THREE.Object3D[] = [];
-    root.traverse((o) => {
-      if ((o as THREE.Light).isLight || o.name === 'Ground') toRemove.push(o);
+    return this.withExportRoot(async (root) => {
+      const buffer = (await new GLTFExporter().parseAsync(root, {
+        binary: true,
+      })) as ArrayBuffer;
+      return new Blob([buffer], { type: 'model/gltf-binary' });
     });
-    for (const o of toRemove) o.parent?.remove(o);
+  }
 
-    const exporter = new GLTFExporter();
-    const buffer = (await exporter.parseAsync(root, { binary: true })) as ArrayBuffer;
+  /**
+   * Fold every material of an export clone down to ONE instance per semantic
+   * name. Materials are minted per surface, so the same oak reaches the
+   * exporter a few hundred times and GLTFExporter — which dedupes by instance —
+   * writes a glTF material for each; keyed by name instead, the demo design
+   * collapses to a couple of dozen. With `stripMaps` the canonical instance is
+   * a CLONE with its procedural canvas maps removed (they would embed as PNGs,
+   * and the worker rebuilds the real texture set from the name anyway) — the
+   * clone matters: the live scene shares these material objects.
+   *
+   * Materials with no `.name` (nothing in this codebase mints one, but a stray
+   * three.js default would) are left exactly where they are, never merged with
+   * each other, and only counted.
+   */
+  private canonicalizeMaterials(
+    root: THREE.Object3D,
+    stripMaps: boolean
+  ): {
+    canonical: { name: string; material: THREE.Material; meshCount: number }[];
+    clones: THREE.Material[];
+    unnamedMeshCount: number;
+  } {
+    const byName = new Map<string, { name: string; material: THREE.Material; meshCount: number }>();
+    const clones: THREE.Material[] = [];
+    let unnamedMeshCount = 0;
 
-    for (const [id, color] of tinted) this.setTint(id, color);
-    this.appliedTints = tinted;
-    return new Blob([buffer], { type: 'model/gltf-binary' });
+    const canon = (m: THREE.Material): THREE.Material => {
+      if (!m.name) {
+        unnamedMeshCount++;
+        return m;
+      }
+      const hit = byName.get(m.name);
+      if (hit) {
+        hit.meshCount++;
+        return hit.material;
+      }
+      let material = m;
+      if (stripMaps) {
+        const c = m.clone() as THREE.MeshStandardMaterial;
+        c.map = null;
+        c.bumpMap = null;
+        clones.push(c);
+        material = c;
+      }
+      byName.set(m.name, { name: m.name, material, meshCount: 1 });
+      return material;
+    };
+
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.material) return;
+      if (Array.isArray(mesh.material)) mesh.material = mesh.material.map(canon);
+      else mesh.material = canon(mesh.material);
+    });
+    return { canonical: [...byName.values()], clones, unnamedMeshCount };
+  }
+
+  /**
+   * The render-package GLB: the same geometry `exportGLB` writes, but with one
+   * material per semantic name and no baked texture images, plus the material
+   * table the render manifest carries. A name that does not parse stays on the
+   * mesh in the GLB (the worker keeps its imported colour) but is left out of
+   * the table — the manifest only describes materials it can speak for.
+   */
+  async exportRenderGLB(): Promise<{ blob: Blob; materials: ManifestMaterial[] }> {
+    this.flushRebuild();
+    const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
+    return this.withExportRoot(async (root) => {
+      const { canonical, clones } = this.canonicalizeMaterials(root, true);
+      let buffer: ArrayBuffer;
+      try {
+        buffer = (await new GLTFExporter().parseAsync(root, { binary: true })) as ArrayBuffer;
+      } finally {
+        for (const c of clones) c.dispose();
+      }
+
+      const materials: ManifestMaterial[] = [];
+      for (const entry of canonical) {
+        const desc = parseMaterialName(entry.name);
+        if (!desc) continue;
+        const color = (entry.material as THREE.MeshStandardMaterial).color;
+        materials.push({
+          name: entry.name,
+          kind: desc.kind,
+          matId: desc.kind === 'library' || desc.kind === 'shell' ? desc.matId : undefined,
+          // a product name carries no colour of its own, so it answers with the
+          // one the viewport actually shows
+          baseColorHex: desc.kind === 'product' ? (color?.getHexString() ?? '000000') : desc.hex6,
+          rot:
+            desc.kind === 'library'
+              ? desc.rot
+              : desc.kind === 'shell'
+                ? (desc.rot ?? false)
+                : false,
+          fallback: desc.kind === 'plain' ? desc.fallback : undefined,
+          surface: desc.kind === 'shell' ? desc.surface : undefined,
+          product: desc.kind === 'product' ? desc.product : undefined,
+          meshCount: entry.meshCount,
+        });
+      }
+      return { blob: new Blob([buffer], { type: 'model/gltf-binary' }), materials };
+    });
   }
 }
 

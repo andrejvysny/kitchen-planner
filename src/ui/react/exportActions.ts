@@ -1,5 +1,8 @@
+import { APP_VERSION } from '../../app/version';
 import { buildBom } from '../../model/export';
 import { bomHtml, cutListCsv, shoppingListCsv } from '../../model/exportFormats';
+import { buildRenderManifest } from '../../model/renderManifest';
+import { buildRenderPackage, PACKAGE_FILENAME } from '../../model/renderPackage';
 import type { Store } from '../../model/store';
 import { openPrintSheet } from '../../print/sheet';
 import type { View3D } from '../../view3d/view3d';
@@ -72,6 +75,33 @@ export function exportPlanSheet(store: Store): void {
 export function exportSnapshotPng(view3d: View3D): void {
   download(view3d.snapshotPNG(), 'interior-3d.png');
   setHint('interior-3d.png exported');
+}
+
+/** Resolves once the zip is handed to the browser; the caller owns the busy flag. */
+export async function exportRenderPackage(store: Store, view3d: View3D): Promise<void> {
+  try {
+    const { blob, materials } = await view3d.exportRenderGLB();
+    const manifest = buildRenderManifest(store.design, {
+      camera: view3d.cameraPose(),
+      materials,
+      render: { widthPx: 1920, heightPx: 1080, tier: 'final', sensorFit: 'vertical' },
+      appVersion: APP_VERSION,
+    });
+    const zip = buildRenderPackage({
+      manifest,
+      glb: new Uint8Array(await blob.arrayBuffer()),
+      design: store.design,
+    });
+    download(
+      // `.slice()` re-types the buffer as plain ArrayBuffer (Uint8Array's
+      // default type param is ArrayBufferLike, which BlobPart rejects)
+      URL.createObjectURL(new Blob([zip.slice()], { type: 'application/zip' })),
+      PACKAGE_FILENAME
+    );
+    setHint('interior-render.zip exported — render it with render/render.sh');
+  } catch {
+    setHint('Render package export failed — try again after a reload.');
+  }
 }
 
 /** Resolves once the file is handed to the browser; the caller owns the busy flag. */

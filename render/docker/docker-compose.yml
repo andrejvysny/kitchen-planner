@@ -1,0 +1,58 @@
+# Linux + NVIDIA only — see README.md (macOS: use ../setup.sh + ../render.sh
+# natively instead, no Metal passthrough in containers). Optional and
+# unexercised until a future serverless milestone actually drives this path.
+#
+# Usage (from this directory):
+#
+#   mkdir -p in out && cp /path/to/interior-render.zip in/
+#   docker compose run --rm render-gpu                    # needs the NVIDIA Container Toolkit
+#   docker compose --profile cpu run --rm render-cpu       # any Linux host
+#
+# Edit the `command:` list below to change the package filename or flags —
+# both services otherwise share one image (`x-render-build` below).
+
+x-render-build: &render-build
+  context: ..
+  dockerfile: docker/Dockerfile
+
+services:
+  render-gpu:
+    build: *render-build
+    image: kitchen-planner-render:latest
+    volumes:
+      - ./in:/data/in:ro
+      - ./out:/data/out
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command:
+      - /data/in/interior-render.zip
+      - --out
+      - /data/out/out.png
+      - --tier
+      - final
+      - --device
+      - cuda
+
+  render-cpu:
+    build: *render-build
+    image: kitchen-planner-render:latest
+    profiles: ['cpu']
+    volumes:
+      - ./in:/data/in:ro
+      - ./out:/data/out
+    command:
+      - /data/in/interior-render.zip
+      - --out
+      - /data/out/out.png
+      - --tier
+      - preview
+      - --device
+      - cpu

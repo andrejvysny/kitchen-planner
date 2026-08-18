@@ -19,6 +19,7 @@ import {
   prism,
   roundedRectPoly,
   softSlab,
+  stampMaterial,
   steelMat,
   surfMat,
   wood,
@@ -34,6 +35,7 @@ import { buildCustomPart } from './partMeshes';
  */
 
 export { shade } from './meshKit';
+export { lightLocalY } from '../model/catalog';
 
 interface Ctx {
   item: Item;
@@ -57,18 +59,27 @@ type Builder = (g: THREE.Group, c: Ctx) => void;
 const sink: Builder = (g, { item }) => {
   const { w, d } = item;
   const bowls = Math.max(1, item.params?.bowls ?? 1);
-  const steel = new THREE.MeshStandardMaterial({
-    color: '#b9bdc0',
-    roughness: 0.35,
-    metalness: 0.7,
-  });
+  const steel = stampMaterial(
+    new THREE.MeshStandardMaterial({
+      color: '#b9bdc0',
+      roughness: 0.35,
+      metalness: 0.7,
+    }),
+    { kind: 'product', product: 'steel' }
+  );
   // rim plate flush on the counter
   box(g, w, 0.012, d - 0.08, steel, 0, 0, 0.02);
-  const basinMat = new THREE.MeshStandardMaterial({
-    color: '#2e3134',
-    roughness: 0.35,
-    metalness: 0.7,
-  });
+  // the bowl is dark, so it names as an appliance-black surface rather than
+  // steel — a product name carries no colour, and folding it into the bright
+  // rim material downstream would light the sink from the wrong value
+  const basinMat = stampMaterial(
+    new THREE.MeshStandardMaterial({
+      color: '#2e3134',
+      roughness: 0.35,
+      metalness: 0.7,
+    }),
+    { kind: 'product', product: 'appliance-black' }
+  );
   const bw = (w - 0.06) / bowls - 0.02;
   for (let i = 0; i < bowls; i++) {
     const x = bowls === 1 ? 0 : (i === 0 ? -1 : 1) * (bw / 2 + 0.015);
@@ -77,11 +88,14 @@ const sink: Builder = (g, { item }) => {
     box(g, bw - 0.04, 0.02, d - 0.18, matte('#191b1d'), x, -0.02, 0.02);
   }
   // black arc faucet at the back edge
-  const black = new THREE.MeshStandardMaterial({
-    color: '#141414',
-    roughness: 0.4,
-    metalness: 0.5,
-  });
+  const black = stampMaterial(
+    new THREE.MeshStandardMaterial({
+      color: '#141414',
+      roughness: 0.4,
+      metalness: 0.5,
+    }),
+    { kind: 'product', product: 'appliance-black' }
+  );
   cyl(g, 0.014, 0.3, black, 0, 0.005, -d / 2 + 0.05);
   const arm = cyl(g, 0.011, 0.22, black, 0, 0.295, -d / 2 + 0.05);
   arm.rotation.x = Math.PI / 2.3;
@@ -92,7 +106,10 @@ const hob: Builder = (g, { item }) => {
   const { w, d } = item;
   box(g, w, 0.008, d, applianceGlass(), 0, 0, 0);
   const zones = Math.max(2, item.params?.burners ?? 4);
-  const ring = new THREE.MeshStandardMaterial({ color: '#3c3f43', roughness: 0.5, metalness: 0.3 });
+  const ring = stampMaterial(
+    new THREE.MeshStandardMaterial({ color: '#3c3f43', roughness: 0.5, metalness: 0.3 }),
+    { kind: 'product', product: 'appliance-ring' }
+  );
   const pos: [number, number][] =
     zones === 2
       ? [
@@ -155,11 +172,14 @@ const fridge: Builder = (g, { item }) => {
   const split = h * 0.62;
   box(g, w - 0.02, h - split - 0.04, 0.02, doorMat, 0, split + 0.02, d / 2 + 0.005);
   box(g, w - 0.02, split - 0.06, 0.02, doorMat, 0, 0.04, d / 2 + 0.005);
-  const handle = new THREE.MeshStandardMaterial({
-    color: '#7e8487',
-    roughness: 0.3,
-    metalness: 0.8,
-  });
+  const handle = stampMaterial(
+    new THREE.MeshStandardMaterial({
+      color: '#7e8487',
+      roughness: 0.3,
+      metalness: 0.8,
+    }),
+    { kind: 'product', product: 'handle' }
+  );
   box(g, 0.02, Math.min(0.5, h * 0.25), 0.025, handle, -w / 2 + 0.07, split + 0.1, d / 2 + 0.03);
   box(g, 0.02, Math.min(0.3, h * 0.16), 0.025, handle, -w / 2 + 0.07, split - 0.4, d / 2 + 0.03);
 };
@@ -505,11 +525,14 @@ const pendant: Builder = (g, { item, room, finish }) => {
   shadeMesh.castShadow = false;
   const bulb = new THREE.Mesh(
     new THREE.SphereGeometry(0.045, 16, 12),
-    new THREE.MeshStandardMaterial({
-      color: '#fff6e0',
-      emissive: '#ffd9a0',
-      emissiveIntensity: 1.6,
-    })
+    stampMaterial(
+      new THREE.MeshStandardMaterial({
+        color: '#fff6e0',
+        emissive: '#ffd9a0',
+        emissiveIntensity: 1.6,
+      }),
+      { kind: 'product', product: 'bulb' }
+    )
   );
   bulb.position.y = h * 0.22;
   bulb.userData.bulb = true;
@@ -520,11 +543,14 @@ const spot: Builder = (g, { item, finish }) => {
   cyl(g, item.w / 2, 0.02, surfMat(finish), 0, 0.02, 0);
   const lens = new THREE.Mesh(
     new THREE.CylinderGeometry(item.w / 2 - 0.02, item.w / 2 - 0.02, 0.008, 20),
-    new THREE.MeshStandardMaterial({
-      color: '#fff8e6',
-      emissive: '#ffe8b8',
-      emissiveIntensity: 1.4,
-    })
+    stampMaterial(
+      new THREE.MeshStandardMaterial({
+        color: '#fff8e6',
+        emissive: '#ffe8b8',
+        emissiveIntensity: 1.4,
+      }),
+      { kind: 'product', product: 'bulb' }
+    )
   );
   lens.position.y = 0.012;
   lens.userData.bulb = true;
@@ -534,11 +560,14 @@ const spot: Builder = (g, { item, finish }) => {
 const strip: Builder = (g, { item }) => {
   const bar = new THREE.Mesh(
     new THREE.BoxGeometry(item.w, 0.018, 0.035),
-    new THREE.MeshStandardMaterial({
-      color: '#fff4da',
-      emissive: '#ffce7d',
-      emissiveIntensity: 1.8,
-    })
+    stampMaterial(
+      new THREE.MeshStandardMaterial({
+        color: '#fff4da',
+        emissive: '#ffce7d',
+        emissiveIntensity: 1.8,
+      }),
+      { kind: 'product', product: 'bulb' }
+    )
   );
   bar.position.y = 0.01;
   bar.userData.bulb = true;
@@ -647,16 +676,4 @@ export function buildItemGroup(
   if (builder) builder(g, { item, def, design, room, part, host, finish });
   else box(g, item.w, item.h, item.d, surfMat(finish), 0, 0, 0);
   return g;
-}
-
-/** Where the actual light source sits, in item-local coordinates. */
-export function lightLocalY(def: CatalogDef, item: Item): number {
-  switch (def.kind) {
-    case 'pendant':
-      return item.h * 0.18;
-    case 'spot':
-      return -0.04;
-    default:
-      return -0.02;
-  }
 }

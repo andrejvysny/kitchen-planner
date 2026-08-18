@@ -1,4 +1,5 @@
-import type { LightProps } from './types';
+import { styleOfItem } from './rooms';
+import type { Design, Item, LightProps } from './types';
 
 /**
  * Palette derived from the reference interiors: matte two-tone fronts
@@ -572,4 +573,29 @@ export function isWallMounted(def: CatalogDef): boolean {
  */
 export function isDecorative(def: CatalogDef): boolean {
   return def.noCollide === true;
+}
+
+/** Where the actual light source sits, in item-local coordinates. */
+export function lightLocalY(def: CatalogDef, item: Item): number {
+  switch (def.kind) {
+    case 'pendant':
+      return item.h * 0.18;
+    case 'spot':
+      return -0.04;
+    default:
+      return -0.02;
+  }
+}
+
+/** Item-local aim point of a ceiling spot; View3D's spot target sits here. */
+export const SPOT_AIM = { x: 0, y: -2.5, z: 0.35 } as const;
+
+/**
+ * World y of an item group's origin. Ceiling spots hang from the ceiling
+ * (`wallHeight - 0.02`, just clear of the slab) regardless of their stored
+ * elevation; everything else places at its own `item.elevation`.
+ */
+export function itemBaseY(design: Design, item: Item, def: CatalogDef): number {
+  if (def.kind === 'spot') return styleOfItem(design, item).wallHeight - 0.02;
+  return item.elevation;
 }

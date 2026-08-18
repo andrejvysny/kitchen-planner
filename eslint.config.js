@@ -5,7 +5,11 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 
 export default defineConfig([
-  globalIgnores(['dist/**', 'node_modules/**']),
+  // render/** is a separate Python/Blender project (its own lint/test in
+  // .github/workflows/render-worker.yml) — nothing there is JS/TS, so no
+  // `files` glob above actually reaches it, but the ignore is explicit
+  // documentation of that boundary rather than an accident of pattern gaps.
+  globalIgnores(['dist/**', 'node_modules/**', 'render/**']),
 
   {
     // App code: browser globals, no Node.

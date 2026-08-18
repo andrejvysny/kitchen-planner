@@ -1,0 +1,138 @@
+{
+  "source": "ambientCG",
+  "licence": "CC0-1.0",
+  "resolution": "2K",
+  "format": "JPG",
+  "_comment": [
+    "Pinned CC0 texture sets fetched by fetch_textures.py into",
+    "render/materials/textures/<assetId>/ (gitignored, never committed).",
+    "sha256 is null until the first successful fetch records it here",
+    "('record-on-first-fetch') — after that, a mismatch is a hard error.",
+    "'verified' reflects whether the asset id was confirmed to exist via",
+    "ambientCG's API (https://ambientcg.com/api/v2/full_json?id=<id>&",
+    "type=Material) at authoring time; it is independent of sha256 and is",
+    "not re-checked by fetch_textures.py at fetch time."
+  ],
+  "sets": [
+    {
+      "ref": "ambientcg:Wood051",
+      "assetId": "Wood051",
+      "url": "https://ambientcg.com/get?file=Wood051_2K-JPG.zip",
+      "sha256": null,
+      "verified": false,
+      "files": {
+        "Color": "Wood051_2K-JPG_Color.jpg",
+        "Roughness": "Wood051_2K-JPG_Roughness.jpg",
+        "NormalGL": "Wood051_2K-JPG_NormalGL.jpg"
+      }
+    },
+    {
+      "ref": "ambientcg:Wood062",
+      "assetId": "Wood062",
+      "url": "https://ambientcg.com/get?file=Wood062_2K-JPG.zip",
+      "sha256": null,
+      "verified": false,
+      "files": {
+        "Color": "Wood062_2K-JPG_Color.jpg",
+        "Roughness": "Wood062_2K-JPG_Roughness.jpg",
+        "NormalGL": "Wood062_2K-JPG_NormalGL.jpg"
+      }
+    },
+    {
+      "ref": "ambientcg:Wood067",
+      "assetId": "Wood067",
+      "url": "https://ambientcg.com/get?file=Wood067_2K-JPG.zip",
+      "sha256": null,
+      "verified": false,
+      "files": {
+        "Color": "Wood067_2K-JPG_Color.jpg",
+        "Roughness": "Wood067_2K-JPG_Roughness.jpg",
+        "NormalGL": "Wood067_2K-JPG_NormalGL.jpg"
+      }
+    },
+    {
+      "ref": "ambientcg:WoodFloor041",
+      "assetId": "WoodFloor041",
+      "url": "https://ambientcg.com/get?file=WoodFloor041_2K-JPG.zip",
+      "sha256": null,
+      "verified": false,
+      "files": {
+        "Color": "WoodFloor041_2K-JPG_Color.jpg",
+        "Roughness": "WoodFloor041_2K-JPG_Roughness.jpg",
+        "NormalGL": "WoodFloor041_2K-JPG_NormalGL.jpg"
+      }
+    },
+    {
+      "ref": "ambientcg:WoodFloor051",
+      "assetId": "WoodFloor051",
+      "url": "https://ambientcg.com/get?file=WoodFloor051_2K-JPG.zip",
+      "sha256": null,
+      "verified": false,
+      "files": {
+        "Color": "WoodFloor051_2K-JPG_Color.jpg",
+        "Roughness": "WoodFloor051_2K-JPG_Roughness.jpg",
+        "NormalGL": "WoodFloor051_2K-JPG_NormalGL.jpg"
+      }
+    },
+    {
+      "ref": "ambientcg:Tiles101",
+      "assetId": "Tiles101",
+      "url": "https://ambientcg.com/get?file=Tiles101_2K-JPG.zip",
+      "sha256": null,
+      "verified": false,
+      "files": {
+        "Color": "Tiles101_2K-JPG_Color.jpg",
+        "Roughness": "Tiles101_2K-JPG_Roughness.jpg",
+        "NormalGL": "Tiles101_2K-JPG_NormalGL.jpg"
+      }
+    },
+    {
+      "ref": "ambientcg:Tiles074",
+      "assetId": "Tiles074",
+      "url": "https://ambientcg.com/get?file=Tiles074_2K-JPG.zip",
+      "sha256": null,
+      "verified": false,
+      "files": {
+        "Color": "Tiles074_2K-JPG_Color.jpg",
+        "Roughness": "Tiles074_2K-JPG_Roughness.jpg",
+        "NormalGL": "Tiles074_2K-JPG_NormalGL.jpg"
+      }
+    },
+    {
+      "ref": "ambientcg:Marble012",
+      "assetId": "Marble012",
+      "url": "https://ambientcg.com/get?file=Marble012_2K-JPG.zip",
+      "sha256": null,
+      "verified": false,
+      "files": {
+        "Color": "Marble012_2K-JPG_Color.jpg",
+        "Roughness": "Marble012_2K-JPG_Roughness.jpg",
+        "NormalGL": "Marble012_2K-JPG_NormalGL.jpg"
+      }
+    },
+    {
+      "ref": "ambientcg:Marble006",
+      "assetId": "Marble006",
+      "url": "https://ambientcg.com/get?file=Marble006_2K-JPG.zip",
+      "sha256": null,
+      "verified": false,
+      "files": {
+        "Color": "Marble006_2K-JPG_Color.jpg",
+        "Roughness": "Marble006_2K-JPG_Roughness.jpg",
+        "NormalGL": "Marble006_2K-JPG_NormalGL.jpg"
+      }
+    },
+    {
+      "ref": "ambientcg:Concrete034",
+      "assetId": "Concrete034",
+      "url": "https://ambientcg.com/get?file=Concrete034_2K-JPG.zip",
+      "sha256": null,
+      "verified": false,
+      "files": {
+        "Color": "Concrete034_2K-JPG_Color.jpg",
+        "Roughness": "Concrete034_2K-JPG_Roughness.jpg",
+        "NormalGL": "Concrete034_2K-JPG_NormalGL.jpg"
+      }
+    }
+  ]
+}

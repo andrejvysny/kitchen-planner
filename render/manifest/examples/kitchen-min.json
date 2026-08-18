@@ -1,0 +1,183 @@
+{
+  "manifestVersion": 1,
+  "designVersion": 6,
+  "appVersion": "0.0.0-golden",
+  "exportedAt": "2026-08-18T00:00:00.000Z",
+  "units": "m",
+  "axis": "gltf-y-up",
+  "files": {
+    "glb": "scene.glb",
+    "design": "design.json"
+  },
+  "camera": {
+    "position": {
+      "x": 5.2,
+      "y": 1.65,
+      "z": 4.8
+    },
+    "target": {
+      "x": 2,
+      "y": 1.1,
+      "z": 1.5
+    },
+    "up": {
+      "x": 0,
+      "y": 1,
+      "z": 0
+    },
+    "fovYDeg": 50,
+    "viewportAspect": 1.777778,
+    "nearM": 0.05,
+    "farM": 120
+  },
+  "sky": {
+    "azimuthDeg": 135,
+    "elevationDeg": 35,
+    "night": false,
+    "brightness": 1,
+    "sunDirection": {
+      "x": 0.579228,
+      "y": 0.573576,
+      "z": -0.579228
+    },
+    "daylight": 1,
+    "lampBoost": 0,
+    "viewport": {
+      "sunColor": "#fff4e0",
+      "sunIntensity": 1.4083333333333334,
+      "ambientColor": "#ffffff",
+      "ambientIntensity": 0.5,
+      "background": "#e6e4df"
+    }
+  },
+  "lights": [
+    {
+      "itemId": "it-pendant",
+      "defId": "pendant",
+      "kind": "point",
+      "on": true,
+      "intensity": 0.7,
+      "warmth": 0.75,
+      "position": {
+        "x": 2,
+        "y": 1.904,
+        "z": 1.5
+      },
+      "direction": {
+        "x": 0,
+        "y": -1,
+        "z": 0
+      },
+      "yawRad": 0
+    },
+    {
+      "itemId": "it-spot",
+      "defId": "spot",
+      "kind": "spot",
+      "on": true,
+      "intensity": 0.65,
+      "warmth": 0.55,
+      "colorHex": "#ffd9a8",
+      "position": {
+        "x": 3.2,
+        "y": 2.54,
+        "z": 0.7
+      },
+      "direction": {
+        "x": -0.098039,
+        "y": -0.990342,
+        "z": 0.098039
+      },
+      "coneAngleRad": 1.5,
+      "coneBlend": 0.45,
+      "yawRad": -0.785398
+    },
+    {
+      "itemId": "it-strip",
+      "defId": "strip",
+      "kind": "bar",
+      "on": false,
+      "intensity": 0.55,
+      "warmth": 0.7,
+      "position": {
+        "x": 0.9,
+        "y": 1.4,
+        "z": 0.12
+      },
+      "direction": {
+        "x": 0,
+        "y": -1,
+        "z": 0
+      },
+      "sizeX": 1.2,
+      "sizeY": 0.06,
+      "yawRad": 0
+    }
+  ],
+  "portals": [
+    {
+      "openingId": "op-window",
+      "wallId": "room-kitchen-c0",
+      "roomId": "room-kitchen",
+      "type": "window",
+      "center": {
+        "x": 2,
+        "y": 1.55,
+        "z": -0.05
+      },
+      "width": 1.4,
+      "height": 1.2,
+      "normal": {
+        "x": 0,
+        "y": 0,
+        "z": 1
+      },
+      "tangent": {
+        "x": 1,
+        "y": 0,
+        "z": 0
+      },
+      "wallThickness": 0.1,
+      "sill": 0.95,
+      "interior": false
+    }
+  ],
+  "materials": [
+    {
+      "name": "kp:m:oak:c9a87c",
+      "kind": "library",
+      "matId": "oak",
+      "baseColorHex": "#c9a87c",
+      "rot": false,
+      "meshCount": 12
+    },
+    {
+      "name": "kp:s:wall:f4f1ea",
+      "kind": "shell",
+      "surface": "wall",
+      "baseColorHex": "#f4f1ea",
+      "rot": false,
+      "meshCount": 4
+    }
+  ],
+  "render": {
+    "widthPx": 1920,
+    "heightPx": 1080,
+    "tier": "final",
+    "sensorFit": "vertical"
+  },
+  "rooms": [
+    {
+      "id": "room-kitchen",
+      "name": "Kitchen",
+      "wallHeight": 2.6,
+      "wallThickness": 0.1,
+      "floorAreaM2": 12,
+      "centroid": {
+        "x": 2,
+        "y": 0,
+        "z": 1.5
+      }
+    }
+  ]
+}

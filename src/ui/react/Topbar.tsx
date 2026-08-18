@@ -20,6 +20,7 @@ import {
   exportCutCsv,
   exportGlb,
   exportPlanSheet,
+  exportRenderPackage,
   exportSnapshotPng,
 } from './exportActions';
 import { useChannel } from './hooks/useStore';
@@ -419,12 +420,13 @@ function ExportMenu(): ReactElement {
   const { store, view3d } = useAppServices();
   const [open, setOpen] = useState(false);
   const [glbBusy, setGlbBusy] = useState(false);
+  const [renderBusy, setRenderBusy] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const closeMenu = useCallback(() => setOpen(false), []);
   useMenuDismiss(open, closeMenu, menu, btn);
 
-  /** Every entry closes the menu; only the GLB one keeps running after it does. */
+  /** Every entry closes the menu; only the GLB and render ones keep running after it does. */
   const run = (fn: () => void) => (): void => {
     setOpen(false);
     fn();
@@ -437,6 +439,16 @@ function ExportMenu(): ReactElement {
       await exportGlb(view3d);
     } finally {
       setGlbBusy(false);
+    }
+  };
+
+  const onRender = async (): Promise<void> => {
+    setOpen(false);
+    setRenderBusy(true);
+    try {
+      await exportRenderPackage(store, view3d);
+    } finally {
+      setRenderBusy(false);
     }
   };
 
@@ -482,6 +494,14 @@ function ExportMenu(): ReactElement {
           onClick={() => void onGlb()}
         >
           {glbBusy ? 'Exporting…' : 'Blender (GLB)…'}
+        </button>
+        <button
+          data-export="render"
+          title="Manifest + canonical GLB + design in one zip, for render/render.sh"
+          disabled={renderBusy}
+          onClick={() => void onRender()}
+        >
+          {renderBusy ? 'Exporting…' : 'Render package (.zip)…'}
         </button>
       </div>
     </div>
