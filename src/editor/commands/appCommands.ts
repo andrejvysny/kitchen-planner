@@ -160,6 +160,17 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     execute: (ctx) => ctx.plan.closeDrawRoom(),
   },
 
+  /**
+   * The shortcut sheet, behind `?`. No `canExecute` and no mutation: it is the
+   * one command that changes nothing about the design, which is also why it
+   * takes no `store.commit()` — there is no undo step in showing help.
+   */
+  {
+    id: 'help.shortcuts',
+    label: 'Keyboard & mouse',
+    execute: (ctx) => ctx.help.toggleShortcuts(),
+  },
+
   workspaceCommand('workspace.plan', 'Plan workspace', 'plan'),
   workspaceCommand('workspace.furnish', 'Furnish workspace', 'furnish'),
   workspaceCommand('workspace.workshop', 'Workshop workspace', 'workshop'),

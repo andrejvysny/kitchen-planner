@@ -155,7 +155,14 @@ materials and lighting:
 | `Ctrl+D` | duplicate item |
 | `Delete` / `Backspace` | remove selection |
 | `Esc` | cancel placement · clear the studio selection · deselect |
+| `?` | show the keyboard & mouse cheatsheet (also under ⚙ → *Shortcuts…*) |
 | mouse wheel / drag empty space | zoom / pan the plan |
+| right-click / double-click a wall | context menu for what is under the pointer / add a corner |
+
+The very first time you open the app it starts in **Plan** and points out the
+three regions of the shell — the workspace tabs, the library and the properties
+panel — in three bubbles you click away. It runs once per browser; `?` is where
+the same information lives afterwards.
 
 ## Architecture
 

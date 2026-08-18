@@ -1,5 +1,7 @@
 import { useEffect, type ReactElement } from 'react';
 import { services } from '../../app/bootstrap';
+import { Cheatsheet } from './Cheatsheet';
+import { CoachMarks } from './CoachMarks';
 import { RecoveryBanner } from './RecoveryBanner';
 import { AppServicesProvider } from './services';
 import { StatusBar } from './StatusBar';
@@ -24,7 +26,11 @@ import { Workspace } from './Workspace';
  *
  * This is also the ONE component that imports the bootstrap: everything below
  * takes the app's services off the context instead. It holds no state and never
- * re-renders.
+ * re-renders — which is why the two onboarding surfaces (WP 2.5) sit here as
+ * they do: <CoachMarks/> is a CONDITIONAL, like the recovery banner, because
+ * `firstRun` is a decision taken once in createServices() and can never change
+ * afterwards, while <Cheatsheet/> mounts unconditionally and self-gates on the
+ * 'shell' channel, because `?` can raise it at any moment.
  */
 export function App(): ReactElement {
   useEffect(() => {
@@ -39,6 +45,8 @@ export function App(): ReactElement {
         <Topbar />
         <Workspace />
         <StatusBar />
+        <Cheatsheet />
+        {services.firstRun && <CoachMarks />}
       </div>
     </AppServicesProvider>
   );

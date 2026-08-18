@@ -4,6 +4,7 @@ import { CommandRegistry } from '../../../src/editor/commands/registry';
 import type {
   CommandDefinition,
   EditorContext,
+  HelpPort,
   ModalPort,
   PlanToolPort,
   WorkspaceId,
@@ -65,6 +66,20 @@ function fakeWorkspace(): WorkspacePort & {
   return state;
 }
 
+/**
+ * The cheatsheet is shell state (src/ui/shellState.ts), so from here the help
+ * surface is a port like every other: what the command owes it is one toggle.
+ */
+function fakeHelp(): HelpPort & { toggles: number } {
+  const state = {
+    toggles: 0,
+    toggleShortcuts: () => {
+      state.toggles++;
+    },
+  };
+  return state;
+}
+
 describe('CommandRegistry', () => {
   const ctx = (): EditorContext => ({
     store: new Store(demoDesign()),
@@ -72,6 +87,7 @@ describe('CommandRegistry', () => {
     plan: fakePlan(),
     modal: fakeModal(),
     workspace: fakeWorkspace(),
+    help: fakeHelp(),
   });
 
   it('an unknown id is a no-op that reports false, never a throw', () => {
@@ -130,6 +146,7 @@ describe('app commands', () => {
   let plan: ReturnType<typeof fakePlan>;
   let modal: ReturnType<typeof fakeModal>;
   let ws: ReturnType<typeof fakeWorkspace>;
+  let help: ReturnType<typeof fakeHelp>;
   let reg: CommandRegistry;
 
   beforeEach(() => {
@@ -138,7 +155,8 @@ describe('app commands', () => {
     plan = fakePlan();
     modal = fakeModal();
     ws = fakeWorkspace();
-    reg = new CommandRegistry({ store, editor, plan, modal, workspace: ws });
+    help = fakeHelp();
+    reg = new CommandRegistry({ store, editor, plan, modal, workspace: ws, help });
     reg.registerAll(APP_COMMANDS);
   });
 
@@ -302,6 +320,27 @@ describe('app commands', () => {
       const depth = store.canUndo();
       reg.execute('workspace.output');
       expect(store.canUndo()).toBe(depth);
+      expect(plan.calls).toEqual([]);
+      expect(modal.calls).toEqual([]);
+    });
+  });
+
+  describe('help.shortcuts', () => {
+    it('toggles the sheet through the port, with no guard', () => {
+      expect(reg.canExecute('help.shortcuts')).toBe(true);
+      expect(reg.execute('help.shortcuts')).toBe(true);
+      expect(help.toggles).toBe(1);
+      // the same key twice is close-again, which is the port's business
+      reg.execute('help.shortcuts');
+      expect(help.toggles).toBe(2);
+    });
+
+    it('touches neither the design, the undo stack nor any tool', () => {
+      const depth = store.canUndo();
+      editor.setTool('measure');
+      reg.execute('help.shortcuts');
+      expect(store.canUndo()).toBe(depth);
+      expect(editor.isTool('measure')).toBe(true);
       expect(plan.calls).toEqual([]);
       expect(modal.calls).toEqual([]);
     });

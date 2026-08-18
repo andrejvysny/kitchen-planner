@@ -29,6 +29,17 @@ export async function resetDesign(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => window.__kp.store.design.items.length)).toBe(0);
 }
 
+/**
+ * WP 2.5: a cleared profile is, by definition, a FIRST RUN — coach marks over
+ * the shell and the Plan workspace forced. Every spec here clears storage (see
+ * `resetDesign`), so without this seed the whole suite would boot into the
+ * tour. `addInitScript` re-runs before the page scripts on EVERY navigation,
+ * which is what also covers the specs that reload mid-test.
+ *
+ * e2e/coach-marks.spec.ts is the one suite that deliberately omits it.
+ */
+export const ONBOARDED_KEY = 'interior-planner-onboarded-v1';
+
 export const test = base.extend<{ app: Page }>({
   app: async ({ page }, use) => {
     // KITCHENP-13: the wheel/trackpad split is mac-gated, and the specs
@@ -36,6 +47,7 @@ export const test = base.extend<{ app: Page }>({
     await page.addInitScript(() => {
       window.__kpForceMac = true;
     });
+    await page.addInitScript((k) => localStorage.setItem(k, '1'), ONBOARDED_KEY);
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
     page.on('dialog', (d) => void d.accept());

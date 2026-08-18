@@ -10,7 +10,7 @@ import { useAppServices, useEditor, useStore } from './services';
 import { navInput, setNavInput } from '../../model/navPref';
 import { emptyDesign, sanitizeDesign } from '../../model/store';
 import { isMac, NAV_INPUTS, type NavInput } from '../../view3d/wheelInput';
-import { catalogOpen, setCatalogOpen, setHint } from '../shellState';
+import { catalogOpen, setCatalogOpen, setCheatsheetOpen, setHint } from '../shellState';
 import { applyCalibration, importUnderlay } from '../underlayImport';
 import { workspace, type WorkspaceId } from '../workspaceState';
 import {
@@ -279,6 +279,18 @@ function SettingsMenu(): ReactElement {
       </button>
       <div id="settings-menu" className={open ? 'topbar-menu open' : 'topbar-menu'} ref={menu}>
         <NavInputRow />
+        {/* The pointer route to what `?` does (WS-SPEC §5.5) — a shortcut sheet
+            only a shortcut can reach helps nobody. */}
+        <button
+          id="btn-shortcuts"
+          title="Every keyboard and mouse gesture (?)"
+          onClick={() => {
+            setOpen(false);
+            setCheatsheetOpen(true);
+          }}
+        >
+          Shortcuts…
+        </button>
         {/* WS-SPEC: units picker lands here later */}
       </div>
     </div>

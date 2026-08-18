@@ -63,6 +63,16 @@ export interface WorkspacePort {
   switchTo(w: WorkspaceId): boolean;
 }
 
+/**
+ * The help surface, as the commands see it — implemented by the app layer
+ * (src/app/services.ts) over the shell singleton, like WorkspacePort above, so
+ * src/editor never imports src/ui. Toggling rather than opening is deliberate:
+ * `?` is the same key twice, and the sheet is the only thing that key does.
+ */
+export interface HelpPort {
+  toggleShortcuts(): void;
+}
+
 /** Everything a command is allowed to touch. Assembled once, in src/app. */
 export interface EditorContext {
   store: Store;
@@ -70,6 +80,7 @@ export interface EditorContext {
   plan: PlanToolPort;
   modal: ModalPort;
   workspace: WorkspacePort;
+  help: HelpPort;
 }
 
 export interface CommandDefinition {

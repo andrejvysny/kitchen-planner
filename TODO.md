@@ -102,10 +102,84 @@ pane head, and the zone canvas' footer caption is clipped at the pane's width.
 - [x] WP 2.1 context menu (plan + 3D) + pure `contextMenuModel`
       (`Plan2D.hitAt` / `View3D.pickItem` façades; no per-item "Open fronts"
       entry — `store.openFronts` has no per-ITEM toggle to call)
-- [ ] WP 2.2 cursor hint chip
-- [ ] WP 2.3 hover affordances in the plan
-- [ ] WP 2.4 empty states
-- [ ] WP 2.5 coach marks + shortcuts cheatsheet; B1 walk
+- [x] WP 2.2 cursor hint chip (`HintChip.tsx`, rAF-positioned, no re-render per
+      pointermove; 2D covers every armed tool, 3D only `place`)
+- [x] WP 2.3 hover affordances in the plan (renderPlan paint-only, redraw
+      requested only while over a handle)
+- [x] WP 2.4 empty states — plan starter card (pristine-design trigger; the
+      spec's no-rooms one is unreachable), furnish nudge, workshop caption
+- [x] WP 2.5 coach marks + shortcuts cheatsheet — committed on a fast gate
+      only (tsc · typecheck · lint · 687 unit); the browser gates (interact +
+      full Playwright) were NOT re-run after the implementing agent was
+      interrupted — see the handoff below — `ONBOARDED_KEY` +
+      `src/ui/onboarded.ts`; `firstRun` decided in `createServices()` (no
+      second storage parse, and never together with the recovery banner) and
+      forcing `setWorkspace('plan')` before React mounts; `<CoachMarks/>`
+      three dismiss-anywhere bubbles over `#ws-tabs`/`#catalog`/`#props`;
+      `src/ui/shortcuts.ts` as the one gesture list behind `<Cheatsheet/>`,
+      raised by `?` (`help.shortcuts` + `HelpPort`) or ⚙ → *Shortcuts…*, both
+      overlays owning Escape in the capture phase. Every suite seeds
+      ONBOARDED_KEY at page init — a cleared profile is a first run.
+
+**Phase 2 status:** WPs 2.1–2.4 fully gated and committed. WP 2.5 committed on
+the fast gate only — the implementing agent reported interact 106/106 and 77/77
+Playwright before it was interrupted, but those numbers were never re-verified
+by the orchestrator. Treat the browser gates as PENDING. B1 walk (§9) still to
+run by hand.
+
+## HANDOFF — continuing in a new session
+
+State at handoff (2026-08-18): everything through WP 2.5 is committed on
+master (`ws1.1`…`ws2.5`). No branch, no uncommitted work.
+
+Read first: this file, `~/.claude/plans/act-as-senior-software-glowing-seahorse.md`
+(the execution plan: per-WP designs, decided semantics D1–D5, verified anchors),
+and CLAUDE.md's workspace-shell section.
+
+Next tasks, in order:
+
+1. **Verify WP 2.5's browser gates** — `npm run build`, serve dist on :4173
+   (`nohup npx vite preview --port 4173 &` — the server dies between shells),
+   `node test/interact.mjs` (expect 106/106, ERRORS: none), `npx playwright
+   test --workers=3` (expect all green; layout.spec's topbar-height check can
+   fail machine-locally under Apple Color Emoji — that one failure is known).
+   Fix anything red before Phase 3; amend the ws2.5 commit message claim if
+   numbers differ.
+2. **Run the B1 acceptance walk by hand** (WS-SPEC §9, eight steps) and record
+   the result here — it closes Phase 2.
+3. **WP 3.1 live-apply** (plan §Phase 3, invariant I5 target): design
+   `store.updateCustomPart(id, mutate)` inline first (follow two neighbouring
+   store mutations' notify/commit idiom); studio edits write through it,
+   materialize-on-open for new/preset defs, DELETE the dirty guard +
+   `originalJson` + Revert + the `studio.close()` abort path in
+   `switchWorkspace`, revisit the keyboard modal gate (plan decision D2 — the
+   suppression can go once draft semantics die), and implement
+   discard-if-pristine on leave (REQUIRED: a materialized preset shadow that
+   still deep-equals its source preset is silently removed, one mutation +
+   commit). Tests: unit for materialize/discard, e2e live-update + undo.
+4. **WP 3.2 scope header** — pure instance-count helper in `src/model/` +
+   `Fork for this item only` via `store.forkPartForItem` (store.ts ~L1094).
+5. **WP 3.3 Simple/Advanced split** — studio form column sub-tabs, session
+   module flag; hidden for board/freeform parts.
+6. **WP 3.4 front-layout presets** — `src/model/faceLayouts.ts`, 8 canned zone
+   trees built with zones.ts constructors, normalize + caps unit test,
+   Simple-tab tile row with replace-confirm on customized trees.
+7. **Phase 4 materials** — WP 4.1 `materialInfo.ts` + palette-coverage test,
+   WP 4.2 swatch names/captions/group headers, WP 4.3 Variables→Materials
+   panel copy (read what "Apply to all fronts" really does before labelling).
+
+Known small follow-ups (not blocking): `openInWorkshop` skips
+`setTool('select')`/drawer close (WP 1.6 note above); a declined same-studio
+re-open confirm leaves `workshopTarget` naming the other part; the zone canvas'
+footer caption clips at narrow pane widths; right-drag pans behind an open
+context menu (flagged in ws2.1, left as-is deliberately).
+
+Session conventions that carried the work so far: one WP = one commit on
+master; every WP delegated with a full brief (GOAL/CONTEXT with file:line
+anchors/DESIGN/CONSTRAINTS/VERIFY/REPORT) and reviewed via `git diff` + a
+re-run gate before committing; subagent briefs must mention the graphify
+PreToolUse hook (project tooling, not an attack) and that suites seed
+`ONBOARDED_KEY` at page init so a cleared profile means first-run coach marks.
 
 ## Phase 3 — workshop maturation
 

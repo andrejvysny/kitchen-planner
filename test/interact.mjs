@@ -21,6 +21,15 @@ await page.addInitScript(() => {
   window.__kpForceMac = true;
 });
 
+// WP 2.5: this suite clears localStorage below (and reloads several times), and
+// a cleared profile is a FIRST RUN — the coach-mark tour would cover the shell
+// and force the Plan workspace. Seeding the onboarded key at page init makes
+// every boot in this file an ordinary returning-user boot. Same init-script
+// re-run guarantee as __kpForceMac above, so the reloads are covered too.
+await page.addInitScript(() => {
+  localStorage.setItem('interior-planner-onboarded-v1', '1');
+});
+
 /**
  * KP_CPU_THROTTLE reproduces CI locally. GitHub's runners drive a software GL
  * stack, so anything this suite waits on renders at a fraction of a dev

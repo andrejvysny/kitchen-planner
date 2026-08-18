@@ -8,7 +8,14 @@ import { APP_COMMANDS } from '../editor/commands/appCommands';
 import { CommandRegistry } from '../editor/commands/registry';
 import { KeyboardController } from '../editor/keyboard/KeyboardController';
 import { StoreBridge } from '../ui/react/storeBridge';
-import { setCatalogOpen, setHint, setWallLabel } from '../ui/shellState';
+import { onboarded } from '../ui/onboarded';
+import {
+  cheatsheetOpen,
+  setCatalogOpen,
+  setCheatsheetOpen,
+  setHint,
+  setWallLabel,
+} from '../ui/shellState';
 import { setWorkspace, workspace, type WorkspaceId } from '../ui/workspaceState';
 
 /**
@@ -57,6 +64,16 @@ export interface AppServices {
    * only renders the answer.
    */
   needsRecoveryBanner: boolean;
+
+  /**
+   * Whether this is a genuinely FIRST run — no design to load, no backup to
+   * offer, and the tour never shown on this device. Decided here for the same
+   * reason as needsRecoveryBanner: it is a statement about storage BEFORE the
+   * app touched it, and <CoachMarks/> only renders the answer. WS-SPEC §5.5
+   * also makes it force the Plan workspace, which happens below rather than in
+   * a component — the workspace has to be right on the FIRST paint.
+   */
+  firstRun: boolean;
 }
 
 /**
@@ -70,6 +87,21 @@ export function createServices(): AppServices {
   const loadedDesign = Store.loadAutosaved();
   const store = new Store(loadedDesign ?? demoDesign());
   const needsRecoveryBanner = !loadedDesign && Store.recoveryPayload() !== null;
+
+  /**
+   * Nothing loaded, nothing to recover, tour never seen: a new user. The three
+   * reads are the ones already done above plus one flag — no second parse of
+   * the autosave, and no way for a corrupt-save recovery to be mistaken for a
+   * first run (the banner and the coach marks must never appear together).
+   *
+   * WS-SPEC §5.5 starts a first run in Plan, which is a different workspace
+   * from the persisted default ('furnish'). Doing it here, before React mounts,
+   * is what keeps it off the first paint: a component effect would flash the
+   * wrong workspace first. It persists like any other switch, which is correct
+   * — the second run genuinely was last in Plan.
+   */
+  const firstRun = !loadedDesign && !needsRecoveryBanner && !onboarded();
+  if (firstRun) setWorkspace('plan');
 
   const editor = new EditorState();
 
@@ -136,6 +168,7 @@ export function createServices(): AppServices {
     plan,
     modal: studio,
     workspace: { workspace, switchTo: switchWorkspace },
+    help: { toggleShortcuts: () => setCheatsheetOpen(!cheatsheetOpen()) },
   });
   commands.registerAll(APP_COMMANDS);
 
@@ -155,5 +188,6 @@ export function createServices(): AppServices {
     bridge,
     switchWorkspace,
     needsRecoveryBanner,
+    firstRun,
   };
 }

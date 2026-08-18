@@ -98,9 +98,19 @@ describe('key bindings', () => {
     expect(hit('1', false, true)).toBe('workspace.plan');
   });
 
-  it('the workspace keys are the only ones that survive an open modal', () => {
+  it('? opens the shortcut sheet, and Cmd+? is left to the browser', () => {
+    // '?' is Shift+/ on most layouts and `e.key` is already the character, so
+    // shift is don't-care here; `mod: false` keeps macOS's Cmd+? Help menu
+    expect(hit('?', false, true)).toBe('help.shortcuts');
+    expect(hit('?')).toBe('help.shortcuts');
+    expect(hit('?', true, true)).toBe(null);
+  });
+
+  it('the workspace keys and ? are the ones that survive an open modal', () => {
     const inModal = KEY_BINDINGS.filter((b) => b.allowInModal);
-    expect(inModal.map((b) => b.key)).toEqual(['1', '2', '3', '4']);
+    // help has to be reachable from the Workshop, where the Part Studio is open
+    // for as long as that workspace is showing
+    expect(inModal.map((b) => b.key)).toEqual(['1', '2', '3', '4', '?']);
     // allowInModal is about the MODAL only: typing still wins
     for (const b of inModal) expect(b.allowWhileTyping).toBeUndefined();
   });
@@ -240,6 +250,17 @@ describe('KeyboardController gates', () => {
     modal.open = false;
     press(input, '1');
     expect(ran).toEqual([]);
+    kb.dispose();
+  });
+
+  it('a ? typed into a text field is a question mark, not the help sheet', () => {
+    const { kb, ran } = setup();
+    const input = new FakeInput();
+    kb.attach(input);
+
+    const ev = press(input, '?', { shift: true });
+    expect(ran).toEqual([]);
+    expect(ev.defaultPrevented).toBe(false);
     kb.dispose();
   });
 

@@ -25,6 +25,11 @@ export const WORKSPACE_KEY = 'interior-planner-workspace-v1';
 /** Length-display unit + decimals preference (src/model/prefs.ts). Same
  * new-name-only property as UNDERLAY_KEY and WORKSPACE_KEY above. */
 export const UNIT_PREFS_KEY = 'interior-planner-units-v1';
+/** Whether the first-run tour has been shown (src/ui/onboarded.ts). Written
+ * once, never read by the model — a per-device flag like WORKSPACE_KEY and
+ * UNIT_PREFS_KEY above, new-name only, since the feature postdates the
+ * rename. Test suites SEED it so a cleared profile never boots the tour. */
+export const ONBOARDED_KEY = 'interior-planner-onboarded-v1';
 
 export const LEGACY_DESIGN_KEYS = ['kitchen-planner-design-v1'] as const;
 export const LEGACY_PARTS_KEYS = ['kitchen-planner-parts-v1'] as const;

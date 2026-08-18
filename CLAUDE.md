@@ -291,7 +291,7 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
 - **Components take the app's object graph from a context, never from the
   bootstrap.** `src/app/services.ts` `createServices()` builds the one
   `AppServices` ({store, editor, plan, elevation, view3d, studio, commands,
-  keyboard, bridge, switchWorkspace, needsRecoveryBanner}); `src/ui/react/services.tsx` provides
+  keyboard, bridge, switchWorkspace, needsRecoveryBanner, firstRun}); `src/ui/react/services.tsx` provides
   it and `useAppServices()` / `useStore()` / `useEditor()` / `useCommands()`
   read it. **src/ui/react/App.tsx is the ONLY module allowed to import
   src/app/bootstrap** — it installs the provider — and an eslint
@@ -454,11 +454,33 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
 
 - Chrome state that is neither design nor tool lives in
   src/ui/shellState.ts — the status-bar hint text, the catalog drawer's open
-  flag and the elevation view's wall label, a module singleton shaped like
-  src/model/prefs.ts. Everything that used to write `#status-hint` calls
-  `setHint()`; `<StatusHint/>` renders it, and `<WallNav/>` renders
-  `wallLabel()` the same way. StoreBridge carries all three upstreams as
-  channels: Store, `'editor'` and `'shell'`.
+  flag, the elevation view's wall label and whether the shortcut sheet is up, a
+  module singleton shaped like src/model/prefs.ts. Everything that used to
+  write `#status-hint` calls `setHint()`; `<StatusHint/>` renders it, and
+  `<WallNav/>` renders `wallLabel()` the same way. StoreBridge carries all
+  three upstreams as channels: Store, `'editor'` and `'shell'`.
+- **Onboarding is decided at construction, never in a component** (WS-SPEC
+  §5.5). `createServices()` computes `firstRun = !loadedDesign &&
+  !needsRecoveryBanner && !onboarded()` from the reads it already does plus
+  src/ui/onboarded.ts (ONBOARDED_KEY, navPref-shaped: load-at-import, no
+  listeners, best-effort write, and storage that THROWS reads as onboarded).
+  A first run also forces `setWorkspace('plan')` right there — before React
+  mounts, so the first paint is already right — and <CoachMarks/> is a
+  conditional in App.tsx like <RecoveryBanner/>, which is what makes the tour
+  and the recovery banner mutually exclusive by construction. The tour writes
+  the flag when it ENDS (walked or skipped), never on mount. The cheatsheet is
+  the other half: `src/ui/shortcuts.ts` is the ONE list of gestures (data, no
+  React), `cheatsheetOpen()`/`setCheatsheetOpen()` on the 'shell' channel is
+  its state, `?` reaches it through the `help.shortcuts` command + `HelpPort`
+  (`mod: false`, `allowInModal`, typing-guarded), and the settings menu's
+  `Shortcuts…` is the pointer route. Both overlays own Escape in the CAPTURE
+  phase while they are up, so closing one never also cancels the live tool.
+  **A new Playwright suite MUST seed `interior-planner-onboarded-v1` at page
+  init** (e2e/fixtures.ts does it for every spec on the `app` fixture,
+  test/interact.mjs and test/screenshot.mjs do it for themselves): storage is
+  cleared all over these suites and a cleared profile IS a first run, so
+  without the seed the tour would cover the shell and eat the first click.
+  e2e/coach-marks.spec.ts is the one suite that deliberately omits it.
 - Tests drive Plan2D ONLY through its façade: `viewport()/setViewport()/
   toolState()/overlayState()/debug()`. `debug().drawCount/gestureCount` are
   monotonic counters — the no-sleep assertion seam. If a test needs a private
@@ -531,8 +553,9 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
 - Storage keys all live in src/model/storageKeys.ts: writes target
   `interior-planner-{design,parts,nav}-v1`, reads fall back to the legacy
   `kitchen-planner-*` keys (never deleted). `UNDERLAY_KEY` (the tracing photo),
-  `WORKSPACE_KEY` (the open workspace) and `UNIT_PREFS_KEY` are new-name only —
-  they postdate the rename and have no legacy twin. `DESIGN_VERSION` is 6.
+  `WORKSPACE_KEY` (the open workspace), `UNIT_PREFS_KEY` and `ONBOARDED_KEY`
+  (the first-run tour, seeded by every test suite) are new-name only — they
+  postdate the rename and have no legacy twin. `DESIGN_VERSION` is 6.
   `sanitizeDesign()` (store.ts) is the single validation/repair gate for
   autosave and file import: it runs `migrateDesign()` first (versioned step
   map, `MIN_MIGRATABLE_VERSION` 5) and returns null when there is no path.

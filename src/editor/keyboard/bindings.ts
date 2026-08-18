@@ -90,6 +90,15 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   { key: '2', mod: false, commandId: 'workspace.furnish', allowInModal: true },
   { key: '3', mod: false, commandId: 'workspace.workshop', allowInModal: true },
   { key: '4', mod: false, commandId: 'workspace.output', allowInModal: true },
+
+  // The shortcut sheet. `?` is Shift+/ on most layouts, so `shift` stays
+  // don't-care — `e.key` is the produced CHARACTER, and it is already '?'.
+  // `mod: false` because Cmd+? opens the Help menu on macOS, and a help sheet
+  // has no business swallowing that. `allowInModal` for the same reason the
+  // workspace keys have it: help must be reachable from the Workshop, where
+  // the Part Studio is open the whole time it is showing. Still blocked while
+  // typing — a '?' typed into a part name is a '?'.
+  { key: '?', mod: false, commandId: 'help.shortcuts', allowInModal: true },
 ];
 
 /** First binding whose key and modifier constraints all hold, or null. */

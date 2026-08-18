@@ -1854,6 +1854,189 @@ body {
   background: #e6e4df;
 }
 
+/* ---------- Shortcut cheatsheet + first-run coach marks (WS-SPEC §5.5) ---------- */
+
+/* Both surfaces are FIXED and sit at z-index 60 — above `.context-menu` (50),
+   which is itself above `.workspace-pane` (30). They are the only chrome that
+   is allowed to cover a workspace pane, because both are modal-ish help that
+   the next click dismisses. */
+.cheatsheet-backdrop,
+.coach-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(30, 28, 24, 0.38);
+}
+
+.cheatsheet-backdrop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.cheatsheet {
+  width: 100%;
+  max-width: 720px;
+  max-height: 100%;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px 20px 14px;
+}
+
+.cheatsheet-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.cheatsheet-title {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.cheatsheet-head button {
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.cheatsheet-head button:hover {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* Two columns that reflow to one on a narrow window; the four groups fall
+   where they fall rather than being pinned to a column each. */
+.cheatsheet-cols {
+  column-count: 2;
+  column-gap: 28px;
+}
+
+@media (max-width: 640px) {
+  .cheatsheet-cols {
+    column-count: 1;
+  }
+}
+
+.cheatsheet-group {
+  break-inside: avoid;
+  margin: 0 0 16px;
+}
+
+.cheatsheet-group-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+.cheatsheet-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.cheatsheet-keys {
+  flex: none;
+  /* wide enough for the longest chord in src/ui/shortcuts.ts
+     ('Ctrl+Shift+Z · Ctrl+Y'), so every row's description starts on the same
+     line — a help sheet whose second column zig-zags is harder to scan */
+  min-width: 140px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.cheatsheet-does {
+  color: var(--ink-soft);
+}
+
+.cheatsheet-foot {
+  border-top: 1px solid var(--panel-border);
+  padding-top: 10px;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+/* Coach marks: the backdrop takes every press (dismiss-anywhere), the ring is
+   drawn ON TOP of the dim rather than cut out of it, and the bubble is
+   positioned from JS — width included, so CoachMarks.tsx holds that number
+   once. */
+.coach-ring {
+  position: fixed;
+  pointer-events: none;
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 0 0 4px rgba(47, 111, 94, 0.25);
+}
+
+.coach-mark {
+  position: fixed;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 16px 10px;
+}
+
+.coach-body {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.coach-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.coach-dots {
+  flex: 1;
+  display: flex;
+  gap: 5px;
+}
+
+.coach-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--panel-border);
+}
+
+.coach-dot.on {
+  background: var(--accent);
+}
+
+.coach-skip {
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.coach-skip:hover {
+  background: var(--bg);
+}
+
 /* ---------- Scrollbars ---------- */
 
 ::-webkit-scrollbar {

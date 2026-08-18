@@ -293,6 +293,7 @@ const SETTINGS_MENU: readonly ContractEntry[] = [
   vis('#settings-menu.open'),
   vis('#navinput-group'),
   vis('#btn-navinput'),
+  vis('#btn-shortcuts'), // WS-SPEC §5.5: the pointer route to the `?` sheet
 ];
 
 /**

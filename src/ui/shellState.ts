@@ -1,13 +1,14 @@
 /**
  * ShellState — the chrome's own ephemeral state: the status-bar hint text,
- * whether the catalog drawer is open, and the elevation view's wall label.
+ * whether the catalog drawer is open, the elevation view's wall label, and
+ * whether the shortcut sheet is up.
  *
  * None of them belongs to the Design (never serialized, never in an undo step)
  * nor to EditorState (they are not tools — a hint is a message, the drawer is a
- * narrow-screen affordance, the label is a caption). Shape mirrors
- * src/model/prefs.ts and src/model/navPref.ts: a module singleton plus one
- * listener set, minus the persistence — there is nothing here worth remembering
- * across a reload.
+ * narrow-screen affordance, the label is a caption, the sheet is help). Shape
+ * mirrors src/model/prefs.ts and src/model/navPref.ts: a module singleton plus
+ * one listener set, minus the persistence — there is nothing here worth
+ * remembering across a reload.
  *
  * One listener set covers ALL fields: they change at human speed and the
  * components reading them are two `<span>`s and a class toggle, so splitting
@@ -17,6 +18,7 @@
 let hintText = '';
 let drawerOpen = false;
 let wallLabelText = 'Wall';
+let sheetOpen = false;
 
 const listeners = new Set<() => void>();
 
@@ -53,6 +55,24 @@ export function wallLabel(): string {
 export function setWallLabel(text: string): void {
   if (wallLabelText === text) return;
   wallLabelText = text;
+  emit();
+}
+
+export function cheatsheetOpen(): boolean {
+  return sheetOpen;
+}
+
+/**
+ * The keyboard/mouse cheatsheet's visibility (WS-SPEC §5.5). It lives here for
+ * the same reason the catalog drawer does: it is CHROME — neither Design data
+ * nor a tool — and its two callers sit on opposite sides of the component tree
+ * (the `help.shortcuts` command behind `?`, and the settings menu's
+ * `Shortcuts…`), which is exactly what a shell singleton is for. Idempotent:
+ * an identical value costs no render.
+ */
+export function setCheatsheetOpen(open: boolean): void {
+  if (sheetOpen === open) return;
+  sheetOpen = open;
   emit();
 }
 

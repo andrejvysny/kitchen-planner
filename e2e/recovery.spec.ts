@@ -13,6 +13,11 @@ import type { Page } from '@playwright/test';
 
 const DESIGN_KEY = 'interior-planner-design-v1';
 const RECOVERY_KEY = 'interior-planner-design-recovery-v1';
+/** Seeded on every boot below: a cleared profile is a first run (WP 2.5), and
+ *  this spec is about the BANNER, not the tour. The corrupt-autosave cases
+ *  could never show coach marks anyway (a stashed backup is not a first run),
+ *  but the healthy-autosave case boots genuinely clean. */
+const ONBOARDED_KEY = 'interior-planner-onboarded-v1';
 
 /** A design payload that parses as JSON but can never sanitize (version 0). */
 const CORRUPT = JSON.stringify({ version: 0, rooms: [], items: [] });
@@ -20,11 +25,12 @@ const CORRUPT = JSON.stringify({ version: 0, rooms: [], items: [] });
 /** Boot with a corrupt autosave already in storage. */
 async function bootCorrupt(page: Page, raw = CORRUPT): Promise<void> {
   await page.addInitScript(
-    ([key, value]) => {
+    ([key, value, onboarded]) => {
       localStorage.clear();
       localStorage.setItem(key, value);
+      localStorage.setItem(onboarded, '1');
     },
-    [DESIGN_KEY, raw] as const
+    [DESIGN_KEY, raw, ONBOARDED_KEY] as const
   );
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.waitForFunction(() => !!window.__kp?.store, undefined, { polling: 50 });
@@ -50,7 +56,10 @@ test('a corrupt autosave shows the banner as the FIRST child of #app', async ({ 
 });
 
 test('a healthy autosave shows no banner', async ({ page }) => {
-  await page.addInitScript(() => localStorage.clear());
+  await page.addInitScript((k) => {
+    localStorage.clear();
+    localStorage.setItem(k, '1');
+  }, ONBOARDED_KEY);
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.waitForFunction(() => !!window.__kp?.store, undefined, { polling: 50 });
 

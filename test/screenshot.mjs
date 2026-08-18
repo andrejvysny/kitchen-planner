@@ -13,6 +13,12 @@ page.on('console', (m) => {
   if (m.type() === 'error') errors.push(`console: ${m.text()}`);
 });
 
+// WP 2.5: shots are of the APP, not of the first-run tour — seed the onboarded
+// key before the page scripts run (this profile is otherwise brand new).
+await page.addInitScript(() => {
+  localStorage.setItem('interior-planner-onboarded-v1', '1');
+});
+
 await page.goto('http://localhost:4173/', { waitUntil: 'networkidle' });
 await page.waitForTimeout(2500);
 await page.screenshot({ path: '/tmp/shot-split.png' });
