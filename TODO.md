@@ -30,8 +30,20 @@ disclosure), full scope, empty first run.
       (bindings.ts) + pinned test (keyboard.test.ts, 26 green).
 - [x] 0.3 doc drift — CLAUDE.md `DESIGN_VERSION` 6→7 (two stale spots),
       README stale interact count.
-- [ ] 0.4 B1-equivalent acceptance walk (WS-SPEC §9 doc not on disk —
-      reconstruct: first-run tour, workspace round-trips, cheatsheet) + record.
+- [x] 0.1b spec repairs landed — **85/85 Playwright**, interact 109/109,
+      880 unit, lint clean, typecheck at the 8-error TS2531 baseline. Two
+      product bugs the revived suite surfaced are FIXED: PropsBody now
+      subscribes 'workspace' (stale room panel on tab switch), and
+      'Wall colour…' is omitted in Plan (dead row — its #section-walls
+      destination is Furnish-only).
+- [x] 0.4 B1-equivalent acceptance walk run 2026-08-20 (WS-SPEC §9 doc not on
+      disk; reconstructed: first-run tour → onboarded persistence → workspace
+      round-trip by keys → wall-tool drag-rect room → catalog place +
+      undo/redo → ? cheatsheet → 3D + day/night → Output CSV download).
+      **19/19 PASS, no page errors**; screenshots reviewed. Phase 2 of the
+      WS redesign is CLOSED. Noted, pre-existing: the Output workspace's
+      props panel falls back to the Plan room-section list
+      (WORKSPACE_ROOM_SECTIONS has no 'output' key).
 
 ## Phase 1 — quick wins
 
