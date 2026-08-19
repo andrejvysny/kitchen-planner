@@ -1,6 +1,7 @@
 import type { Store } from '../../model/store';
 import type { EditorState } from '../../editor/editorState';
 import { onUnitPrefsChange } from '../../model/prefs';
+import { onDrawHudChange } from '../drawHud';
 import { onShellChange } from '../shellState';
 import { onWorkspaceChange } from '../workspaceState';
 
@@ -39,7 +40,8 @@ export type Channel =
   | 'editor'
   | 'shell'
   | 'units'
-  | 'workspace';
+  | 'workspace'
+  | 'draw';
 
 const CHANNELS: readonly Channel[] = [
   'design',
@@ -53,6 +55,7 @@ const CHANNELS: readonly Channel[] = [
   'shell',
   'units',
   'workspace',
+  'draw',
 ];
 
 export class StoreBridge {
@@ -84,7 +87,9 @@ export class StoreBridge {
       editor.subscribe(() => this.bump('editor')),
       onShellChange(() => this.bump('shell')),
       onUnitPrefsChange(() => this.bump('units')),
-      onWorkspaceChange(() => this.bump('workspace'))
+      onWorkspaceChange(() => this.bump('workspace')),
+      // pointer-rate, hence its own channel: only <DrawHud/> may re-render on it
+      onDrawHudChange(() => this.bump('draw'))
     );
   }
 

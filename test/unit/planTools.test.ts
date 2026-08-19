@@ -58,6 +58,7 @@ describe('Plan2D ↔ EditorState', () => {
       draw: false,
       checks: false,
       wallWidth: DEFAULT_WALL_W,
+      snapGrid: 0.05,
     });
 
     for (const [tool, field] of [
@@ -88,6 +89,7 @@ describe('Plan2D ↔ EditorState', () => {
       draw: false,
       checks: true,
       wallWidth: DEFAULT_WALL_W,
+      snapGrid: 0.05,
     });
   });
 
@@ -100,6 +102,18 @@ describe('Plan2D ↔ EditorState', () => {
     expect(plan.toolState().wallWidth).toBeCloseTo(0.4, 12);
     editor.setWallWidth(0.001);
     expect(plan.toolState().wallWidth).toBeCloseTo(0.05, 12);
+  });
+
+  it('the snap grid is a tool preference, mirrored into toolState()', () => {
+    const { editor, plan } = setup();
+    editor.setSnapGrid(0.01);
+    expect(plan.toolState().snapGrid).toBe(0.01);
+    // null is the OFF position and must survive the clamp
+    editor.setSnapGrid(null);
+    expect(plan.toolState().snapGrid).toBeNull();
+    // anything else is clamped to a drawable step
+    editor.setSnapGrid(99);
+    expect(plan.toolState().snapGrid).toBe(1);
   });
 
   it('the armed def object survives the round-trip through the editor', () => {

@@ -8,15 +8,18 @@ import {
   rot,
   signedArea,
 } from '../model/geometry';
+import { faceRingPlan, snapRectSides, wallCentrelines, type RoomWall } from '../model/rooms';
 import {
-  faceRingPlan,
-  snapPointToCentrelines,
-  snapPointToRooms,
-  snapRectSides,
-  type RoomWall,
-} from '../model/rooms';
+  contextMaterial,
+  DEFAULT_SNAP_CONFIG,
+  resolveSnap,
+  type SnapConfig,
+  type SnapContext,
+  type SnapKind,
+  type SnapResult,
+} from '../model/snap';
 import { unitPrefs } from '../model/prefs';
-import { parseLength } from '../model/units';
+import { parseAngle, parseLength } from '../model/units';
 import { nearestWall, snapItem, type Guide } from '../model/snapping';
 import type { Store } from '../model/store';
 import type { Item, Opening, Point } from '../model/types';
@@ -25,6 +28,7 @@ import { isMac, type WheelLike } from '../view3d/wheelInput';
 import { findHost } from '../model/attach';
 import { toCatalogDef } from '../model/parts';
 import type { EditorState, ToolId } from '../editor/editorState';
+import type { DrawField, DrawHudState } from '../ui/drawHud';
 import { hitRadius, PinchGesture } from './pinch';
 import type { ContextHit } from './planHit';
 import { underlayCorners, underlayHits } from '../model/underlay';
@@ -45,14 +49,35 @@ import {
   type OpeningGhost,
 } from './renderPlan';
 
-/** Ortho assist for the wall tool — snapping.ts' ALIGN_SNAP_DIST. */
-const DRAW_ALIGN = 0.06;
+/**
+ * What the measure tool may snap to: real geometry only. Inference lines
+ * (align / perpendicular / parallel / extension) are deliberately absent —
+ * they would put the point where nothing is.
+ */
+const MEASURE_KINDS: ReadonlySet<SnapKind> = new Set<SnapKind>([
+  'endpoint',
+  'midpoint',
+  'intersection',
+  'onSegment',
+]);
+
 /** Shift locks the pending segment to this angular step (15°). */
 const ANGLE_STEP = Math.PI / 12;
 /** Below this on either side a drag is a click, not a rectangle (m). */
 const MIN_RECT_SIDE = 0.4;
 /** Screen px a press must travel before it counts as a rectangle drag. */
 const RECT_DRAG_SLOP = 4;
+
+/**
+ * Fold an angle into (-π, π]. `wrapAngle` in src/ui/react/fields/convert.ts
+ * wraps to [0, τ) and lives behind the React import boundary, and a RELATIVE
+ * turn wants a sign anyway: a left turn should read −90°, not 270°.
+ */
+function wrapPi(a: number): number {
+  const t = Math.PI * 2;
+  const w = a - Math.floor(a / t) * t;
+  return w > Math.PI ? w - t : w;
+}
 
 /** Re-wind a ring counter-clockwise, which is what `insetPolygon` needs. */
 function ccw(pts: Point[]): Point[] {
@@ -85,6 +110,7 @@ export class Plan2D {
   private store: Store;
   private editor: EditorState;
   private onHint: (hint: string) => void;
+  private onDrawHud: (s: DrawHudState | null) => void;
 
   private zoom = 90; // px per meter
   private panX = 60;
@@ -133,11 +159,17 @@ export class Plan2D {
   private drawHover: Point | null = null;
   /** Typed dimension for the pending segment; '' = follow the cursor. */
   private drawLength = '';
+  /** Typed angle for the pending segment, RELATIVE to the previous one; '' = free. */
+  private drawAngle = '';
+  /** Which of the two boxes the digits go into. Tab swaps them. */
+  private drawField: DrawField = 'length';
   /** The live drag-rectangle's centreline ring, or null outside that gesture. */
   private drawRect: Point[] | null = null;
   /** Last cursor position + modifier, so a typed digit can re-snap without a move. */
   private lastPointer: Point | null = null;
   private lastShift = false;
+  /** Alt: suppress every snap for as long as it is held (see `snapConfig`). */
+  private lastAlt = false;
 
   private ghost: ItemGhost | null = null;
   private ghostOpening: OpeningGhost | null = null;
@@ -182,11 +214,50 @@ export class Plan2D {
    * app state, so a detached view must still track it (its mirrors, its hint
    * and the cursor it re-applies on the next attach) rather than wake up stale.
    */
-  constructor(store: Store, editor: EditorState, onHint: (hint: string) => void) {
+  constructor(
+    store: Store,
+    editor: EditorState,
+    onHint: (hint: string) => void,
+    /**
+     * The wall tool's live length/angle readout, pushed out the same way the
+     * status hint is. OPTIONAL so a headless construction (unit tests) needs no
+     * fourth argument, and a callback rather than a `src/ui` import so this
+     * module stays framework-free by contract.
+     */
+    onDrawHud?: (s: DrawHudState | null) => void
+  ) {
     this.store = store;
     this.editor = editor;
     this.onHint = onHint;
+    this.onDrawHud = onDrawHud ?? ((): void => {});
     this.editorOff = editor.subscribe(() => this.syncFromEditor());
+  }
+
+  /**
+   * Push the current pending-segment readout, or null to hide it. Called from
+   * every place that moves the rubber band — a pointermove, a typed digit, a
+   * committed vertex, a tool switch — so the readout can never outlive the
+   * gesture that owns it.
+   */
+  private pushDrawHud(): void {
+    const anchor = this.drawPts[this.drawPts.length - 1];
+    if (!this.drawRoomOn || !anchor || !this.drawHover) {
+      this.onDrawHud(null);
+      return;
+    }
+    const dx = this.drawHover.x - anchor.x;
+    const dy = this.drawHover.y - anchor.y;
+    const prev = this.prevHeading();
+    const world = Math.atan2(dy, dx);
+    this.onDrawHud({
+      at: this.toScreen(this.drawHover),
+      length: Math.hypot(dx, dy),
+      angle: prev === null ? world : wrapPi(world - prev),
+      relative: prev !== null,
+      typedLength: this.drawLength,
+      typedAngle: this.drawAngle,
+      field: this.drawField,
+    });
   }
 
   /**
@@ -209,8 +280,18 @@ export class Plan2D {
     this.ro.observe(canvas.parentElement!);
     this.resize();
 
+    // a detached view snaps nothing, so dropping the caches on attach covers
+    // every change that landed while the subscription below was not held
+    this.snapMaterial = null;
+    this.measureMaterial = null;
+
     this.subs.push(
-      this.store.on('change', () => this.requestDraw()),
+      this.store.on('change', () => {
+        // walls or items moved ⇒ every candidate the snap engine reads is stale
+        this.snapMaterial = null;
+        this.measureMaterial = null;
+        this.requestDraw();
+      }),
       this.store.on('selection', () => {
         this.updateHint();
         this.requestDraw();
@@ -247,6 +328,30 @@ export class Plan2D {
       },
       { signal }
     );
+    // Alt suppresses snapping, and a user reaches for it WITHOUT moving the
+    // mouse — so the modifier has to be watched on its own, not only sampled
+    // off pointer events. On `window` because the canvas never holds focus;
+    // under the same AbortController, so detach() takes them with it.
+    const altWatch = (e: KeyboardEvent): void => {
+      if (e.key !== 'Alt' || !this.drawRoomOn) return;
+      const held = e.type === 'keydown';
+      if (held === this.lastAlt) return; // key repeat fires keydown forever
+      this.lastAlt = held;
+      this.refreshDrawHover();
+    };
+    window.addEventListener('keydown', altWatch, { signal });
+    window.addEventListener('keyup', altWatch, { signal });
+    // a window blur while Alt is down (Alt+Tab) would otherwise leave it stuck
+    window.addEventListener(
+      'blur',
+      () => {
+        if (!this.lastAlt) return;
+        this.lastAlt = false;
+        this.refreshDrawHover();
+      },
+      { signal }
+    );
+
     canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false, signal });
     canvas.addEventListener('dblclick', (e) => this.onDblClick(e), { signal });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault(), { signal });
@@ -545,7 +650,12 @@ export class Plan2D {
     this.drawPts = [];
     this.drawHover = null;
     this.drawLength = '';
+    this.drawAngle = '';
+    this.drawField = 'length';
     this.drawRect = null;
+    this.lastSnap = null;
+    this.snapMaterial = null;
+    this.onDrawHud(null);
   }
 
   setDrawRoom(on: boolean): void {
@@ -572,45 +682,165 @@ export class Plan2D {
   }
 
   /**
-   * Where the pending vertex would land, in order of authority:
-   *
-   *  1. another room's wall CENTRELINE — a mitred junction, then a segment;
-   *     landing there is what makes the finished face rings flush, so the weld
-   *     produces one clean partition instead of stubs;
-   *  2. a typed length, which fixes the distance and leaves only the direction
-   *     to the cursor;
-   *  3. `shift`, locking the direction to 15° off the previous vertex;
-   *  4. the ortho assist onto the previous and first vertices, then the 5 cm grid.
+   * The design-derived half of the snap context — every wall centreline plus
+   * its ends and midpoint. Rebuilt on tool entry and whenever the design
+   * changes, NEVER per pointermove: `wallCentrelines` walks every room and
+   * mitres every ring, which is far too much work to redo at pointer rate.
+   * Null means "rebuild on next use".
    */
-  private snapDrawPoint(w: Point, shift = false): Point {
-    const anchor = this.drawPts[this.drawPts.length - 1];
+  private snapMaterial: {
+    segments: SnapContext['segments'];
+    points: SnapContext['points'];
+  } | null = null;
+
+  /** The snap behind the current `drawHover`, for the glyph and the guides. */
+  private lastSnap: SnapResult | null = null;
+
+  /** Cache twin of `snapMaterial` for the measure flavour (walls + items). */
+  private measureMaterial: SnapContext | null = null;
+
+  /**
+   * The measure tool's context: RAW walls (its subject is the drawing as built,
+   * not the centreline abstraction the wall tool draws in) plus every item
+   * outline, and item centres as extra vertices — those carry no segment, but
+   * measuring to the middle of a cabinet is a thing people do.
+   */
+  private measureCtx(): SnapContext {
+    if (!this.measureMaterial) {
+      const segments: SnapContext['segments'] = [];
+      for (const g of this.store.allWalls()) segments.push({ a: g.a, b: g.b, wallId: g.id });
+      for (const it of this.store.design.items) {
+        const o = itemOutlineWorld(this.store, it);
+        for (let i = 0; i < o.length; i++) segments.push({ a: o[i], b: o[(i + 1) % o.length] });
+      }
+      const mat = contextMaterial(segments);
+      for (const it of this.store.design.items) {
+        mat.points.push({ p: { x: it.x, y: it.y }, kind: 'endpoint' });
+      }
+      this.measureMaterial = { ...mat, chain: [], anchor: null };
+    }
+    return this.measureMaterial;
+  }
+
+  /**
+   * Snap context for dragging corner `id`: the room-side FACE rings, minus the
+   * two edges that meet at it.
+   *
+   * Face space, NOT the centreline space the wall tool draws in — and that
+   * difference is load-bearing rather than an inconsistency. The wall tool
+   * commits through `faceRingPlan`, which converts centreline→face AND promotes
+   * the neighbouring wall out to meet it (`alignWallToCentreline`). A corner
+   * drag has no such conversion: it calls `moveCorner` and then `weldRoom`, and
+   * `allWalls` only sees a partition when two rings hold literally the SAME
+   * edge. So the thing a dragged corner must land on is the neighbour's ring —
+   * its face — and snapping it to a centreline instead would leave the two
+   * rings half a wall thickness apart with no weld possible at all.
+   *
+   * The two incident edges are dropped because they move WITH the corner: they
+   * are stale the instant the drag starts, and the corner is one of their
+   * endpoints, so it would snap to where it already is and refuse to budge. The
+   * REST of its own room stays in, which is the gain over the old code — that
+   * skipped the whole room and hand-rolled an axis lock against the two
+   * adjacent corners only, so a corner could never line up with any of the
+   * others, nor with a midpoint, nor with anything at all diagonally.
+   */
+  private cornerCtx(id: string): SnapContext {
+    const segments: SnapContext['segments'] = [];
+    for (const room of this.store.design.rooms) {
+      const c = room.corners;
+      for (let k = 0; k < c.length; k++) {
+        const a = c[k];
+        const b = c[(k + 1) % c.length];
+        if (a.id === id || b.id === id) continue; // incident to the dragged corner
+        segments.push({ a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y }, roomId: room.id });
+      }
+    }
+    return { ...contextMaterial(segments), chain: [], anchor: null };
+  }
+
+  private snapCtx(): { segments: SnapContext['segments']; points: SnapContext['points'] } {
+    if (!this.snapMaterial) {
+      const { segments } = wallCentrelines(this.store.design.rooms, this.store.design.walls);
+      this.snapMaterial = contextMaterial(segments);
+    }
+    return this.snapMaterial;
+  }
+
+  /**
+   * Where the pending vertex would land.
+   *
+   * A typed length still wins outright — it is an instruction, not a hint — and
+   * everything else is `resolveSnap`, which folds what used to be four
+   * hand-rolled tiers (centreline snap, angle lock, two-vertex ortho assist,
+   * 5 cm grid) into one scored ladder. The order those tiers implied is
+   * preserved by `TYPE_WEIGHT`: a centreline endpoint (100) still beats the
+   * angle lock (40), so landing on a neighbour still wins and the weld still
+   * gets its clean partition.
+   *
+   * What is new is that the tiers can now COMBINE — an alignment and a
+   * perpendicular are two lines, and the engine intersects them — and that
+   * every one of them reports which it was, which is what the cursor glyph and
+   * the guides are drawn from.
+   */
+  private snapDrawPoint(w: Point, shift = false, alt = false): Point {
+    const anchor = this.drawPts[this.drawPts.length - 1] ?? null;
     const locked = this.angleLocked(shift);
 
-    const typed = this.typedLength();
-    if (typed !== null && anchor) {
-      const dir = this.pendingDir(anchor, w, locked);
-      return { x: anchor.x + dir.x * typed, y: anchor.y + dir.y * typed };
-    }
-
-    // an existing wall centreline still outranks the angle lock: landing on a
-    // neighbour is what makes the rooms share a partition, and no angle is
-    // worth breaking that
-    const near = snapPointToCentrelines(this.store.design.rooms, w);
-    if (near.hit) return near.p;
-
-    if (locked && anchor) {
-      const dir = this.pendingDir(anchor, w, true);
-      const len = Math.hypot(w.x - anchor.x, w.y - anchor.y);
+    // A typed value is an INSTRUCTION, not a hint, so it outranks every snap.
+    // The two are independent: typing only a length leaves the direction to the
+    // cursor (and to the angle lock), typing only an angle leaves the distance
+    // to the cursor, and typing both fixes the vertex outright.
+    const typedLen = this.typedLength();
+    const typedAng = this.typedAngle();
+    if (anchor && (typedLen !== null || typedAng !== null)) {
+      const dir =
+        typedAng !== null
+          ? (() => {
+              const a = (this.prevHeading() ?? 0) + typedAng;
+              return { x: Math.cos(a), y: Math.sin(a) };
+            })()
+          : this.pendingDir(anchor, w, locked);
+      const len = typedLen ?? Math.max(1e-4, (w.x - anchor.x) * dir.x + (w.y - anchor.y) * dir.y);
+      this.lastSnap = null;
       return { x: anchor.x + dir.x * len, y: anchor.y + dir.y * len };
     }
 
-    const p = { x: Math.round(w.x * 20) / 20, y: Math.round(w.y * 20) / 20 };
-    for (const v of [anchor, this.drawPts[0]]) {
-      if (!v) continue;
-      if (Math.abs(w.x - v.x) < DRAW_ALIGN) p.x = v.x;
-      if (Math.abs(w.y - v.y) < DRAW_ALIGN) p.y = v.y;
-    }
-    return p;
+    const res = resolveSnap(
+      w,
+      { ...this.snapCtx(), chain: this.drawPts, anchor },
+      this.snapConfig(locked, alt)
+    );
+    this.lastSnap = res;
+    return res.p;
+  }
+
+  /**
+   * The reaches are SCREEN px divided by the live zoom — the measure tool's
+   * policy (`measureSnap`), now the whole plan's — so a snap feels the same
+   * distance away however far in you are. `maxWorldReach` is the other half of
+   * that: without it, zooming OUT would turn the same rule into a magnet
+   * spanning metres.
+   */
+  private snapConfig(locked: boolean, suppressed = false): SnapConfig {
+    return {
+      ...DEFAULT_SNAP_CONFIG,
+      zoom: this.zoom,
+      pointReachPx: hitRadius(12),
+      lineReachPx: hitRadius(8),
+      angleStep: locked && !suppressed ? ANGLE_STEP : null,
+      gridStep: this.editor.snapGrid,
+      suppressed,
+    };
+  }
+
+  /**
+   * Round to the snap grid, or leave the value alone when the grid is off.
+   * The ONE place that rounding lives for the gestures the engine does not
+   * resolve for (the drag rectangle's unsnapped sides, the corner drag).
+   */
+  private gridRound(v: number): number {
+    const g = this.editor.snapGrid;
+    return g === null || g <= 0 ? v : Math.round(v / g) * g;
   }
 
   /**
@@ -653,12 +883,16 @@ export class Plan2D {
     const last = this.drawPts[this.drawPts.length - 1];
     if (last && Math.hypot(p.x - last.x, p.y - last.y) < 1e-6) return;
     this.drawPts.push(p);
-    this.drawLength = ''; // the typed length applied to THAT segment only
+    // the typed values applied to THAT segment only
+    this.drawLength = '';
+    this.drawAngle = '';
+    this.drawField = 'length';
+    this.pushDrawHud(); // after the clears, or the readout republishes stale text
     this.updateHint();
     this.requestDraw();
   }
 
-  /* ---- type-in segment length ---- */
+  /* ---- type-in segment length and angle ---- */
 
   /**
    * The typed buffer as metres, or null when nothing usable is pending. Parsed
@@ -671,6 +905,27 @@ export class Plan2D {
     return m !== null && m > 1e-4 ? m : null;
   }
 
+  /**
+   * The typed angle in radians, RELATIVE to the previous segment — so '90' is a
+   * square corner whatever the previous wall's heading, which is the whole
+   * reason to type an angle rather than lean on the world-absolute 15° lock.
+   * With no previous segment there is no datum, and it reads as a world bearing.
+   */
+  private typedAngle(): number | null {
+    if (!this.drawAngle) return null;
+    return parseAngle(this.drawAngle);
+  }
+
+  /** Heading of the segment that ends at the anchor, or null if there isn't one. */
+  private prevHeading(): number | null {
+    const n = this.drawPts.length;
+    if (n < 2) return null;
+    const a = this.drawPts[n - 2];
+    const b = this.drawPts[n - 1];
+    if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-9) return null;
+    return Math.atan2(b.y - a.y, b.x - a.x);
+  }
+
   /** Whether a keystroke should feed the dimension box rather than a shortcut. */
   drawInputActive(): boolean {
     return this.drawRoomOn && this.drawPts.length > 0;
@@ -678,18 +933,41 @@ export class Plan2D {
 
   /** Append one typed character (digit, separator or unit suffix). */
   drawDigit(ch: string): void {
-    if (!this.drawInputActive() || this.drawLength.length >= 12) return;
-    this.drawLength += ch;
+    if (!this.drawInputActive()) return;
+    if (this.drawField === 'angle') {
+      if (this.drawAngle.length >= 12) return;
+      this.drawAngle += ch;
+    } else {
+      if (this.drawLength.length >= 12) return;
+      this.drawLength += ch;
+    }
     this.refreshDrawHover();
   }
 
   drawBackspace(): void {
-    if (!this.drawInputActive() || !this.drawLength) return;
-    this.drawLength = this.drawLength.slice(0, -1);
+    if (!this.drawInputActive()) return;
+    if (this.drawField === 'angle') {
+      if (!this.drawAngle) return;
+      this.drawAngle = this.drawAngle.slice(0, -1);
+    } else {
+      if (!this.drawLength) return;
+      this.drawLength = this.drawLength.slice(0, -1);
+    }
     this.refreshDrawHover();
   }
 
-  /** The typed buffer, for the overlay's dimension box. */
+  /**
+   * Tab moves between the length and angle boxes. There is no focused `<input>`
+   * anywhere — the digits arrive through the `draw.*` commands — so this is the
+   * only thing that decides where they land.
+   */
+  drawToggleField(): void {
+    if (!this.drawInputActive()) return;
+    this.drawField = this.drawField === 'length' ? 'angle' : 'length';
+    this.refreshDrawHover();
+  }
+
+  /** The typed LENGTH buffer, for the overlay's dimension box. */
   drawTyped(): string {
     return this.drawLength;
   }
@@ -699,7 +977,10 @@ export class Plan2D {
    * the rubber-banded vertex without waiting for a pointermove.
    */
   private refreshDrawHover(): void {
-    if (this.lastPointer) this.drawHover = this.snapDrawPoint(this.lastPointer, this.lastShift);
+    if (this.lastPointer) {
+      this.drawHover = this.snapDrawPoint(this.lastPointer, this.lastShift, this.lastAlt);
+    }
+    this.pushDrawHud();
     this.updateHint();
     this.requestDraw();
   }
@@ -850,9 +1131,12 @@ export class Plan2D {
       Math.min(a.x, a.x + w),
       Math.min(a.y, a.y + h),
       Math.max(a.x, a.x + w),
-      Math.max(a.y, a.y + h)
+      Math.max(a.y, a.y + h),
+      undefined,
+      this.store.design.walls,
+      Math.min(hitRadius(12) / this.zoom, DEFAULT_SNAP_CONFIG.maxWorldReach)
     );
-    const grid = (v: number): number => Math.round(v * 20) / 20;
+    const grid = (v: number): number => this.gridRound(v);
     const x0 = snap.snapped.x0 ? snap.x0 : grid(snap.x0);
     const y0 = snap.snapped.y0 ? snap.y0 : grid(snap.y0);
     const x1 = snap.snapped.x1 ? snap.x1 : grid(snap.x1);
@@ -872,15 +1156,6 @@ export class Plan2D {
     return w >= MIN_RECT_SIDE && h >= MIN_RECT_SIDE;
   }
 
-  private closestOnSeg(p: Point, a: Point, b: Point): Point {
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const l2 = dx * dx + dy * dy;
-    if (l2 === 0) return { x: a.x, y: a.y };
-    const t = clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0, 1);
-    return { x: a.x + t * dx, y: a.y + t * dy };
-  }
-
   /**
    * Snap a screen point to the nearest meaningful spot for measuring. Vertices
    * (corners, item centres & outline corners) win over edges (walls, item
@@ -888,41 +1163,21 @@ export class Plan2D {
    */
   private measureSnap(sx: number, sy: number): { p: Point; snapped: boolean } {
     const w = this.toWorld(sx, sy);
-    const thr = hitRadius(11) / this.zoom; // ~11 px reach, in world units
-
-    let best: Point | null = null;
-    let bestD = thr;
-    const tryV = (p: Point): void => {
-      const d = Math.hypot(p.x - w.x, p.y - w.y);
-      if (d < bestD) {
-        bestD = d;
-        best = p;
-      }
-    };
-    for (const r of this.store.design.rooms) for (const c of r.corners) tryV(c);
-    for (const it of this.store.design.items) {
-      tryV({ x: it.x, y: it.y });
-      for (const v of itemOutlineWorld(this.store, it)) tryV(v);
-    }
-    if (best) return { p: best, snapped: true };
-
-    bestD = thr;
-    const tryE = (a: Point, b: Point): void => {
-      const q = this.closestOnSeg(w, a, b);
-      const d = Math.hypot(q.x - w.x, q.y - w.y);
-      if (d < bestD) {
-        bestD = d;
-        best = q;
-      }
-    };
-    for (const g of this.store.allWalls()) tryE(g.a, g.b);
-    for (const it of this.store.design.items) {
-      const o = itemOutlineWorld(this.store, it);
-      for (let i = 0; i < o.length; i++) tryE(o[i], o[(i + 1) % o.length]);
-    }
-    if (best) return { p: best, snapped: true };
-
-    return { p: w, snapped: false };
+    const res = resolveSnap(w, this.measureCtx(), {
+      ...DEFAULT_SNAP_CONFIG,
+      zoom: this.zoom,
+      pointReachPx: hitRadius(11),
+      lineReachPx: hitRadius(11),
+      // Measuring READS the drawing; it must never round or infer. No grid (a
+      // measurement is not a placement), no angle lock, and none of the
+      // inference lines — an alignment guide would move the point somewhere no
+      // geometry actually is, and the number under it would be fiction.
+      gridStep: null,
+      angleStep: null,
+      enabled: MEASURE_KINDS,
+    });
+    this.lastSnap = res;
+    return { p: res.p, snapped: res.kind !== 'free' };
   }
 
   /* ---------------- hints ---------------- */
@@ -1011,6 +1266,8 @@ export class Plan2D {
     checks: boolean;
     /** the wall tool's width (m) — one number, so a test can assert the ring */
     wallWidth: number;
+    /** snap grid step (m), or null when the grid is off */
+    snapGrid: number | null;
   } {
     return {
       armedDefId: this.armedDef?.id ?? null,
@@ -1019,18 +1276,42 @@ export class Plan2D {
       draw: this.drawRoomOn,
       checks: this.editor.checksOn,
       wallWidth: this.editor.wallWidth,
+      snapGrid: this.editor.snapGrid,
     };
+  }
+
+  /**
+   * The snap the overlay should be drawing, or null.
+   *
+   * Gated on the tool having something in flight rather than just being armed:
+   * `lastSnap` outlives the pointermove that produced it, and a glyph left
+   * hanging over the plan after the ring was committed is the same class of
+   * bug `clearHover()` exists to prevent.
+   */
+  private activeSnap(): SnapResult | null {
+    if (this.drawRoomOn) return this.drawHover ? this.lastSnap : null;
+    // the measure tool snaps through the same engine, so it earns the same
+    // glyph — what the cursor has locked onto is exactly what a measurement
+    // needs the user to be sure of
+    if (this.measureOn) return this.measure.hover ? this.lastSnap : null;
+    // dragging a corner resolves through the engine too, so it earns the glyph:
+    // "this landed exactly on the neighbour's wall" is the whole question when
+    // the gesture's purpose is to make two rooms weld
+    if (this.drag.type === 'corner') return this.lastSnap;
+    return null;
   }
 
   /** Snapshot of the in-flight overlay state — the measure span and the draw ring. */
   overlayState(): {
     measure: Measure;
     drawRing: DrawRing | null;
+    snap: SnapResult | null;
     hover: HoverOverlay;
   } {
     return {
       measure: this.measure,
       drawRing: this.drawRing(),
+      snap: this.activeSnap(),
       hover: { ...this.hover },
     };
   }
@@ -1256,11 +1537,11 @@ export class Plan2D {
     // ring has a vertex the tool is committed to corner-by-corner mode.
     if (this.drawRoomOn) {
       if (this.drawPts.length) {
-        this.addDrawPoint(this.snapDrawPoint(w, e.shiftKey));
+        this.addDrawPoint(this.snapDrawPoint(w, e.shiftKey, e.altKey));
       } else {
         this.drag = {
           type: 'drawRect',
-          a: this.snapDrawPoint(w, e.shiftKey),
+          a: this.snapDrawPoint(w, e.shiftKey, e.altKey),
           sx: s.x,
           sy: s.y,
           moved: false,
@@ -1426,36 +1707,22 @@ export class Plan2D {
         return;
       }
       case 'corner': {
-        let x = Math.round(w.x * 20) / 20; // 5 cm grid
-        let y = Math.round(w.y * 20) / 20;
-        // axis-lock to neighbouring corners for easy orthogonal rooms
-        const dragId = (this.drag as { id: string }).id;
-        const room = this.store.roomOfCorner(dragId);
-        const c = room?.corners ?? [];
-        const idx = c.findIndex((k) => k.id === dragId);
-        if (idx >= 0) {
-          const prev = c[(idx - 1 + c.length) % c.length];
-          const next = c[(idx + 1) % c.length];
-          this.guides = [];
-          for (const n of [prev, next]) {
-            if (Math.abs(w.x - n.x) < 0.09) {
-              x = n.x;
-              this.guides.push({ a: { x, y: Math.min(y, n.y) }, b: { x, y: Math.max(y, n.y) } });
-            }
-            if (Math.abs(w.y - n.y) < 0.09) {
-              y = n.y;
-              this.guides.push({ a: { x: Math.min(x, n.x), y }, b: { x: Math.max(x, n.x), y } });
-            }
-          }
-        }
-        // another room's corner or wall wins over both: landing exactly on it
-        // is what lets endGesture weld the two rings into a partition
-        const flush = snapPointToRooms(this.store.design.rooms, w, room?.id);
-        if (flush.hit) {
-          x = flush.p.x;
-          y = flush.p.y;
-        }
-        this.store.moveCorner(dragId, x, y);
+        const d = this.drag as Extract<Drag, { type: 'corner' }>;
+        // Face space — see `cornerCtx`. What this buys over the old two-corner
+        // axis lock is the rest of the engine: midpoints, other rooms' corners,
+        // every corner of its own room, screen-relative reach and Alt suppress.
+        const res = resolveSnap(w, this.cornerCtx(d.id), {
+          ...DEFAULT_SNAP_CONFIG,
+          zoom: this.zoom,
+          pointReachPx: hitRadius(12),
+          lineReachPx: hitRadius(8),
+          gridStep: this.editor.snapGrid,
+          angleStep: null, // no pending segment here, so no direction to lock
+          suppressed: this.lastAlt,
+        });
+        this.guides = res.guides;
+        this.lastSnap = res;
+        this.store.moveCorner(d.id, res.p.x, res.p.y);
         return;
       }
       case 'opening': {
@@ -1550,7 +1817,14 @@ export class Plan2D {
 
     // wall tool: rubber-band the pending vertex
     if (this.drawRoomOn) {
-      this.drawHover = this.snapDrawPoint(w, e.shiftKey);
+      // remember the cursor so a typed digit can re-snap from it WITHOUT
+      // waiting for the next move — `refreshDrawHover` reads these two, and
+      // until this assignment existed it silently did nothing at all
+      this.lastPointer = w;
+      this.lastShift = e.shiftKey;
+      this.lastAlt = e.altKey;
+      this.drawHover = this.snapDrawPoint(w, e.shiftKey, e.altKey);
+      this.pushDrawHud();
       this.canvas.style.cursor = 'crosshair';
       this.requestDraw();
       return;
@@ -1818,11 +2092,14 @@ export class Plan2D {
         roomEmphasis: true,
       },
       {
-        guides: this.guides,
+        // the snap engine's guides are additive: `this.guides` still carries
+        // the clearance spans snapItem produces, which are a different thing
+        guides: [...this.guides, ...(this.activeSnap()?.guides ?? [])],
         armedDef: this.armedDef,
         ghost: this.ghost,
         ghostOpening: this.ghostOpening,
         drawRing: this.drawRing(),
+        snap: this.activeSnap(),
         measure: this.calibrateOn ? this.calibrate : this.measure,
         advisoryChecks: this.checksOn,
         hover: this.hover,

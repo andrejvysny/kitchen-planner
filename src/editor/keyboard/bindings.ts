@@ -78,6 +78,9 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   // bindings below (delete the selection, switch workspace). First match wins,
   // so these rows must stay above their at-rest twins.
   { key: 'backspace', commandId: 'draw.backspace' },
+  // Tab is otherwise unbound, so this needs no ordering care; preventDefault
+  // stays on (its default) or focus would leave the canvas mid-gesture
+  { key: 'tab', commandId: 'draw.toggleField' },
   { key: '0', mod: false, commandId: 'draw.digit0' },
   { key: '1', mod: false, commandId: 'draw.digit1' },
   { key: '2', mod: false, commandId: 'draw.digit2' },

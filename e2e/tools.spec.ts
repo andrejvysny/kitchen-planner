@@ -331,3 +331,115 @@ test('hover pre-highlights a handle, then a wall, then clears over empty floor',
     .poll(() => app.evaluate(() => window.__kp.plan.overlayState().hover))
     .toEqual({ handle: null, wallId: null });
 });
+
+/*
+ * M15 — the snap engine's UI surface. These assert through `overlayState().snap`
+ * and `toolState().snapGrid`, both of which are projections of pure model code
+ * pinned in test/unit/snapEngine.test.ts; what can only be checked HERE is that
+ * the plan actually feeds the engine the live zoom and the live modifiers.
+ */
+
+test('the wall tool reports what it snapped to, and Alt suppresses it in place', async ({
+  app,
+}) => {
+  await pinViewport(app);
+  await app.click('#btn-draw-room');
+
+  // the fresh room's NE corner is (4, 0); its wall centreline sits half a
+  // thickness outside, so hovering just off it must resolve to real geometry
+  const near = await at(app, 4.1, 1);
+  await app.mouse.move(near.x, near.y);
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().snap?.kind))
+    .toBeTruthy();
+  const snapped = await app.evaluate(() => window.__kp.plan.overlayState().snap!.kind);
+  expect(snapped).not.toBe('free');
+
+  // Alt is a POINTER modifier watched on window, so it must take effect without
+  // the mouse moving at all — that is the whole point of the keydown listener
+  await app.keyboard.down('Alt');
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().snap?.kind))
+    .toBe('free');
+  expect(await app.evaluate(() => window.__kp.plan.overlayState().snap!.guides)).toEqual([]);
+
+  await app.keyboard.up('Alt');
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().snap?.kind))
+    .not.toBe('free');
+
+  await app.keyboard.press('Escape');
+  await app.keyboard.press('Escape');
+});
+
+test('the snap reach is screen-relative, so zooming in escapes a snap', async ({ app }) => {
+  await app.click('#btn-draw-room');
+
+  // the SAME world point, 100 mm off the corner, at two zooms: in reach when
+  // 100 mm is a few pixels, out of reach once it is tens of them
+  await app.evaluate(() => window.__kp.plan.setViewport({ zoom: 40, panX: 120, panY: 120 }));
+  const far = await app.evaluate(() => {
+    const v = window.__kp.plan.viewport();
+    return { x: 4.1 * v.zoom + v.panX, y: 0 * v.zoom + v.panY };
+  });
+  const box = (await app.locator('#canvas2d').boundingBox())!;
+  await app.mouse.move(box.x + far.x, box.y + far.y);
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().snap?.kind))
+    .toBe('endpoint');
+
+  await app.evaluate(() => window.__kp.plan.setViewport({ zoom: 400, panX: 120, panY: 120 }));
+  const close = await app.evaluate(() => {
+    const v = window.__kp.plan.viewport();
+    return { x: 4.1 * v.zoom + v.panX, y: 0 * v.zoom + v.panY };
+  });
+  await app.mouse.move(box.x + close.x, box.y + close.y);
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().snap?.kind))
+    .not.toBe('endpoint');
+
+  await app.keyboard.press('Escape');
+  await app.keyboard.press('Escape');
+});
+
+test('the grid step is a tool preference, and Off means no rounding', async ({ app }) => {
+  await app.click('#btn-draw-room');
+  await expect(app.locator('#btn-grid-step')).toBeVisible();
+
+  expect(await app.evaluate(() => window.__kp.plan.toolState().snapGrid)).toBe(0.05);
+  await app.selectOption('#btn-grid-step', { label: 'Grid off' });
+  await expect.poll(() => app.evaluate(() => window.__kp.plan.toolState().snapGrid)).toBe(null);
+  await app.selectOption('#btn-grid-step', { label: 'Grid 10 mm' });
+  await expect.poll(() => app.evaluate(() => window.__kp.plan.toolState().snapGrid)).toBe(0.01);
+
+  // and it is a preference, not design data: it survives no undo step
+  expect(await app.evaluate(() => window.__kp.store.design.rooms.length)).toBeGreaterThan(0);
+  await app.keyboard.press('Escape');
+});
+
+test('the dimension HUD shows length and angle, and Tab moves between them', async ({ app }) => {
+  await pinViewport(app);
+  await app.click('#btn-draw-room');
+
+  await expect(app.locator('#draw-hud')).toHaveCount(0); // nothing pending yet
+
+  await clickPlan(app, 6, 1);
+  const p = await at(app, 8, 2.5);
+  await app.mouse.move(p.x, p.y);
+  await expect(app.locator('#draw-hud')).toBeVisible();
+  await expect(app.locator('.draw-hud-field[data-field="length"]')).toHaveClass(/active/);
+
+  await app.keyboard.press('Tab');
+  await expect(app.locator('.draw-hud-field[data-field="angle"]')).toHaveClass(/active/);
+
+  // typing an angle re-aims the pending segment WITHOUT waiting for a move
+  await app.keyboard.press('9');
+  await app.keyboard.press('0');
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().drawRing?.hover?.x))
+    .toBeCloseTo(6, 6);
+
+  await app.keyboard.press('Escape');
+  await app.keyboard.press('Escape');
+  await expect(app.locator('#draw-hud')).toHaveCount(0);
+});

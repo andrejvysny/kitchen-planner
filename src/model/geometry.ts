@@ -270,6 +270,23 @@ export function segmentIntersection(
   return { p: { x: a.x + rx * t, y: a.y + ry * t }, t, u };
 }
 
+/**
+ * Where two INFINITE lines cross, or null when they are parallel.
+ *
+ * `segmentIntersection` above clamps to both segments, which is right for
+ * geometry questions ("do these walls cross?") and wrong for constraint
+ * questions ("where do these two rules meet?"). The snap engine intersects
+ * constraint lines that usually extend well past the geometry they came from,
+ * so it needs this one. `da`/`db` need not be unit vectors.
+ */
+export function lineIntersection(oa: Point, da: Point, ob: Point, db: Point): Point | null {
+  const den = da.x * db.y - da.y * db.x;
+  if (Math.abs(den) < 1e-12) return null;
+  const t = ((ob.x - oa.x) * db.y - (ob.y - oa.y) * db.x) / den;
+  const p = { x: oa.x + da.x * t, y: oa.y + da.y * t };
+  return Number.isFinite(p.x) && Number.isFinite(p.y) ? p : null;
+}
+
 /** True when no two non-adjacent edges cross (O(n²) — outlines stay small). */
 export function polygonIsSimple(poly: Point[]): boolean {
   const n = poly.length;

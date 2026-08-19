@@ -275,3 +275,50 @@ Deferred (not blocking, say so before assuming they work): a free chain has no
 elevation-view entry and no per-wall visibility override (it belongs to no room,
 so there is nothing to override); splitting a segment of a free chain (the
 "add corner in the middle" action) is room-walls only.
+
+---
+
+# M15 — CAD drawing guides + unified snap engine
+
+Plan: `~/.claude/plans/now-detaily-plan-implementation-rippling-rose.md`
+
+The wall tool draws in centreline space and snaps well enough, but it does not
+behave like a CAD sketcher. Four defects, all structural rather than cosmetic:
+
+1. `snapDrawPoint` returns a bare `Point` — the snap's identity is discarded, so
+   no cursor glyph is possible and "landed on the neighbour's corner" looks
+   exactly like "landed 4 mm off on the grid".
+2. Alignment inference is two vertices deep and chain-local (previous vertex +
+   ring start). No inference to other chain vertices, to existing corners, or
+   along any direction but world x/y.
+3. Snap reach is in WORLD units (`ROOM_CORNER_SNAP` 0.15 m), so it grows into an
+   inescapable magnet as you zoom in. `measureSnap` next door already does it in
+   screen px — one tool, two policies.
+4. Four snap implementations with three tolerance policies; corner-drag still
+   snaps to the FACE ring, the exact mismatch the centreline rewrite existed to
+   remove.
+
+One pure engine (`src/model/snap/`) returning point + kind + guides, called by
+every plan gesture. Screen-px reach with a max-world clamp, scored candidates, a
+two-tier point/line resolve so two constraints can intersect, guides capped at 3.
+
+- [x] P-1 finish the half-applied `freeWalls` thread (`centrelineAxisLines` /
+      `snapRectSides`) so the drag-rectangle sees free chains
+- [x] P0 `src/model/snap/` engine + `lineIntersection` + `snapEngine.test.ts`
+      (no call sites rewired — zero behaviour change)
+- [x] P1 rewire `snapDrawPoint`; `Guide.kind`; per-kind guide styling;
+      `drawSnapMarker` cursor glyph
+- [x] P2 length/angle HUD — `src/ui/drawHud.ts`, `'draw'` bridge channel,
+      `<DrawHud/>`, `draw.toggleField` on Tab; typed angle is RELATIVE to the
+      previous segment, the 15° lock stays absolute world
+- [x] P3 `EditorState.snapGrid` + `#btn-grid-step`; grid becomes the lowest
+      priority fallback; the four hardcoded `Math.round(v*20)/20` sites go
+- [x] P4 Alt suppresses snapping (pointer modifier + window keydown/keyup, not a
+      keybinding) + cheatsheet entry
+- [x] P5 rewire `measureSnap`; `rectRing` gets screen-px reach, free walls and
+      guides
+- [x] P6 corner-drag in centreline space via `cornerHandlePositions`, fixing the
+      draw/edit mismatch
+
+Out of scope: `snapItem` (item placement — OBB edge-to-edge is a different
+problem) and persistent constraints (needs a solver and a DESIGN_VERSION bump).

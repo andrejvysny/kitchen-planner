@@ -1,5 +1,8 @@
 import { useLayoutEffect, useState, type ReactElement } from 'react';
 import type { View3D } from '../../view3d/view3d';
+import { formatAngle, formatLength } from '../../model/units';
+import { unitPrefs } from '../../model/prefs';
+import { drawHud, type DrawField } from '../drawHud';
 import { workspace } from '../workspaceState';
 import { useChannel } from './hooks/useStore';
 import { useAppServices, useStore } from './services';
@@ -136,6 +139,44 @@ export function SceneOverlay(): ReactElement | null {
           Open fronts
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The wall tool's live length/angle readout, floating beside the pending vertex.
+ *
+ * NOT a form. There is no `<input>` anywhere in it, deliberately: digits reach
+ * the tool through the `draw.digit*` commands (src/editor/keyboard/bindings.ts),
+ * and a real focused field would trip the `allowWhileTyping` gates that make
+ * every other shortcut work. So this renders the buffers as text with a caret
+ * and Tab moves between them via `draw.toggleField` — the keyboard path stays
+ * exactly as it was, and the box is pure feedback.
+ *
+ * It rides its own 'draw' bridge channel because it updates at pointer rate.
+ * Nothing else subscribes there, so a mouse move re-renders this component and
+ * nothing else — in particular not <PropsBody/>, whose committed-render count
+ * e2e/transient-perf.spec.ts asserts stays flat through a drag.
+ */
+export function DrawHud(): ReactElement | null {
+  useChannel('draw');
+  useChannel('units');
+  const hud = drawHud();
+  if (!hud) return null;
+
+  const prefs = unitPrefs();
+  const box = (field: DrawField, typed: string, live: string, suffix: string): ReactElement => (
+    <span className={`draw-hud-field${hud.field === field ? ' active' : ''}`} data-field={field}>
+      <span className="draw-hud-value">{typed === '' ? live : typed}</span>
+      {typed !== '' && <span className="draw-hud-caret" />}
+      <span className="draw-hud-unit">{suffix}</span>
+    </span>
+  );
+
+  return (
+    <div id="draw-hud" style={{ left: `${hud.at.x}px`, top: `${hud.at.y}px` }}>
+      {box('length', hud.typedLength, formatLength(hud.length, prefs), prefs.unit)}
+      {box('angle', hud.typedAngle, formatAngle(hud.angle), hud.relative ? '°↺' : '°')}
     </div>
   );
 }

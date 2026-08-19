@@ -17,13 +17,8 @@ import type { CatalogDef } from '../model/catalog';
 import type { Severity, Warning } from '../model/checks';
 import { convexHull, fmtCm, polygonCentroid, rot, wallPoint } from '../model/geometry';
 import { footprintPolygon } from '../model/parts';
-import {
-  bandCenter,
-  slabQuad,
-  wallCentrelines,
-  wallJoints,
-  type RoomWall,
-} from '../model/rooms';
+import { bandCenter, slabQuad, wallCentrelines, wallJoints, type RoomWall } from '../model/rooms';
+import type { SnapKind, SnapResult } from '../model/snap';
 import type { Guide } from '../model/snapping';
 import type { Store } from '../model/store';
 import type { CustomPartDef, Item, Point, Selection } from '../model/types';
@@ -51,6 +46,45 @@ const SEVERITY_COLOR: Record<Severity, string> = {
  * Clip it here — the props panel carries the sentence in full.
  */
 const CHECK_LABEL_MAX = 52;
+
+/**
+ * How each kind of guide is drawn. `dash` is in hairlines, `width` a multiple
+ * of one.
+ *
+ * The visual grammar is deliberate: an INFERENCE (something the tool worked
+ * out) is thin and dashed, a REFERENCE line borrowed from real geometry is
+ * dotted, and a CONSTRUCTION line the user is being held against (⊥ / ∥ / the
+ * angle lock) is solid and slightly heavier, because it is the only one of the
+ * three that is actively steering the cursor. `default` keeps the old
+ * clearance-dimension look for `snapItem`'s kind-less guides.
+ */
+const GUIDE_STYLE: Record<string, { color: string; width: number; dash: number[] }> = {
+  default: { color: GUIDE, width: 1, dash: [5, 4] },
+  align: { color: GUIDE, width: 1, dash: [5, 4] },
+  extension: { color: GUIDE, width: 1, dash: [1.5, 3] },
+  onSegment: { color: GUIDE, width: 1, dash: [1.5, 3] },
+  intersection: { color: GUIDE, width: 1, dash: [1.5, 3] },
+  perpendicular: { color: ACCENT, width: 1.4, dash: [] },
+  parallel: { color: ACCENT, width: 1.4, dash: [] },
+  angle: { color: ACCENT, width: 1.4, dash: [] },
+};
+
+/**
+ * The cursor glyph for each snap kind, in the plan's own notation. Drawn at a
+ * fixed SCREEN size, because it is a cursor decoration and not part of the
+ * drawing — it must stay legible at every zoom. `grid` and `free` get nothing:
+ * "I snapped to nothing in particular" is exactly the absence of a marker, and
+ * a symbol on every single pointermove would be noise.
+ */
+const SNAP_GLYPH: Partial<Record<SnapKind, 'square' | 'diamond' | 'cross' | 'perp' | 'par'>> = {
+  endpoint: 'square',
+  midpoint: 'diamond',
+  intersection: 'cross',
+  onSegment: 'square',
+  extension: 'cross',
+  perpendicular: 'perp',
+  parallel: 'par',
+};
 
 /**
  * Re-exported from src/model/rooms.ts, where the wall tool also needs it. The
@@ -169,6 +203,12 @@ export interface PlanOverlays {
   ghost: ItemGhost | null;
   ghostOpening: OpeningGhost | null;
   drawRing: DrawRing | null;
+  /**
+   * What the cursor is currently snapped to, if anything — the source of the
+   * glyph AND of `guides` while a snapping tool is live. Kept separate from
+   * `guides` because the glyph needs the kind and the point, not the spans.
+   */
+  snap: SnapResult | null;
   measure: Measure;
   /** the ⚠ toggle: warn/info findings on top of the always-drawn errors */
   advisoryChecks: boolean;
@@ -392,9 +432,10 @@ export function renderPlan(
   // ---- guides (behind items) ----
   if (opts.guides && overlays) {
     for (const g of overlays.guides) {
-      ctx.strokeStyle = GUIDE;
-      ctx.lineWidth = hair;
-      ctx.setLineDash([hair * 5, hair * 4]);
+      const style = GUIDE_STYLE[g.kind ?? 'default'] ?? GUIDE_STYLE.default;
+      ctx.strokeStyle = style.color;
+      ctx.lineWidth = hair * style.width;
+      ctx.setLineDash(style.dash.map((d) => d * hair));
       ctx.beginPath();
       ctx.moveTo(g.a.x, g.a.y);
       ctx.lineTo(g.b.x, g.b.y);
@@ -405,7 +446,7 @@ export function renderPlan(
           x: (g.a.x + g.b.x) / 2,
           y: (g.a.y + g.b.y) / 2,
           text: g.label,
-          color: GUIDE,
+          color: style.color,
           size: 11,
           bold: true,
         });
@@ -503,10 +544,7 @@ export function renderPlan(
   // a free-standing chain belongs to no room, so it is never "another room's"
   // wall — it always draws in full ink and always carries its dimension label
   const wallMine = (g: RoomWall): boolean =>
-    !opts.roomEmphasis ||
-    !!g.freeWallId ||
-    g.roomId === activeId ||
-    g.shared?.roomId === activeId;
+    !opts.roomEmphasis || !!g.freeWallId || g.roomId === activeId || g.shared?.roomId === activeId;
   // a joint takes the strongest ink of the walls meeting there
   const wallInk = (gs: RoomWall[]): string =>
     gs.some(wallSelected) ? ACCENT : gs.some(wallMine) ? INK : MUTED;
@@ -579,6 +617,11 @@ export function renderPlan(
   if (opts.ghosts && overlays?.drawRing) {
     drawDrawRing(ctx, overlays.drawRing, zoom, hair, labels);
   }
+
+  // ---- snap glyph ----
+  // Under `guides`, not `ghosts`: it is feedback about the cursor, so it belongs
+  // with the other things the print sheet has no use for.
+  if (opts.guides && overlays?.snap) drawSnapMarker(ctx, overlays.snap, zoom, hair);
 
   // ---- openings ----
   for (const o of design.openings) {
@@ -882,6 +925,78 @@ function drawDrawRing(
     ctx.lineWidth = hair * (ring.closing ? 2.4 : 1.4);
     ctx.stroke();
   }
+}
+
+/**
+ * The cursor glyph for a snap, in the plan's own notation and at a fixed SCREEN
+ * size (hence every dimension divided by `zoom`).
+ *
+ * Drawn twice, halo first: the marker lands on top of wall bodies, guide lines
+ * and the paper alike, and a single accent stroke disappears against a dark
+ * slab. Same trick the right-angle markers already use.
+ *
+ * Exported because the wall tool is not the only caller — the measure tool and
+ * the corner drag snap through the same engine and want the same vocabulary.
+ */
+export function drawSnapMarker(
+  ctx: CanvasRenderingContext2D,
+  snap: SnapResult,
+  zoom: number,
+  hair: number
+): void {
+  const glyph = SNAP_GLYPH[snap.kind];
+  if (!glyph) return;
+  const { x, y } = snap.p;
+  const r = 5.5 / zoom;
+
+  const path = (): void => {
+    ctx.beginPath();
+    switch (glyph) {
+      case 'square':
+        ctx.rect(x - r, y - r, r * 2, r * 2);
+        break;
+      case 'diamond':
+        ctx.moveTo(x, y - r * 1.25);
+        ctx.lineTo(x + r * 1.25, y);
+        ctx.lineTo(x, y + r * 1.25);
+        ctx.lineTo(x - r * 1.25, y);
+        ctx.closePath();
+        break;
+      case 'cross':
+        ctx.moveTo(x - r, y - r);
+        ctx.lineTo(x + r, y + r);
+        ctx.moveTo(x + r, y - r);
+        ctx.lineTo(x - r, y + r);
+        break;
+      case 'perp':
+        // ⊥ — an upright meeting a base, the standard notation
+        ctx.moveTo(x, y - r);
+        ctx.lineTo(x, y + r);
+        ctx.moveTo(x - r, y + r);
+        ctx.lineTo(x + r, y + r);
+        break;
+      case 'par':
+        // ∥ — two strokes, leaning so it never reads as a pause symbol
+        ctx.moveTo(x - r * 0.45, y + r);
+        ctx.lineTo(x + r * 0.15, y - r);
+        ctx.moveTo(x + r * 0.25, y + r);
+        ctx.lineTo(x + r * 0.85, y - r);
+        break;
+    }
+  };
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  for (const [color, width] of [
+    [PAPER, hair * 4.5],
+    [ACCENT, hair * 1.8],
+  ] as const) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    path();
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /** Is the corner at `v`, between `a` and `b`, square to within half a degree? */

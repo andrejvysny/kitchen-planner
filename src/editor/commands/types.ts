@@ -43,6 +43,8 @@ export interface PlanToolPort {
   drawInputActive(): boolean;
   drawDigit(ch: string): void;
   drawBackspace(): void;
+  /** Tab: move between the wall tool's length and angle boxes. */
+  drawToggleField(): void;
 }
 
 /**

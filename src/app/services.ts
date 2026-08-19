@@ -8,6 +8,7 @@ import { APP_COMMANDS } from '../editor/commands/appCommands';
 import { CommandRegistry } from '../editor/commands/registry';
 import { KeyboardController } from '../editor/keyboard/KeyboardController';
 import { StoreBridge } from '../ui/react/storeBridge';
+import { setDrawHud } from '../ui/drawHud';
 import { onboarded } from '../ui/onboarded';
 import {
   cheatsheetOpen,
@@ -108,7 +109,12 @@ export function createServices(): AppServices {
   // hints and the elevation's wall caption both go to the shell singleton,
   // which the status bar and <WallNav/> render — no DOM lookup, so a hint
   // raised by a DETACHED view (or before the first render) still lands
-  const plan = new Plan2D(store, editor, (hint) => setHint(hint));
+  const plan = new Plan2D(
+    store,
+    editor,
+    (hint) => setHint(hint),
+    (s) => setDrawHud(s)
+  );
   const elevation = new ElevationView(store, () => setWallLabel(elevation.wallLabel()));
 
   const view3d = new View3D(store, {

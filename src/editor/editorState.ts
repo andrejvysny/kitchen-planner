@@ -45,6 +45,17 @@ export class EditorState {
    * `wallWidth` — ephemeral, never serialized, never undone.
    */
   angleSnap = true;
+  /**
+   * Snap grid step in METRES, or null for none — the LOWEST-priority fallback,
+   * applied only when no snap and no guide fired. It used to be a hardcoded
+   * 5 cm rounding repeated at four call sites in Plan2D, which meant it fought
+   * the inference layer instead of catching what the inference layer missed.
+   *
+   * NOT the same thing as the visual grid renderPlan draws (0.1 m / 0.5 m by
+   * zoom) — hence the name. A tool preference like `wallWidth`: ephemeral,
+   * never serialized, never in an undo step.
+   */
+  snapGrid: number | null = 0.05;
 
   private subs = new Set<() => void>();
   private version = 0;
@@ -87,6 +98,14 @@ export class EditorState {
   setAngleSnap(on: boolean): void {
     if (this.angleSnap === on) return;
     this.angleSnap = on;
+    this.bump();
+  }
+
+  /** null turns the grid off; anything else is clamped to a sane drawing step. */
+  setSnapGrid(m: number | null): void {
+    const next = m === null ? null : Math.min(1, Math.max(0.001, m));
+    if (this.snapGrid === next || (next !== null && !Number.isFinite(next))) return;
+    this.snapGrid = next;
     this.bump();
   }
 

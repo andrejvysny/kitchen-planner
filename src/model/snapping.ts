@@ -1,6 +1,7 @@
 import { snapsToWall, type CatalogDef } from './catalog';
 import { angleClose, clamp, fmtCm, projectOnWall, wallPoint } from './geometry';
 import type { RoomWall } from './rooms';
+import type { SnapKind } from './snap';
 import type { Store } from './store';
 import type { Point } from './types';
 
@@ -8,6 +9,13 @@ export interface Guide {
   a: Point;
   b: Point;
   label?: string;
+  /**
+   * Which constraint drew it, so renderPlan can style an inference differently
+   * from a clearance dimension. OPTIONAL on purpose: `snapItem` below predates
+   * the snap engine and its guides are plain measured spans with no kind, which
+   * is exactly how they should keep rendering.
+   */
+  kind?: SnapKind;
 }
 
 export interface SnapResult {

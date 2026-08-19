@@ -10,7 +10,7 @@ import {
   wallCentrelines,
 } from '../../src/model/rooms';
 import { Store } from '../../src/model/store';
-import type { Design, Point, Room } from '../../src/model/types';
+import type { Design, FreeWall, Point, Room } from '../../src/model/types';
 
 /**
  * The centreline layer the unified wall tool draws in, and the per-wall width
@@ -90,7 +90,7 @@ describe('insetPolygon — per-edge offsets', () => {
 describe('wallCentrelines', () => {
   const rooms = [rect('A', 0, 0, 4, 3, 0.2)];
 
-  it('a segment spans its wall EXACTLY — the mitre is the ring\'s job, not its', () => {
+  it("a segment spans its wall EXACTLY — the mitre is the ring's job, not its", () => {
     const { segments, rings } = wallCentrelines(rooms);
     const walls = allWalls(rooms);
     for (const s of segments) {
@@ -172,6 +172,36 @@ describe('snapPointToCentrelines', () => {
     const seg = wallCentrelines(rooms).segments[0];
     expect(snapPointToCentrelines(rooms, seg.a, 'A').hit).toBe(false);
   });
+
+  // a free-standing chain has no room ring behind it, so it only reaches the
+  // snap pass if the caller ALSO hands over `design.walls` — this is the wall
+  // tool's other kind of neighbour, and what starting a new wall on an
+  // existing chain's endpoint depends on
+  const chain: FreeWall = {
+    id: 'fw1',
+    corners: [
+      { id: 'fa', x: 10, y: 10 },
+      { id: 'fb', x: 12, y: 10 },
+    ],
+    thickness: 0.1,
+  };
+
+  it('a free wall endpoint is invisible without passing freeWalls', () => {
+    const hit = snapPointToCentrelines(rooms, { x: 10.03, y: 10.02 });
+    expect(hit.hit).toBe(false);
+  });
+
+  it('a free wall endpoint wins outright once freeWalls is passed', () => {
+    const hit = snapPointToCentrelines(rooms, { x: 10.03, y: 10.02 }, undefined, [chain]);
+    expect(hit.hit).toBe(true);
+    near(hit.p, chain.corners[0]);
+  });
+
+  it('otherwise the closest point on the free wall centreline', () => {
+    const hit = snapPointToCentrelines(rooms, { x: 11, y: 10.02 }, undefined, [chain]);
+    expect(hit.hit).toBe(true);
+    near(hit.p, { x: 11, y: 10 });
+  });
 });
 
 describe('snapRectSides', () => {
@@ -200,6 +230,30 @@ describe('snapRectSides', () => {
     const snap = snapRectSides(rooms, 40, 40, 43, 43);
     expect(snap.snapped).toEqual({ x0: false, y0: false, x1: false, y1: false });
     expect(snap.x0).toBe(40);
+  });
+
+  // the drag gesture and the click gesture are ONE tool, so they have to agree
+  // about what a neighbour is: an open chain is one for the click path
+  // (snapPointToCentrelines above) and must be one here too
+  const chain: FreeWall = {
+    id: 'fw1',
+    corners: [
+      { id: 'fa', x: 20, y: 10 },
+      { id: 'fb', x: 20, y: 14 },
+    ],
+    thickness: 0.1,
+  };
+
+  it('a free chain is invisible to a rectangle side without passing freeWalls', () => {
+    const snap = snapRectSides(rooms, 20.06, 10, 23, 13);
+    expect(snap.snapped.x0).toBe(false);
+    expect(snap.x0).toBe(20.06);
+  });
+
+  it('a rectangle side lands on a free chain centreline once freeWalls is passed', () => {
+    const snap = snapRectSides(rooms, 20.06, 10, 23, 13, undefined, [chain]);
+    expect(snap.snapped.x0).toBe(true);
+    expect(snap.x0).toBeCloseTo(20, 9);
   });
 });
 
@@ -353,7 +407,9 @@ describe('alignWallToCentreline', () => {
     // a wall of A meeting that partition at a corner must not be dragged away
     const neighbour = store
       .allWalls()
-      .find((w) => w.roomId === 'A' && !w.shared && (w.a.id === shared.b.id || w.b.id === shared.a.id))!;
+      .find(
+        (w) => w.roomId === 'A' && !w.shared && (w.a.id === shared.b.id || w.b.id === shared.a.id)
+      )!;
     expect(store.alignWallToCentreline(neighbour.id)).toBe(false);
   });
 

@@ -190,6 +190,12 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     canExecute: (ctx) => ctx.plan.drawInputActive(),
     execute: (ctx) => ctx.plan.drawBackspace(),
   },
+  {
+    id: 'draw.toggleField',
+    label: 'Dimension: length / angle',
+    canExecute: (ctx) => ctx.plan.drawInputActive(),
+    execute: (ctx) => ctx.plan.drawToggleField(),
+  },
 
   /**
    * The shortcut sheet, behind `?`. No `canExecute` and no mutation: it is the

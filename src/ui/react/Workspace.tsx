@@ -4,7 +4,7 @@ import type { ToolId } from '../../editor/editorState';
 import type { CamPreset } from '../../view3d/view3d';
 import { wallLabel } from '../shellState';
 import { workspace } from '../workspaceState';
-import { SceneOverlay, ViewOverlay } from './CanvasOverlays';
+import { DrawHud, SceneOverlay, ViewOverlay } from './CanvasOverlays';
 import { ContextMenu } from './ContextMenu';
 import { FurnishNudge, PlanStarterCard } from './EmptyState';
 import { HintChip } from './HintChip';
@@ -97,6 +97,7 @@ export function Workspace(): ReactElement {
           <HintChip paneId="pane2d" />
           <PlanStarterCard />
           <FurnishNudge />
+          <DrawHud />
         </div>
         <div id="pane3d" className="pane">
           <canvas id="canvas3d" ref={viewCanvas}></canvas>
@@ -211,6 +212,7 @@ function ToolButtons(): ReactElement | null {
                 ⟂
               </button>
               <WallWidthField />
+              <GridStepField />
             </>
           )}
         </>
@@ -265,6 +267,44 @@ function WallWidthField(): ReactElement {
       />
       <span>{prefs.unit}</span>
     </label>
+  );
+}
+
+/**
+ * Snap grid step for the wall tool. A fixed metric list rather than a text box:
+ * src/model/units.ts is metric-only (mm | cm | m), and a grid is a choice from
+ * a handful of sensible steps, not an arbitrary length to type.
+ *
+ * Writes to EditorState like <WallWidthField/> above — no design mutation, so
+ * no `store.commit()` and no undo step.
+ */
+const GRID_STEPS: readonly { label: string; m: number | null }[] = [
+  { label: 'Off', m: null },
+  { label: '10 mm', m: 0.01 },
+  { label: '50 mm', m: 0.05 },
+  { label: '100 mm', m: 0.1 },
+];
+
+function GridStepField(): ReactElement {
+  const editor = useEditor();
+  const current = GRID_STEPS.find((g) => g.m === editor.snapGrid) ?? GRID_STEPS[2];
+
+  return (
+    <select
+      id="btn-grid-step"
+      title="Snap grid — the fallback used when nothing else is in reach"
+      value={current.label}
+      onChange={(e) => {
+        const pick = GRID_STEPS.find((g) => g.label === e.target.value);
+        if (pick) editor.setSnapGrid(pick.m);
+      }}
+    >
+      {GRID_STEPS.map((g) => (
+        <option key={g.label} value={g.label}>
+          {g.label === 'Off' ? 'Grid off' : `Grid ${g.label}`}
+        </option>
+      ))}
+    </select>
   );
 }
 

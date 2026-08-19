@@ -30,6 +30,7 @@ function fakePlan(drawing = false): PlanToolPort & { calls: string[] } {
     drawInputActive: () => drawing,
     drawDigit: (ch) => calls.push(`drawDigit:${ch}`),
     drawBackspace: () => calls.push('drawBackspace'),
+    drawToggleField: () => calls.push('drawToggleField'),
   };
 }
 
@@ -273,14 +274,28 @@ describe('app commands', () => {
 
     it('the dimension commands only run while a ring is in flight', () => {
       const idle = fakePlan(false);
-      const idleReg = new CommandRegistry({ store, editor, plan: idle, modal, workspace: ws, help });
+      const idleReg = new CommandRegistry({
+        store,
+        editor,
+        plan: idle,
+        modal,
+        workspace: ws,
+        help,
+      });
       idleReg.registerAll(APP_COMMANDS);
       expect(idleReg.execute('draw.digit4')).toBe(false);
       expect(idleReg.execute('draw.backspace')).toBe(false);
       expect(idle.calls).toEqual([]);
 
       const live = fakePlan(true);
-      const liveReg = new CommandRegistry({ store, editor, plan: live, modal, workspace: ws, help });
+      const liveReg = new CommandRegistry({
+        store,
+        editor,
+        plan: live,
+        modal,
+        workspace: ws,
+        help,
+      });
       liveReg.registerAll(APP_COMMANDS);
       expect(liveReg.execute('draw.digit4')).toBe(true);
       expect(liveReg.execute('draw.digitDot')).toBe(true);

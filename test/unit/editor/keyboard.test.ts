@@ -111,6 +111,10 @@ describe('key bindings', () => {
     const draw = KEY_BINDINGS.filter((b) => b.commandId.startsWith('draw.'));
     expect(draw.map((b) => b.key)).toEqual([
       'backspace',
+      // Tab moves between the length and angle boxes. It has no at-rest twin,
+      // so its position here is free — but it is still a typed-input key and
+      // must obey the modal/typing gates asserted below.
+      'tab',
       '0',
       '1',
       '2',
@@ -162,10 +166,9 @@ describe('key bindings', () => {
     expect(matchBinding('x', { mod: false, shift: false }, table)!.commandId).toBe('first');
     // …and the rest stay reachable, in that same order, for the controller to
     // fall through to when the first command cannot run
-    expect(matchBindings('x', { mod: false, shift: false }, table).map((b) => b.commandId)).toEqual([
-      'first',
-      'second',
-    ]);
+    expect(matchBindings('x', { mod: false, shift: false }, table).map((b) => b.commandId)).toEqual(
+      ['first', 'second']
+    );
   });
 });
 

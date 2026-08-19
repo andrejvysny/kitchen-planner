@@ -257,8 +257,17 @@ export interface CentrelineRing {
  *   snap target. A ring that degenerates under the offset — a concave corner
  *   tighter than the offset it carries — falls back to the raw corners, so a
  *   room always yields a ring rather than dropping out.
+ *
+ * `freeWalls`, when passed, contribute segments only — an open chain has no
+ * ring to mitre. Their `bandCenter` is 0 (a free wall's slab straddles its own
+ * polyline), so a free segment is exactly the chain's own corners: the wall
+ * tool needs to land a NEW chain on an EXISTING one's endpoint the same way it
+ * lands on a room corner.
  */
-export function wallCentrelines(rooms: Room[]): {
+export function wallCentrelines(
+  rooms: Room[],
+  freeWalls?: FreeWall[]
+): {
   segments: Centreline[];
   rings: CentrelineRing[];
 } {
@@ -293,6 +302,9 @@ export function wallCentrelines(rooms: Room[]): {
         b: { x: w.b.x + w.inward.x * o, y: w.b.y + w.inward.y * o },
       });
     }
+  }
+  for (const w of freeWallGeoms(freeWalls)) {
+    segments.push({ wallId: w.id, roomId: NO_ROOM, a: w.a, b: w.b });
   }
   return { segments, rings };
 }
@@ -651,9 +663,18 @@ export function snapPointToRooms(rooms: Room[], p: Point, skipId?: string): Poin
  * drawn room's own face ring — the centreline ring inset by its half width —
  * comes out flush with the neighbour's, which is the precondition `weld` needs
  * to make one clean partition.
+ *
+ * `freeWalls` (design.walls) join the same pass, so a chain being drawn also
+ * snaps onto an existing open chain's corner or centreline — the wall tool's
+ * OTHER kind of neighbour, with no room ring behind it at all.
  */
-export function snapPointToCentrelines(rooms: Room[], p: Point, skipId?: string): PointSnap {
-  const { segments } = wallCentrelines(rooms);
+export function snapPointToCentrelines(
+  rooms: Room[],
+  p: Point,
+  skipId?: string,
+  freeWalls?: FreeWall[]
+): PointSnap {
+  const { segments } = wallCentrelines(rooms, freeWalls);
   let best: Point | null = null;
   let bestD = ROOM_CORNER_SNAP;
   // segment ENDPOINTS, not the mitred junctions: a mitre overshoots the wall's
@@ -688,14 +709,20 @@ export function snapPointToCentrelines(rooms: Room[], p: Point, skipId?: string)
  * `snapPointToCentrelines` exists. A rectangle side landing on one of these
  * puts the new room's centreline on the neighbour's, so the two face rings end
  * up flush once the tool insets by the half width.
+ *
+ * `freeWalls` joins the same pass as it does in `snapPointToCentrelines`: a
+ * drag-rectangle side has to be able to land on an existing open chain, which
+ * has no room ring behind it at all. Without it the two gestures of the ONE
+ * wall tool disagree about what counts as a neighbour.
  */
 export function centrelineAxisLines(
   rooms: Room[],
-  skipId?: string
+  skipId?: string,
+  freeWalls?: FreeWall[]
 ): { xs: number[]; ys: number[] } {
   const xs: number[] = [];
   const ys: number[] = [];
-  for (const s of wallCentrelines(rooms).segments) {
+  for (const s of wallCentrelines(rooms, freeWalls).segments) {
     if (s.roomId === skipId) continue;
     if (Math.abs(s.a.x - s.b.x) < SHARE_EPS) xs.push(s.a.x);
     if (Math.abs(s.a.y - s.b.y) < SHARE_EPS) ys.push(s.a.y);
@@ -809,12 +836,19 @@ export function snapRectSides(
   y0: number,
   x1: number,
   y1: number,
-  skipId?: string
+  skipId?: string,
+  freeWalls?: FreeWall[],
+  /**
+   * Reach in METRES. Defaults to the historic fixed `ROOM_SNAP_REACH`; the plan
+   * passes a screen-px-derived value so a rectangle side snaps from the same
+   * apparent distance at every zoom, matching the click gesture next door.
+   */
+  reach: number = ROOM_SNAP_REACH
 ): RectSides {
-  const { xs, ys } = centrelineAxisLines(rooms, skipId);
+  const { xs, ys } = centrelineAxisLines(rooms, skipId, freeWalls);
   const near = (lines: number[], v: number): number | null => {
     let best: number | null = null;
-    let bestD = ROOM_SNAP_REACH;
+    let bestD = reach;
     for (const l of lines) {
       const d = Math.abs(l - v);
       if (d < bestD) {
@@ -879,9 +913,7 @@ export function splitRoomByChain(room: Room, chain: Point[]): RoomSplit | null {
       if (x) found.push({ p: x.p, chainIdx: i, ringIdx: j, ringU: x.u });
     }
     // several crossings on ONE chain segment must keep their order along it
-    found.sort(
-      (m, n) => dist(chain[i], m.p) - dist(chain[i], n.p)
-    );
+    found.sort((m, n) => dist(chain[i], m.p) - dist(chain[i], n.p));
     for (const f of found) {
       const prev = hits[hits.length - 1];
       if (prev && dist(prev.p, f.p) < SHARE_EPS) continue;

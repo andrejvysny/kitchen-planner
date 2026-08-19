@@ -241,6 +241,64 @@ the face ring a `Room` stores, and `commitRing` converts once at the end:
   length through `parseLength` (the `draw.digit*` commands — see the keyboard
   note on first-match-that-can-run).
 
+**`src/model/snap/` is the ONE snap engine, and every plan gesture calls it.**
+`resolveSnap(cursor, ctx, cfg)` is pure, DOM-free and unit-tested
+(test/unit/snapEngine.test.ts). It resolves in three stages, and the split is the
+whole design:
+
+- **POINT** candidates (`endpoint` / `midpoint` / `intersection`) fully determine
+  the answer, so the best-scoring one returns immediately.
+- **LINE** candidates (`align` / `extension` / `perpendicular` / `parallel` /
+  `onSegment` / `angle`) each remove ONE degree of freedom, so the top two
+  non-parallel ones are INTERSECTED — that is how "lined up with that corner AND
+  square to the wall I just drew" reaches one exact point, which no ladder of
+  independent tiers can express.
+- **GRID** (`editor.snapGrid`, `#btn-grid-step`, null = off) is the lowest
+  priority fallback, applied only when nothing else fired. It replaced four
+  hardcoded `Math.round(v * 20) / 20` sites in Plan2D. Do NOT confuse it with the
+  VISUAL grid renderPlan draws (`gridStep`, 0.1/0.5 m by zoom) — different thing,
+  hence the different name.
+
+Scoring is `TYPE_WEIGHT[kind] − distance / reach`, and reach is SCREEN px over
+the live zoom, clamped by `maxWorldReach`. Both halves matter: screen-relative
+means a snap feels the same at every zoom (the bug being fixed was a fixed 0.15 m
+that became a 45 px magnet at 300 px/m), and the clamp stops zooming OUT turning
+it into a magnet spanning metres. `hitRadius` is applied by the CALLER, so
+src/model never imports src/plan2d.
+
+Three rules that are easy to break and are pinned by tests:
+
+- **The angle lock is a MODE, not a proximity snap.** `angleCandidates` is the
+  one generator with no reach gate and a clamped penalty; gating it would switch
+  it off past a few centimetres off the ray. When it is live, line candidates
+  PARALLEL to it are dropped — they fight it for the same axis from a different
+  origin and can never combine with it — which is what stops a distant wall's
+  midpoint quietly tilting a segment the user asked to be straight.
+- **Two lines through the SAME origin are never crossed.** `angle`,
+  `perpendicular` and `parallel` all radiate from the anchor, so intersecting any
+  two of them lands the vertex ON the anchor: a zero-length wall.
+- **A constraint radiating from the anchor draws NO guide.** It would sit exactly
+  under the rubber-banded segment. It reports through the cursor glyph
+  (`drawSnapMarker`, renderPlan.ts) instead.
+
+`Alt` suppresses everything, grid included, and is a POINTER modifier — read off
+`e.altKey` plus window `keydown`/`keyup`/`blur` watchers in Plan2D, NOT a
+`KeyBinding` (KeyboardController only ever reads ctrl/meta/shift). `Tab`
+(`draw.toggleField`) moves between the HUD's length and angle boxes; the typed
+ANGLE is relative to the previous segment while the 15° lock stays world-absolute.
+
+The four callers pass different contexts, and the differences are deliberate:
+the wall tool snaps to `wallCentrelines` (centreline space, because `commitRing`
+converts to face space via `faceRingPlan` WITH wall promotion); `measureSnap`
+snaps to raw walls + item outlines with the inference kinds DISABLED (a
+measurement must read geometry, never invent a point) and no grid; the corner
+drag snaps to the room-side FACE rings, because `moveCorner` + `weldRoom` has no
+conversion step at all and `allWalls` only sees a partition when two rings hold
+literally the same edge — snapping a dragged corner to a centreline would leave
+the rings half a thickness apart and no weld could ever form. `snapItem` (item
+placement) is deliberately NOT on the engine: OBB edge-to-edge plus wall-face
+hugging is a different problem.
+
 **A chain need not close, and what it becomes depends on what it touches.**
 `closeDrawRoom` reads the finished chain three ways, in order:
 
