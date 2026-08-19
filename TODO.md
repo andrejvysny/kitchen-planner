@@ -14,6 +14,56 @@ npm run lint && npm run typecheck && npm run test:unit && npm run build \
 
 ---
 
+# M17 — UX review execution (active)
+
+Plan: `~/.claude/plans/act-as-senior-software-vast-waffle.md`. Full UX review
+done 2026-08-19 (findings in the plan). Decisions: both personas (progressive
+disclosure), full scope, empty first run.
+
+## Phase 0 — restore validation
+
+- [x] 0.1 e2e fixture fix — `bootReady` no longer waits rooms>0; `resetDesign`
+      seeds the 4x3 room via `addRoom()+commit()`. Suite RUNS again:
+      72/84 green on first run; 12 failures are spec drift from the dead
+      period (M13–M16 specs written blind) — repair in flight.
+- [x] 0.2 `Ctrl+R` no longer swallowed — `mod: false` on both rotate rows
+      (bindings.ts) + pinned test (keyboard.test.ts, 26 green).
+- [x] 0.3 doc drift — CLAUDE.md `DESIGN_VERSION` 6→7 (two stale spots),
+      README stale interact count.
+- [ ] 0.4 B1-equivalent acceptance walk (WS-SPEC §9 doc not on disk —
+      reconstruct: first-run tour, workspace round-trips, cheatsheet) + record.
+
+## Phase 1 — quick wins
+
+- [ ] 1.1 empty first run (`emptyDesign()` boot, "Load sample design" on
+      starter card, FurnishNudge persistence) — audit interact/screenshot
+      demo-at-boot assumptions first
+- [ ] 1.2 one export manifest (labels+order defined once in exportActions.ts)
+- [ ] 1.3 terminology (wall Thickness everywhere; Workshop verbs; Floor
+      plan/Elevation labels)
+- [ ] 1.4 app-modal confirms (<ConfirmDialog/>; calibrate prompt() → dialog
+      with parseLength)
+- [ ] 1.5 hint severity (info|success|error), persistent underlay-storage
+      warning, exportActions error logging
+- [ ] 1.6 draw-tool discoverability (HintChip Shift/Alt, DrawHud angle-lock
+      state, 4th coach mark → ?, guide legend in cheatsheet)
+- [ ] 1.7 cosmetics (#wsp-back stretch, zone-canvas footer clip, "Room wall
+      colour…" rename)
+
+## Phase 2 — core flow
+
+- [ ] 2.1 3D drag-to-move selected item (same snapItem path as gizmo) + 3D
+      selected/attached hint chips
+- [ ] 2.2 hidden-gesture hints (stack cycling, place-then-drag)
+- [ ] 2.3 zone-canvas dblclick disambiguation
+
+## Phase 3+4 — Workshop maturation + materials
+
+See WS Phase 3/4 sections below (WP 3.1–3.4, 4.1–4.3) — unchanged, executed
+after Phase 2 per the plan.
+
+---
+
 # M11 — Close the React migration seam + editor-core skeleton
 
 Plan: `~/.claude/plans/act-as-senior-software-distributed-church.md`

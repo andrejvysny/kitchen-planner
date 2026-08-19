@@ -261,7 +261,7 @@ headless; end-to-end tests run against the production build with Playwright:
 npm run test:unit           # geometry / store / snapping + builder smoke tests
 npm run build
 npx vite preview &          # serves dist on :4173
-node test/interact.mjs      # 104 interaction checks (place, snap, drag, undo,
+node test/interact.mjs      # broad interaction checks (place, snap, drag, undo,
                             # wall edits, doors, multi-room, part studio,
                             # keyboard, 3D picking, exports, spatial checks)
 npx playwright test         # isolated specs: DOM contract, layout, lifecycle,

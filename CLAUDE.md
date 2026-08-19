@@ -115,7 +115,7 @@ Polygon footprints (chamfer/cornerL) and L-corner runs are out of scope.
 
 Zone trees live on the part def only — placed instances override just
 w/d/h/color/elevation ("Duplicate part" in the studio and "Customize part…"
-in the props panel cover variants). `DESIGN_VERSION` is 6; sanitizeDesign
+in the props panel cover variants). `DESIGN_VERSION` is 7; sanitizeDesign
 migrates v5 forward (src/model/migrate.ts) and returns null for anything
 older or unknown (callers fall back to a fresh/demo design).
 
@@ -850,7 +850,7 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   `kitchen-planner-*` keys (never deleted). `UNDERLAY_KEY` (the tracing photo),
   `WORKSPACE_KEY` (the open workspace), `UNIT_PREFS_KEY` and `ONBOARDED_KEY`
   (the first-run tour, seeded by every test suite) are new-name only — they
-  postdate the rename and have no legacy twin. `DESIGN_VERSION` is 6.
+  postdate the rename and have no legacy twin. `DESIGN_VERSION` is 7.
   `sanitizeDesign()` (store.ts) is the single validation/repair gate for
   autosave and file import: it runs `migrateDesign()` first (versioned step
   map, `MIN_MIGRATABLE_VERSION` 5) and returns null when there is no path.
