@@ -17,8 +17,11 @@ import { WallProps } from './WallProps';
  * uncontrolled. A change WITHIN one selection (an undo, a slider, a rename) is
  * an ordinary re-render instead, so nodes, focus and caret survive it.
  *
- * The three channels are exactly the ones ui.ts's renderProps was subscribed
- * to, and no others: a mid-drag 'change' is transient-only and must never reach
+ * The channels are the three ui.ts's renderProps was subscribed to plus
+ * 'workspace' (the room panel's section list is workspace-scoped —
+ * roomSections.ts — so a tab switch must re-render it; it used to render the
+ * PREVIOUS workspace's sections until an unrelated event arrived). NOTHING
+ * gesture-rate: a mid-drag 'change' is transient-only and must never reach
  * this component (see useLiveValue.ts — the fields that show a dragged value
  * subscribe to 'transient' themselves and write into their own node).
  *
@@ -31,6 +34,7 @@ export function PropsBody(): ReactElement {
   useChannel('selection');
   useChannel('history');
   useChannel('activeRoom');
+  useChannel('workspace');
 
   // no dependency array: one tick per COMMITTED render, which is what the
   // transient rule is stated in

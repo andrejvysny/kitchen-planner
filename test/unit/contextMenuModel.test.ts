@@ -32,8 +32,9 @@ describe('contextMenu — the entry matrix', () => {
     expect(ids(ITEM)).toEqual(['edit-workshop', 'duplicate', 'rotate90', 'delete']);
   });
 
-  it('wall: corner, door, window, length, colour', () => {
-    expect(ids(WALL)).toEqual([
+  it('wall: corner, door, window, length — colour only in Furnish, where its section lives', () => {
+    expect(ids(WALL)).toEqual(['add-corner', 'add-door', 'add-window', 'wall-length']);
+    expect(ids(WALL, 'furnish')).toEqual([
       'add-corner',
       'add-door',
       'add-window',
@@ -88,9 +89,9 @@ describe('contextMenu — workspace gating', () => {
     }
   });
 
-  it('item and wall menus are identical in Plan and Furnish', () => {
+  it('item menus are identical in Plan and Furnish; wall differs only by colour', () => {
     expect(ids(ITEM, 'furnish')).toEqual(ids(ITEM, 'plan'));
-    expect(ids(WALL, 'furnish')).toEqual(ids(WALL, 'plan'));
+    expect(ids(WALL, 'furnish')).toEqual([...ids(WALL, 'plan'), 'wall-colour']);
   });
 
   it('room menus are identical in Plan and Furnish', () => {

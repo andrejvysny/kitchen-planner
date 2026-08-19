@@ -65,14 +65,19 @@ export function contextMenu(hit: ContextHit, ws: WorkspaceId, opts: MenuOpts): M
         { id: 'delete', label: 'Delete', hint: 'Delete', danger: true },
       ];
 
-    case 'wall':
-      return [
+    case 'wall': {
+      const out: MenuEntry[] = [
         { id: 'add-corner', label: 'Add corner here', hint: 'double-click' },
         { id: 'add-door', label: 'Add door' },
         { id: 'add-window', label: 'Add window' },
         { id: 'wall-length', label: 'Set wall length…' },
-        { id: 'wall-colour', label: 'Wall colour…' },
       ];
+      // its destination (#section-walls) is a FURNISH room-panel section
+      // (roomSections.ts) — in Plan the row would scroll nowhere, and a dead
+      // entry is the one thing this menu never ships
+      if (ws === 'furnish') out.push({ id: 'wall-colour', label: 'Wall colour…' });
+      return out;
+    }
 
     case 'room': {
       const out: MenuEntry[] = [];

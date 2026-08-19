@@ -639,8 +639,10 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   selected), so picking a DIFFERENT object remounts the whole body — the React
   spelling of ui.ts's `innerHTML = ''`, and what lets every field stay
   uncontrolled — while an edit to the SAME object is an ordinary re-render that
-  keeps nodes, focus and caret. PropsBody subscribes to 'selection', 'history'
-  and 'activeRoom' and to NOTHING else: a drag fires 'transient' at pointer
+  keeps nodes, focus and caret. PropsBody subscribes to 'selection', 'history',
+  'activeRoom' and 'workspace' (the room panel's section list is
+  workspace-scoped — roomSections.ts — so a tab switch must re-render it) and
+  to NOTHING gesture-rate: a drag fires 'transient' at pointer
   rate, and the six dragged fields (pos-x, pos-y, rot, corner-x, corner-y,
   opening-off) follow it themselves through `useLiveValue`, writing into their
   own node. That is a hard contract, not an optimisation — PropsBody counts its
