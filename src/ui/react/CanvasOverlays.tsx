@@ -188,6 +188,11 @@ export function DrawHud(): ReactElement | null {
 
   return (
     <div id="draw-hud" style={{ left: `${hud.at.x}px`, top: `${hud.at.y}px` }}>
+      {hud.angleLock && (
+        <span className="draw-hud-lock" title="15° angle lock — Shift toggles">
+          ⟂
+        </span>
+      )}
       {box('length', hud.typedLength, formatLength(hud.length, prefs), prefs.unit)}
       {box('angle', hud.typedAngle, formatAngle(hud.angle), hud.relative ? '°↺' : '°')}
       {OUTCOME[hud.outcome] && (

@@ -2,19 +2,20 @@ import { useCallback, useEffect, useLayoutEffect, useState, type ReactElement } 
 import { setOnboarded } from '../onboarded';
 
 /**
- * The first-run tour (WS-SPEC §5.5, WP 2.5): three bubbles that name the three
- * regions of the shell, once, on a device that has never opened the app.
+ * The first-run tour (WS-SPEC §5.5, WP 2.5): four bubbles that name the three
+ * regions of the shell plus where to find every gesture again, once, on a
+ * device that has never opened the app.
  *
  * WHETHER it runs is not this component's decision — `services.firstRun`
  * (src/app/services.ts) settles that at construction, from storage, before
  * React mounts, which is also what guarantees the tour and the recovery banner
  * can never appear together. <App/> mounts this component only on a true, so
- * everything here is about the three steps themselves.
+ * everything here is about the four steps themselves.
  *
  * Deliberately small: no library, no spotlight cutout punched through the
- * backdrop, no scroll-into-view. The three anchors are fixed chrome
- * (`#ws-tabs`, `#catalog`, `#props`), so a measured rect plus a ring drawn ON
- * TOP of the dim is enough to point at each one.
+ * backdrop, no scroll-into-view. The four anchors are fixed chrome
+ * (`#ws-tabs`, `#catalog`, `#props`, `#btn-settings`), so a measured rect plus
+ * a ring drawn ON TOP of the dim is enough to point at each one.
  *
  * DISMISS-ANYWHERE: the backdrop takes the pointer, so any press advances —
  * which also means the tour never lets a first click land somewhere the user
@@ -30,6 +31,8 @@ import { setOnboarded } from '../onboarded';
 interface Mark {
   /** element the bubble points at; a missing one just centres the bubble */
   anchor: string;
+  /** short lead-in, bold; omitted on the three region bubbles */
+  title?: string;
   body: string;
   /** which side of the anchor the bubble sits on */
   place: 'below' | 'right' | 'left';
@@ -49,6 +52,12 @@ const MARKS: readonly Mark[] = [
   {
     anchor: '#props',
     body: 'Whatever you select is edited here.',
+    place: 'left',
+  },
+  {
+    anchor: '#btn-settings',
+    title: 'Lost?',
+    body: 'Press ? anytime for every shortcut and gesture — or find them under ⚙ → Shortcuts…',
     place: 'left',
   },
 ];
@@ -159,6 +168,7 @@ export function CoachMarks(): ReactElement | null {
         data-step={step}
         style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, width: BUBBLE_W }}
       >
+        {mark.title && <p className="coach-title">{mark.title}</p>}
         <p className="coach-body">{mark.body}</p>
         <div className="coach-foot">
           <span className="coach-dots" aria-label={`Step ${step + 1} of ${MARKS.length}`}>

@@ -47,6 +47,8 @@ export interface DrawHudState {
   field: DrawField;
   /** what finishing right now would produce */
   outcome: DrawOutcome;
+  /** true when the pending segment is quantised to 15° (editor.angleSnap XOR Shift) */
+  angleLock: boolean;
 }
 
 let state: DrawHudState | null = null;

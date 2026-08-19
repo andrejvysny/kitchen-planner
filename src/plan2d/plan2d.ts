@@ -272,6 +272,7 @@ export class Plan2D {
       typedAngle: this.drawAngle,
       field: this.drawField,
       outcome: this.outcome,
+      angleLock: this.angleLocked(this.lastShift),
     });
   }
 
@@ -806,10 +807,7 @@ export class Plan2D {
     junctions: Point[];
   } {
     if (!this.snapMaterial) {
-      const { segments, rings } = wallCentrelines(
-        this.store.design.rooms,
-        this.store.design.walls
-      );
+      const { segments, rings } = wallCentrelines(this.store.design.rooms, this.store.design.walls);
       // The mitred RINGS join the segments here, and ONLY here. A segment ends
       // where its wall ends, so at a right-angled corner the two nearest
       // endpoints sit half a thickness off along either axis and the point a
@@ -1146,7 +1144,11 @@ export class Plan2D {
       return;
     }
     if (!finishOpen && this.drawPts.length >= 2) {
-      const ring = closeChainAgainstWalls(this.store.design.rooms, this.drawPts, this.store.design.walls);
+      const ring = closeChainAgainstWalls(
+        this.store.design.rooms,
+        this.drawPts,
+        this.store.design.walls
+      );
       if (ring && this.commitRing(ring)) {
         this.finishGesture();
         return;
@@ -1267,9 +1269,7 @@ export class Plan2D {
     for (let i = 0; i < plan.edgeWalls.length; i++) {
       const walls = plan.edgeWalls[i];
       if (!walls.length) continue;
-      const usable = walls.some(
-        (id) => promoted.has(id) || this.store.wallById(id)?.shared
-      );
+      const usable = walls.some((id) => promoted.has(id) || this.store.wallById(id)?.shared);
       if (!usable) plan.offsets[i] = width / 2;
     }
     const inset = insetPolygon(ring, plan.offsets);

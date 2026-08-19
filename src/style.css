@@ -1843,6 +1843,18 @@ body {
   font-weight: 600;
 }
 
+/* Status-hint severity (shellState's HintKind) — error matches statusbar-warn's
+   weight since both mean "this needs attention"; success stays subtle, one
+   step off the default grey, not a banner. */
+.hint-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.hint-success {
+  color: var(--accent);
+}
+
 /* ---------- Recovery banner ---------- */
 
 .recovery-banner {
@@ -2012,6 +2024,12 @@ body {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 14px 16px 10px;
+}
+
+.coach-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .coach-body {
@@ -2284,6 +2302,12 @@ body {
   gap: 2px;
   padding: 0 3px;
   border-radius: 3px;
+}
+
+/* angle-lock state (editor.angleSnap XOR Shift), leading the readout */
+.draw-hud-lock {
+  color: #2f6f5e;
+  font-weight: 600;
 }
 
 /* the box the digits are going into — Tab swaps it */

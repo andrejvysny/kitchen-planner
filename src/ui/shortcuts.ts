@@ -64,4 +64,10 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
   { group: 'Mouse', keys: 'Double-click a wall', does: 'Add a corner there' },
   { group: 'Mouse', keys: 'Double-click a front in 3D', does: 'Open or close that door or drawer' },
   { group: 'Mouse', keys: 'Drag in 3D', does: 'Orbit the camera · scroll zooms' },
+
+  // The wall tool's guide lines (renderPlan.ts GUIDE_STYLE): line weight/dash
+  // encodes WHY the cursor is held where it is, not just that it is.
+  { group: 'Mouse', keys: 'Dashed guide', does: 'Inferred alignment' },
+  { group: 'Mouse', keys: 'Dotted guide', does: 'Existing geometry' },
+  { group: 'Mouse', keys: 'Solid guide', does: 'Construction line' },
 ];

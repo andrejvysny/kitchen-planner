@@ -32,8 +32,8 @@ async function bootOnboarded(page: Page): Promise<void> {
 }
 
 test.describe('first-run coach marks', () => {
-  test('a brand-new profile lands in Plan and walks three marks exactly once', async ({ page }) => {
-    // Two full boots + a three-mark walk: legitimately outlives the 60s budget
+  test('a brand-new profile lands in Plan and walks four marks exactly once', async ({ page }) => {
+    // Two full boots + a four-mark walk: legitimately outlives the 60s budget
     // under full-suite parallelism on SwiftShader. slow() triples the timeout.
     test.slow();
     await page.goto('/', { waitUntil: 'networkidle' });
@@ -43,7 +43,7 @@ test.describe('first-run coach marks', () => {
     expect(await page.evaluate(() => window.__kp.workspace())).toBe('plan');
     await expect(page.locator('#ws-tab-plan')).toHaveClass(/active/);
 
-    // mark 1 of 3
+    // mark 1 of 4
     await expect(page.locator('#coach-marks')).toBeVisible();
     await expect(page.locator('.coach-mark[data-step="0"]')).toBeVisible();
     await expect(page.locator('.coach-mark')).toContainText('Work moves left to right');
@@ -58,6 +58,11 @@ test.describe('first-run coach marks', () => {
     await page.mouse.click(800, 700);
     await expect(page.locator('.coach-mark[data-step="2"]')).toBeVisible();
     await expect(page.locator('.coach-mark')).toContainText('Whatever you select');
+
+    await page.mouse.click(800, 700);
+    await expect(page.locator('.coach-mark[data-step="3"]')).toBeVisible();
+    await expect(page.locator('.coach-mark')).toContainText('Lost?');
+    await expect(page.locator('.coach-mark')).toContainText('Press ? anytime');
 
     await page.mouse.click(800, 700);
     await expect(page.locator('#coach-marks')).toHaveCount(0);
