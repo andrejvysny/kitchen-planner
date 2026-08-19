@@ -47,7 +47,16 @@ import {
 } from './geometry';
 import { partPanels, type Panel } from './panels';
 import { footprintPolygon } from './parts';
-import { allWalls, openingsOfWall, roomOfItem, type RoomWall, type WallOpening } from './rooms';
+import {
+  allWalls,
+  bandCenter,
+  designWalls,
+  MIN_SEAM,
+  openingsOfWall,
+  roomOfItem,
+  type RoomWall,
+  type WallOpening,
+} from './rooms';
 import type { Design, Item, Point } from './types';
 
 export type Severity = 'error' | 'warn' | 'info';
@@ -66,7 +75,9 @@ export type CheckKind =
   | 'walkway'
   | 'workAisle'
   | 'bedAccess'
-  | 'workTriangle';
+  | 'workTriangle'
+  /** two physical wall slabs running along each other instead of being one */
+  | 'parallelWalls';
 
 /** Where to draw the highlight; a sector is just a polygon. */
 export type WarningGeom =
@@ -808,6 +819,74 @@ function warningId(kind: CheckKind, subjectIds: string[]): string {
  * both rooms and yields the same world geometry twice), and the sort makes the
  * output independent of item order.
  */
+/**
+ * Sin of the largest angle two wall slabs may differ by and still count as
+ * running along each other (~2.9°). Looser than the model's own coincidence
+ * test on purpose — a doubled wall drawn by hand is rarely exactly parallel,
+ * and it is still a doubled wall.
+ */
+const WALL_PARALLEL_EPS = 0.05;
+
+/**
+ * Two wall slabs running along each other, close enough to be one wall, that
+ * the model did NOT merge into a partition.
+ *
+ * This is the check that makes the tool's one silent failure visible. Sharing
+ * is derived geometrically and demands 1 mm coincidence (`linkShared`); miss it
+ * and the design keeps two exterior walls a few centimetres apart, which reads
+ * as a single thick wall in the plan and only becomes obvious in 3D. The wall
+ * tool now heals the near-miss at commit, so anything reaching here is either a
+ * deliberate cavity or a case the healing could not take — both worth saying
+ * out loud.
+ *
+ * Advisory like everything else in this file: it never blocks the edit, and a
+ * double-leaf wall built on purpose is a legitimate reason to ignore it.
+ */
+function parallelWallChecks(walls: RoomWall[], out: Warning[]): void {
+  // a partition is ONE wall seen twice; only the owner side is a real slab
+  const drawn = walls.filter((w) => !w.shared || w.shared.owner);
+  const centre = (w: RoomWall, p: Point): Point => ({
+    x: p.x + w.inward.x * bandCenter(w),
+    y: p.y + w.inward.y * bandCenter(w),
+  });
+  for (let i = 0; i < drawn.length; i++) {
+    for (let j = i + 1; j < drawn.length; j++) {
+      const a = drawn[i];
+      const b = drawn[j];
+      if (a.shared?.wallId === b.id || b.shared?.wallId === a.id) continue;
+      if (Math.abs(a.dir.x * b.dir.y - a.dir.y * b.dir.x) > WALL_PARALLEL_EPS) continue;
+
+      const a0 = centre(a, a.a);
+      const b0 = centre(b, b.a);
+      const b1 = centre(b, b.b);
+      const sideOf = (p: Point): number => a.dir.x * (p.y - a0.y) - a.dir.y * (p.x - a0.x);
+      const alongOf = (p: Point): number => a.dir.x * (p.x - a0.x) + a.dir.y * (p.y - a0.y);
+      const gap = (Math.abs(sideOf(b0)) + Math.abs(sideOf(b1))) / 2;
+      const limit = Math.max(a.thickness, b.thickness);
+      if (gap >= limit) continue;
+
+      const t0 = Math.max(0, Math.min(alongOf(b0), alongOf(b1)));
+      const t1 = Math.min(a.len, Math.max(alongOf(b0), alongOf(b1)));
+      if (t1 - t0 < MIN_SEAM) continue;
+
+      const at = (t: number): Point => ({ x: a0.x + a.dir.x * t, y: a0.y + a.dir.y * t });
+      const ids = [a.id, b.id].sort();
+      out.push({
+        id: `parallelWalls:${ids.join(',')}`,
+        kind: 'parallelWalls',
+        severity: 'warn',
+        itemIds: [],
+        roomId: a.roomId || b.roomId,
+        title: 'Two walls run along each other',
+        detail: `Their centres are ${fmtCm(gap)} apart over ${fmtCm(t1 - t0)} — they were meant to be one wall, but the rooms do not share an edge.`,
+        value: gap,
+        limit,
+        geom: { kind: 'segment', a: at(t0), b: at(t1) },
+      });
+    }
+  }
+}
+
 export function runChecks(design: Design): Warning[] {
   const shapes: Shape[] = [];
   for (const it of design.items) {
@@ -837,6 +916,7 @@ export function runChecks(design: Design): Warning[] {
   doorChecks(design, shapes, walls, found);
   passageChecks(passageFaces(design, shapes, wallFaces, work), found);
   frontChecks(design, shapes, wallFacesOf, work, found);
+  parallelWallChecks(designWalls(design.rooms, design.walls), found);
   bedChecks(shapes, wallFacesOf, found);
   triangleChecks(shapes, found);
 

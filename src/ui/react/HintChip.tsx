@@ -28,7 +28,7 @@ import { useEditor } from './services';
 
 const HINTS_2D: Partial<Record<ToolId, string>> = {
   place: 'Click to place · shift keeps placing',
-  drawRoom: 'Drag a room, or click walls · close the loop for a room, Enter to stop',
+  drawRoom: 'Drag a room, or click wall by wall · land on a wall to close it',
   measure: 'Click two points',
   calibrate: 'Click both ends of a known distance',
 };

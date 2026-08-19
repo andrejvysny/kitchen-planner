@@ -11,6 +11,7 @@
  * says so). Everything is meters.
  */
 
+import { planarFaces, type FaceSegment } from './faces';
 import {
   clamp,
   closestOnSegment,
@@ -736,6 +737,72 @@ export interface FaceRingPlan {
   offsets: number[];
   /** existing exterior walls to promote onto their centreline first, by wall id */
   promote: string[];
+  /**
+   * Per ring edge, every existing wall whose centreline it lands on, best
+   * overlap first. The caller needs this to UNDO an offset: promotion can be
+   * refused (`Store.alignWallToCentreline`), and an edge whose walls all
+   * refused has to fall back to `half` or it ends up half a thickness off the
+   * neighbour's face ring with no weld able to close the gap.
+   */
+  edgeWalls: string[][];
+}
+
+/** One existing centreline a drawn edge was found to run along. */
+export interface EdgeHit {
+  wall: Centreline;
+  /** how much of the drawn edge runs along that wall (m) */
+  overlap: number;
+  /** signed perpendicular offset of the drawn edge from the centreline (m) */
+  side: number;
+}
+
+/**
+ * Every existing centreline the drawn edge `a→b` runs along, best overlap
+ * first.
+ *
+ * The test is an OVERLAP, not a midpoint: both endpoints must sit within `tol`
+ * of the candidate's infinite line AND the stretch they share with it must
+ * reach `MIN_SEAM`. A midpoint test (what this replaced) silently missed the
+ * two commonest cases — an edge LONGER than the wall it runs along, whose
+ * middle falls past the wall's end, and an edge spanning two collinear walls,
+ * of which it could only ever report the one under the middle.
+ *
+ * ALL matches are returned for the same reason: an edge drawn down two stacked
+ * rooms must promote both their walls, or half of it comes out doubled.
+ *
+ * `tol` defaults to `SHARE_EPS`, the coincidence the rest of the pipeline
+ * demands. `regularizeDrawnRing` deliberately calls it much wider, to find the
+ * near-miss it is about to pull exactly into place.
+ */
+export function edgeCentrelineHits(
+  segments: Centreline[],
+  a: Point,
+  b: Point,
+  tol = SHARE_EPS
+): EdgeHit[] {
+  const len = dist(a, b);
+  if (len < 1e-9) return [];
+  const dir = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+  const out: EdgeHit[] = [];
+  for (const s of segments) {
+    const sl = dist(s.a, s.b);
+    if (sl < 1e-9) continue;
+    const sd = { x: (s.b.x - s.a.x) / sl, y: (s.b.y - s.a.y) / sl };
+    // parallel either way round — a partition is traversed in reverse
+    if (Math.abs(dir.x * sd.y - dir.y * sd.x) > PARALLEL_EPS) continue;
+    const sideOf = (p: Point): number => sd.x * (p.y - s.a.y) - sd.y * (p.x - s.a.x);
+    const alongOf = (p: Point): number => sd.x * (p.x - s.a.x) + sd.y * (p.y - s.a.y);
+    const sa = sideOf(a);
+    const sb = sideOf(b);
+    if (Math.abs(sa) > tol || Math.abs(sb) > tol) continue;
+    const ta = alongOf(a);
+    const tb = alongOf(b);
+    const overlap = Math.min(Math.max(ta, tb), sl) - Math.max(Math.min(ta, tb), 0);
+    if (overlap < MIN_SEAM) continue;
+    out.push({ wall: s, overlap, side: (sa + sb) / 2 });
+  }
+  out.sort((p, q) => q.overlap - p.overlap);
+  return out;
 }
 
 /**
@@ -754,10 +821,10 @@ export interface FaceRingPlan {
  * would leave the two rooms a wall's thickness apart with a weld unable to
  * close the gap (the stub segments and notched junctions this replaces).
  *
- * An edge counts as landing on a neighbour when its midpoint sits on that
- * neighbour's centreline segment and the two run parallel. A PARTIAL overlap
- * (a tee) is treated as shared for the whole edge: the weld then splits it,
- * and the remainder becomes exterior on its own.
+ * An edge counts as landing on a neighbour by `edgeCentrelineHits` — an
+ * overlap test, so a PARTIAL overlap (a tee) is shared for the whole edge and
+ * the weld splits it afterwards, and an edge running down several collinear
+ * walls promotes every one of them.
  *
  * Both halves are computed against the SAME snapshot of the rooms, which is the
  * whole point of returning them together. Promoting a wall moves its ring edge
@@ -765,41 +832,307 @@ export interface FaceRingPlan {
  * centreline too, so an offsets pass run afterwards would no longer recognise
  * the edge it just prepared. Callers promote from `promote`, then inset with
  * `offsets`; never re-derive between the two.
+ *
+ * A promotion can still be REFUSED by the store. That is what `edgeWalls` is
+ * for: the caller downgrades those edges to `half` in place, which is not a
+ * re-derivation — the plan is still the one snapshot, only the entries whose
+ * precondition the store rejected are undone.
  */
-export function faceRingPlan(rooms: Room[], ring: Point[], half: number): FaceRingPlan {
+export function faceRingPlan(
+  rooms: Room[],
+  ring: Point[],
+  half: number,
+  freeWalls?: FreeWall[],
+  tol = SHARE_EPS
+): FaceRingPlan {
+  const { segments } = wallCentrelines(rooms, freeWalls);
   const offsets: number[] = [];
   const promote: string[] = [];
+  const edgeWalls: string[][] = [];
   for (let i = 0; i < ring.length; i++) {
-    const hit = centrelineEdgeHit(rooms, ring, i);
-    offsets.push(hit ? 0 : half);
-    if (hit && !promote.includes(hit.wallId)) promote.push(hit.wallId);
+    const hits = edgeCentrelineHits(segments, ring[i], ring[(i + 1) % ring.length], tol);
+    offsets.push(hits.length ? 0 : half);
+    edgeWalls.push(hits.map((h) => h.wall.wallId));
+    for (const h of hits) if (!promote.includes(h.wall.wallId)) promote.push(h.wall.wallId);
   }
-  return { offsets, promote };
+  return { offsets, promote, edgeWalls };
 }
 
 /**
- * The existing wall a drawn ring's edge `i` lands on the centreline of, or
- * null. Companion to `faceRingPlan`: the offsets say WHERE the edge goes,
- * this says WHICH wall has to be promoted to meet it there
- * (`Store.alignWallToCentreline`).
+ * How far off a neighbour's centreline a drawn edge may be and still be
+ * understood as meant to sit ON it (20 mm).
+ *
+ * This is deliberately far looser than `SHARE_EPS`. The rest of the pipeline —
+ * `linkShared`, `seamOps` — demands 1 mm coincidence and reports nothing when
+ * it does not get it, so a 15 mm miss used to commit silently as TWO parallel
+ * wall slabs with no way back. `regularizeDrawnRing` closes that band by
+ * moving the drawn edge, which is the only place in the tool where what the
+ * user drew is altered, and why it is bounded by an explicit constant.
  */
-export function centrelineEdgeHit(rooms: Room[], ring: Point[], i: number): Centreline | null {
-  const a = ring[i];
-  const b = ring[(i + 1) % ring.length];
-  const len = dist(a, b);
-  if (len < 1e-9) return null;
-  const dir = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
-  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  for (const s of wallCentrelines(rooms).segments) {
-    const sl = dist(s.a, s.b);
-    if (sl < 1e-9) continue;
-    const sd = { x: (s.b.x - s.a.x) / sl, y: (s.b.y - s.a.y) / sl };
-    // parallel either way round — a partition is traversed in reverse
-    if (Math.abs(dir.x * sd.y - dir.y * sd.x) > PARALLEL_EPS) continue;
-    if (dist(mid, closestOnSegment(mid, s.a, s.b)) > SHARE_EPS) continue;
-    return s;
+export const REGULARIZE_TOL = 0.02;
+
+/**
+ * Pull a drawn CENTRELINE ring onto the geometry it was clearly aimed at, and
+ * drop the debris a hand-drawn ring accumulates. Pure; returns a NEW ring, or
+ * the cleaned input when the regularized version would not be a usable room.
+ *
+ * Two passes, in this order:
+ *
+ * 1. **Collapse** every edge shorter than `MIN_SEAM`. A ring closed by Enter
+ *    keeps a final vertex up to the close radius away from the first — tens of
+ *    millimetres — and `insetPolygon` mitres that stub against its neighbours
+ *    at a wild angle, which is how a ring drawn square commits with one wall
+ *    visibly skewed. `roomFromPolygon` collapses the same stubs, but only
+ *    AFTER the inset has already baked the skew in.
+ *
+ * 2. **Snap** each edge whose line runs within `tol` of an existing wall
+ *    centreline onto that centreline exactly — the wall's own direction and
+ *    offset, so a near-parallel edge comes out truly parallel — then
+ *    re-intersect consecutive lines for the corners. That is what lets the
+ *    1 mm coincidence downstream actually fire.
+ *
+ * Consecutive parallel lines keep their original corner (nothing to intersect),
+ * and a result that is not simple, is wound the wrong way, or has collapsed to
+ * nothing is discarded in favour of the cleaned input — regularizing must never
+ * turn a drawable ring into an undrawable one.
+ */
+export function regularizeDrawnRing(
+  rooms: Room[],
+  freeWalls: FreeWall[] | undefined,
+  ring: Point[],
+  tol = REGULARIZE_TOL
+): Point[] {
+  // ---- 1. collapse stubs ----
+  const cleaned: Point[] = [];
+  for (const p of ring) {
+    const last = cleaned[cleaned.length - 1];
+    if (last && dist(last, p) < MIN_SEAM) continue;
+    cleaned.push({ x: p.x, y: p.y });
   }
-  return null;
+  while (cleaned.length > 3 && dist(cleaned[0], cleaned[cleaned.length - 1]) < MIN_SEAM) {
+    cleaned.pop();
+  }
+  if (cleaned.length < 3) return cleaned;
+
+  // ---- 2. snap each edge's line to the wall it runs along ----
+  const { segments } = wallCentrelines(rooms, freeWalls);
+  const n = cleaned.length;
+  const lines: { p: Point; dir: Point }[] = [];
+  let moved = false;
+  for (let i = 0; i < n; i++) {
+    const a = cleaned[i];
+    const b = cleaned[(i + 1) % n];
+    const hit = edgeCentrelineHits(segments, a, b, tol)[0];
+    if (!hit || Math.abs(hit.side) <= SHARE_EPS) {
+      const len = dist(a, b);
+      lines.push({ p: a, dir: { x: (b.x - a.x) / len, y: (b.y - a.y) / len } });
+      continue;
+    }
+    const s = hit.wall;
+    const sl = dist(s.a, s.b);
+    // the wall's own line, traversed the way the drawn edge runs, so the
+    // re-intersection below keeps the ring's winding
+    const sd = { x: (s.b.x - s.a.x) / sl, y: (s.b.y - s.a.y) / sl };
+    const forward = (b.x - a.x) * sd.x + (b.y - a.y) * sd.y >= 0;
+    lines.push({
+      p: { x: s.a.x, y: s.a.y },
+      dir: forward ? sd : { x: -sd.x, y: -sd.y },
+    });
+    moved = true;
+  }
+  if (!moved) return cleaned;
+
+  const out: Point[] = [];
+  for (let i = 0; i < n; i++) {
+    const prev = lines[(i + n - 1) % n];
+    const cur = lines[i];
+    const det = prev.dir.x * cur.dir.y - prev.dir.y * cur.dir.x;
+    if (Math.abs(det) < 1e-9) {
+      out.push(cleaned[i]); // parallel neighbours: nothing to intersect
+      continue;
+    }
+    const ex = cur.p.x - prev.p.x;
+    const ey = cur.p.y - prev.p.y;
+    const t = (ex * cur.dir.y - ey * cur.dir.x) / det;
+    out.push({ x: prev.p.x + prev.dir.x * t, y: prev.p.y + prev.dir.y * t });
+  }
+  const area = signedArea(out);
+  const sameWinding = area * signedArea(cleaned) > 0;
+  return Math.abs(area) > 1e-9 && sameWinding && polygonIsSimple(out) ? out : cleaned;
+}
+
+/**
+ * Pull a freshly built FACE ring's corners onto any existing room corner they
+ * very nearly touch. Pure; returns a new ring, or the input when the result
+ * would not be a usable polygon.
+ *
+ * This runs AFTER `insetPolygon`, and it is the last thing standing between a
+ * correctly drawn room and a doubled wall. The per-edge inset shortens a shared
+ * edge by `half` at each end — exactly right when the drawn ends were the
+ * mitred corners, since the shortening lands the edge on the host's own
+ * corners and `linkShared` fires immediately. Ends anywhere else leave the two
+ * rings differing by a few centimetres, and the weld cannot rescue that: the
+ * gap is far too big for `cutOrNudge`'s `SHARE_EPS` fold and far too small for
+ * its `MIN_SEAM` cut, so it refuses and both walls survive.
+ *
+ * `tol` is therefore not a taste value: pass the same `half` the inset used,
+ * because that IS the largest distance the inset can have moved a corner along
+ * a wall. Anything further apart than that was drawn apart on purpose and must
+ * stay — notably the wall whose promotion the store REFUSED, which has no
+ * shareable outcome at all and is left to the `parallelWalls` check. Only the
+ * NEW ring moves; the host is never touched.
+ */
+export function snapRingToNeighbours(rooms: Room[], ring: Point[], half: number): Point[] {
+  const tol = half + SHARE_EPS;
+  const targets: Point[] = [];
+  for (const r of rooms) for (const c of r.corners) targets.push({ x: c.x, y: c.y });
+  if (!targets.length) return ring;
+  let moved = false;
+  const out = ring.map((p) => {
+    let best: Point | null = null;
+    let bestD = tol;
+    for (const t of targets) {
+      const d = dist(p, t);
+      if (d > 1e-12 && d < bestD) {
+        bestD = d;
+        best = t;
+      }
+    }
+    if (!best) return p;
+    moved = true;
+    return { x: best.x, y: best.y };
+  });
+  if (!moved) return ring;
+  const area = signedArea(out);
+  return Math.abs(area) > 1e-9 && area * signedArea(ring) > 0 && polygonIsSimple(out) ? out : ring;
+}
+
+/**
+ * Close an OPEN chain against the walls it starts and ends on, returning the
+ * full centreline ring of the room that makes — or null when the chain does
+ * not describe one.
+ *
+ * This is the half of "redraw a plan wall by wall" that was missing: you draw
+ * only the walls that are NEW, land both ends on existing geometry, and the
+ * room closes along what is already there.
+ *
+ * The answer comes from `planarFaces` rather than from walking one room's
+ * corner ring, and the difference is the whole point. A ring walk can only
+ * close a chain against the SINGLE room it started and ended on; land the two
+ * ends on two different rooms — which is what happens from the second room
+ * onward, since the new room's corners are shared ones — or on a free-standing
+ * chain, and there is no ring to walk. The subdivision does not care: it cuts
+ * every centreline at every crossing and hands back the face the chain bounds,
+ * whatever the surrounding topology is.
+ *
+ * Both ends must land within `tol` of existing geometry, and the chain is
+ * projected exactly onto it first — the graph only joins what actually meets,
+ * so a chain ending 8 mm short would enclose nothing at all.
+ *
+ * Returns null — deliberately, so the caller falls through to its other
+ * readings — when either end is free, or when the chain runs through a room's
+ * interior (that is a SPLIT, and `splitRoomByChain` owns it).
+ */
+export function closeChainAgainstWalls(
+  rooms: Room[],
+  chain: Point[],
+  freeWalls?: FreeWall[],
+  tol = REGULARIZE_TOL
+): Point[] | null {
+  if (chain.length < 2) return null;
+  const { segments, rings } = wallCentrelines(rooms, freeWalls);
+
+  /*
+   * The graph is built from the MITRED rings, not from the butt-ended
+   * segments. A segment stops at its own wall's extent, so at a corner the two
+   * centrelines miss each other by half a thickness and the subdivision would
+   * see a gap where the plan has a junction — no face would ever close. The
+   * ring is where the centrelines actually meet, which is exactly the topology
+   * a planar walk needs. Free chains have no ring and contribute their
+   * segments as they are.
+   */
+  const existing: { a: Point; b: Point }[] = [];
+  for (const cr of rings) {
+    const poly = cr.points;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i];
+      const b = poly[(i + 1) % poly.length];
+      existing.push({ a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y } });
+    }
+  }
+  for (const s of segments) {
+    if (s.roomId === NO_ROOM) existing.push({ a: s.a, b: s.b });
+  }
+  if (!existing.length) return null;
+
+  // a chain crossing a room's interior is a SPLIT, not a neighbour
+  const mid = chain[Math.floor(chain.length / 2)];
+  for (const cr of rings) {
+    const poly = cr.points.map((q) => ({ x: q.x, y: q.y }));
+    if (poly.length >= 3 && pointInPolygon(mid, poly)) return null;
+  }
+
+  // land both ends exactly on what they were aimed at, or there is no loop
+  const snapEnd = (p: Point): Point | null => {
+    let best: Point | null = null;
+    let bestD = tol;
+    for (const s of existing) {
+      const q = closestOnSegment(p, s.a, s.b);
+      const d = dist(p, q);
+      if (d < bestD) {
+        bestD = d;
+        best = q;
+      }
+    }
+    return best;
+  };
+  const head = snapEnd(chain[0]);
+  const tail = snapEnd(chain[chain.length - 1]);
+  if (!head || !tail || dist(head, tail) < MIN_SEAM) return null;
+
+  const pts = [head, ...chain.slice(1, -1), tail];
+  const segs: FaceSegment[] = existing.map((e) => ({ a: e.a, b: e.b }));
+  for (let i = 0; i + 1 < pts.length; i++) segs.push({ a: pts[i], b: pts[i + 1], chain: true });
+
+  const centroids = rooms.map((r) => polygonCentroid(r.corners));
+  let best: Point[] | null = null;
+  let bestArea = Infinity;
+  for (const f of planarFaces(segs)) {
+    // the unbounded face is the one wound the other way
+    if (!f.onChain || f.area <= MIN_ROOM_RING_AREA) continue;
+    if (centroids.some((c) => pointInPolygon(c, f.ring))) continue;
+    if (f.area < bestArea) {
+      bestArea = f.area;
+      best = f.ring;
+    }
+  }
+  return best;
+}
+
+/** Below this a traced face is a sliver from a coincident edge, not a room. */
+const MIN_ROOM_RING_AREA = 1e-4;
+
+/** Area centroid of a simple polygon; falls back to the vertex mean. */
+function polygonCentroid(poly: Point[]): Point {
+  let a = 0;
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    const cross = p.x * q.y - q.x * p.y;
+    a += cross;
+    cx += (p.x + q.x) * cross;
+    cy += (p.y + q.y) * cross;
+  }
+  if (Math.abs(a) < 1e-12) {
+    const n = poly.length || 1;
+    return {
+      x: poly.reduce((s, p) => s + p.x, 0) / n,
+      y: poly.reduce((s, p) => s + p.y, 0) / n,
+    };
+  }
+  return { x: cx / (3 * a), y: cy / (3 * a) };
 }
 
 /** sin of the largest angle two edges may differ by and still count parallel (~0.06°). */

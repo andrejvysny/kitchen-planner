@@ -35,6 +35,7 @@ import {
   roomOfItem,
   roomOfWall,
   wallByIdIn,
+  SHARE_EPS,
   wallIndex,
   wallsOf,
   type RoomWall,
@@ -1532,25 +1533,119 @@ export class Store {
    * Nothing is committed here — the caller's `addRoom` announces the change.
    */
   alignWallToCentreline(wallId: string): boolean {
-    const wall = wallByIdIn(this.design.rooms, wallId);
-    if (!wall || wall.shared) return false;
-    const room = roomById(this.design.rooms, wall.roomId);
-    if (!room) return false;
-    const locked = new Set<string>();
-    for (const w of this.roomWalls()) if (w.shared) locked.add(w.a.id).add(w.b.id);
-    if (locked.has(wall.a.id) || locked.has(wall.b.id)) return false;
+    return this.alignWallsToCentreline([wallId]).has(wallId);
+  }
 
-    // outward = against the inward normal, by the half thickness faceOffset
-    // will hand straight back once the wall is a partition
-    const d = wall.thickness / 2;
-    for (const id of [wall.a.id, wall.b.id]) {
-      const c = this.cornerById(id);
-      if (!c) return false;
-      c.x -= wall.inward.x * d;
-      c.y -= wall.inward.y * d;
+  /**
+   * Promote SEVERAL walls in one pass, returning the ids that actually moved.
+   *
+   * Doing them one at a time cannot express the case a plan runs into as soon
+   * as it has three rooms: a new room laid across the top of two that already
+   * share a wall wants BOTH their top walls promoted, and the corner where they
+   * meet anchors that shared wall. Asked separately, each promotion is refused
+   * — moving a partition's endpoint on one side only would un-share it — and
+   * the new room ends up with a doubled wall along its whole bottom edge. Asked
+   * together, the two moves are identical, the seam slides along itself and
+   * survives, and the refusal was never necessary.
+   *
+   * So the rule is not "never move a shared corner", it is **every corner may
+   * move exactly one way**. A requested move propagates to the coincident
+   * corners of other rooms (that is what keeps a partition's two rings equal),
+   * and a corner asked to go two different ways drops the walls that asked —
+   * repeatedly, since dropping one wall withdraws its other corner's move too.
+   *
+   * The room's interior never moves: the t/2 a wall gives up is exactly the t/2
+   * `faceOffset` hands back once it is a partition. Nothing is committed here.
+   */
+  alignWallsToCentreline(wallIds: string[]): Set<string> {
+    const rooms = this.design.rooms;
+    const byId = wallIndex(rooms);
+    const wanted = new Map<string, RoomWall>();
+    for (const id of wallIds) {
+      const w = byId.get(id);
+      if (w && !w.shared && roomById(rooms, w.roomId)) wanted.set(id, w);
     }
-    this.renormalizeRoom(room.id);
-    return true;
+    if (!wanted.size) return new Set();
+
+    // corners at the same coordinates are one physical point, whichever room's
+    // ring they belong to — a partition is exactly that coincidence
+    const coincident = new Map<string, string[]>();
+    const all: Corner[] = [];
+    for (const r of rooms) all.push(...r.corners);
+    for (const c of all) {
+      coincident.set(
+        c.id,
+        all.filter((o) => o.id !== c.id && dist(o, c) <= SHARE_EPS).map((o) => o.id)
+      );
+    }
+
+    const moveOf = (w: RoomWall): Point => ({
+      x: -w.inward.x * (w.thickness / 2),
+      y: -w.inward.y * (w.thickness / 2),
+    });
+
+    // which walls touch a corner, in every room — a move that is not along an
+    // unpromoted one would TILT it, which is corruption, not promotion
+    const incident = new Map<string, RoomWall[]>();
+    for (const w of byId.values()) {
+      for (const cid of [w.a.id, w.b.id]) {
+        const list = incident.get(cid);
+        if (list) list.push(w);
+        else incident.set(cid, [w]);
+      }
+    }
+
+    // drop conflicting walls until every corner has one unambiguous move
+    for (;;) {
+      const claims = new Map<string, { d: Point; by: string[] }>();
+      let clash = false;
+      for (const [id, w] of wanted) {
+        const d = moveOf(w);
+        for (const cid of [w.a.id, w.b.id]) {
+          for (const target of [cid, ...(coincident.get(cid) ?? [])]) {
+            const prev = claims.get(target);
+            if (!prev) claims.set(target, { d, by: [id] });
+            else if (Math.abs(prev.d.x - d.x) < 1e-9 && Math.abs(prev.d.y - d.y) < 1e-9) {
+              prev.by.push(id);
+            } else {
+              for (const bad of [...prev.by, id]) wanted.delete(bad);
+              clash = true;
+            }
+          }
+        }
+        if (clash) break;
+      }
+      if (!clash) {
+        // second gate: a wall nobody promoted may change LENGTH at a moved
+        // corner, never direction. That is the whole difference between
+        // sliding a seam along itself (fine — the partition survives) and
+        // dragging one end of a wall sideways (a tilted wall nobody drew).
+        for (const [cid, claim] of claims) {
+          for (const w of incident.get(cid) ?? []) {
+            if (wanted.has(w.id)) continue;
+            if (Math.abs(w.dir.x * claim.d.y - w.dir.y * claim.d.x) <= 1e-9) continue;
+            for (const bad of claim.by) wanted.delete(bad);
+            clash = true;
+          }
+          if (clash) break;
+        }
+      }
+      if (!clash) {
+        for (const [cid, claim] of claims) {
+          const c = this.cornerById(cid);
+          if (!c) continue;
+          c.x += claim.d.x;
+          c.y += claim.d.y;
+        }
+        break;
+      }
+      if (!wanted.size) return new Set();
+    }
+
+    const touched = new Set<string>();
+    for (const w of wanted.values()) touched.add(w.roomId);
+    for (const id of touched) this.renormalizeRoom(id);
+    return new Set(wanted.keys());
   }
 
   /* ---------------- wall width ---------------- */

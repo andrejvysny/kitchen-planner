@@ -512,6 +512,42 @@ describe('work triangle', () => {
 
 /* ---------------- output shape ---------------- */
 
+/* ---------------- doubled walls ---------------- */
+
+describe('parallel-wall check', () => {
+  /** a rectangular room by its ring, so a near-miss can be placed by hand */
+  const at = (id: string, x0: number, x1: number): Room =>
+    room(id, [
+      [x0, 0],
+      [x1, 0],
+      [x1, 3],
+      [x0, 3],
+    ]);
+
+  it('warns when two rooms sit a half-thickness apart instead of sharing', () => {
+    // exactly the failure the wall tool used to commit silently: B's ring is
+    // t/2 off A's, so `linkShared` sees no shared edge and both walls survive
+    const d = design({ rooms: [at('A', 0, 4), at('B', 4.05, 8)] });
+    const w = runChecks(d).filter((x) => x.kind === 'parallelWalls');
+    expect(w.length).toBe(1);
+    expect(w[0].severity).toBe('warn');
+    expect(w[0].value).toBeLessThan(w[0].limit!);
+    expect(w[0].geom?.kind).toBe('segment');
+  });
+
+  it('a real partition is ONE wall and never warns', () => {
+    const store = new Store(design({ rooms: [at('A', 0, 4)] }));
+    store.addRoom({ polygon: at('B', 4, 8).corners.map((c) => ({ x: c.x, y: c.y })) });
+    expect(store.allWalls().some((w) => w.shared)).toBe(true);
+    expect(kinds(runChecks(store.design))).not.toContain('parallelWalls');
+  });
+
+  it('rooms a metre apart are two buildings, not a doubled wall', () => {
+    const d = design({ rooms: [at('A', 0, 4), at('B', 5, 9)] });
+    expect(kinds(runChecks(d))).not.toContain('parallelWalls');
+  });
+});
+
 describe('runChecks output', () => {
   it('sorts by severity and keeps ids stable under item reordering', () => {
     const items = [

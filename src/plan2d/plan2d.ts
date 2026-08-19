@@ -8,8 +8,20 @@ import {
   rot,
   signedArea,
 } from '../model/geometry';
-import { faceRingPlan, snapRectSides, wallCentrelines, type RoomWall } from '../model/rooms';
 import {
+  closeChainAgainstWalls,
+  edgeCentrelineHits,
+  faceRingPlan,
+  REGULARIZE_TOL,
+  regularizeDrawnRing,
+  snapRingToNeighbours,
+  splitRoomByChain,
+  snapRectSides,
+  wallCentrelines,
+  type RoomWall,
+} from '../model/rooms';
+import {
+  CLOSE_REACH_SCALE,
   contextMaterial,
   DEFAULT_SNAP_CONFIG,
   resolveSnap,
@@ -28,7 +40,7 @@ import { isMac, type WheelLike } from '../view3d/wheelInput';
 import { findHost } from '../model/attach';
 import { toCatalogDef } from '../model/parts';
 import type { EditorState, ToolId } from '../editor/editorState';
-import type { DrawField, DrawHudState } from '../ui/drawHud';
+import type { DrawField, DrawHudState, DrawOutcome } from '../ui/drawHud';
 import { hitRadius, PinchGesture } from './pinch';
 import type { ContextHit } from './planHit';
 import { underlayCorners, underlayHits } from '../model/underlay';
@@ -62,6 +74,8 @@ const MEASURE_KINDS: ReadonlySet<SnapKind> = new Set<SnapKind>([
 ]);
 
 /** Shift locks the pending segment to this angular step (15°). */
+/** Screen reach of the close target, kept in step with the engine's own. */
+const CLOSE_REACH_PX = hitRadius(12) * CLOSE_REACH_SCALE;
 const ANGLE_STEP = Math.PI / 12;
 /** Below this on either side a drag is a click, not a rectangle (m). */
 const MIN_RECT_SIDE = 0.4;
@@ -257,6 +271,7 @@ export class Plan2D {
       typedLength: this.drawLength,
       typedAngle: this.drawAngle,
       field: this.drawField,
+      outcome: this.outcome,
     });
   }
 
@@ -655,7 +670,21 @@ export class Plan2D {
     this.drawRect = null;
     this.lastSnap = null;
     this.snapMaterial = null;
+    this.outcome = 'none';
     this.onDrawHud(null);
+  }
+
+  /**
+   * A room is committed, but the tool STAYS ARMED — a plan is a sequence of
+   * rooms, and disarming after each one made the second and third cost an
+   * extra trip to the toolbar. `addRoom` has already made the new room active,
+   * so its Width/Depth/Ceiling are in the inspector to type into either way.
+   * Escape (twice: ring, then tool) is how you leave.
+   */
+  private finishGesture(): void {
+    this.resetDrawRing();
+    this.updateHint();
+    this.requestDraw();
   }
 
   setDrawRoom(on: boolean): void {
@@ -665,15 +694,27 @@ export class Plan2D {
     this.requestDraw();
   }
 
-  /** Esc drops the in-progress ring first; only an empty one disarms the tool. */
+  /**
+   * Escape steps the ring BACK ONE CORNER; only an empty ring disarms the tool.
+   *
+   * It used to discard the whole chain, which made Escape the most expensive
+   * key in the tool — every mis-click cost the entire outline, because nothing
+   * else could take a corner back either. Walking it back one at a time reaches
+   * the same "gone" state in the same number of presses for a short ring, and
+   * costs nothing for a long one.
+   */
   cancelDrawRoom(): void {
-    if (!this.drawPts.length && !this.drawRect) {
+    if (this.drawRect) {
+      this.resetDrawRing();
+      this.updateHint();
+      this.requestDraw();
+      return;
+    }
+    if (!this.drawPts.length) {
       this.setDrawRoom(false);
       return;
     }
-    this.resetDrawRing();
-    this.updateHint();
-    this.requestDraw();
+    this.undoDrawVertex();
   }
 
   /** The width every wall of the room being drawn gets (m). */
@@ -691,6 +732,7 @@ export class Plan2D {
   private snapMaterial: {
     segments: SnapContext['segments'];
     points: SnapContext['points'];
+    junctions: Point[];
   } | null = null;
 
   /** The snap behind the current `drawHover`, for the glyph and the guides. */
@@ -758,10 +800,29 @@ export class Plan2D {
     return { ...contextMaterial(segments), chain: [], anchor: null };
   }
 
-  private snapCtx(): { segments: SnapContext['segments']; points: SnapContext['points'] } {
+  private snapCtx(): {
+    segments: SnapContext['segments'];
+    points: SnapContext['points'];
+    junctions: Point[];
+  } {
     if (!this.snapMaterial) {
-      const { segments } = wallCentrelines(this.store.design.rooms, this.store.design.walls);
-      this.snapMaterial = contextMaterial(segments);
+      const { segments, rings } = wallCentrelines(
+        this.store.design.rooms,
+        this.store.design.walls
+      );
+      // The mitred RINGS join the segments here, and ONLY here. A segment ends
+      // where its wall ends, so at a right-angled corner the two nearest
+      // endpoints sit half a thickness off along either axis and the point a
+      // neighbouring room's corner belongs on — where the two centrelines meet
+      // — is not offered at all. That is the whole of why a room drawn against
+      // an existing one came out t/2 wrong. It is safe HERE and nowhere else:
+      // `commitRing` converts through `faceRingPlan`, which promotes the
+      // neighbour's wall out to meet the drawn edge. The corner drag has no
+      // such conversion and still snaps to the face ring — see `cornerCtx`.
+      this.snapMaterial = {
+        ...contextMaterial(segments),
+        junctions: rings.flatMap((r) => r.points.map((p) => ({ x: p.x, y: p.y }))),
+      };
     }
     return this.snapMaterial;
   }
@@ -792,6 +853,18 @@ export class Plan2D {
     // to the cursor, and typing both fixes the vertex outright.
     const typedLen = this.typedLength();
     const typedAng = this.typedAngle();
+    // …with ONE exception. A typed dimension used to bypass `resolveSnap`
+    // outright, which also switched off the close target: with a digit in the
+    // box the ring could not be finished at all, and the glyph went blank. The
+    // cursor sitting on the first corner is an unambiguous "close it here", so
+    // it outranks the buffer — which `addDrawPoint` then clears anyway.
+    const first = this.drawPts[0];
+    if (first && this.drawPts.length >= 3) {
+      if (Math.hypot(w.x - first.x, w.y - first.y) * this.zoom < CLOSE_REACH_PX) {
+        this.lastSnap = { p: { ...first }, kind: 'close', kinds: ['close'], guides: [] };
+        return { ...first };
+      }
+    }
     if (anchor && (typedLen !== null || typedAng !== null)) {
       const dir =
         typedAng !== null
@@ -864,11 +937,18 @@ export class Plan2D {
     return { x: Math.cos(a), y: Math.sin(a) };
   }
 
-  /** Is `p` on the ring's first vertex, i.e. on the close target? */
+  /**
+   * Is `p` on the ring's first vertex, i.e. on the close target?
+   *
+   * The reach matches what the engine offers the `close` candidate
+   * (`pointReachPx * CLOSE_REACH_SCALE`) rather than being a tighter number of
+   * its own: a snap that lands you ON the first corner but a test that says you
+   * are not there is how the loop refused to close.
+   */
   private onCloseTarget(p: Point | null): boolean {
     const first = this.drawPts[0];
     if (!p || !first || this.drawPts.length < 3) return false;
-    return Math.hypot(p.x - first.x, p.y - first.y) * this.zoom < hitRadius(10);
+    return Math.hypot(p.x - first.x, p.y - first.y) * this.zoom < CLOSE_REACH_PX;
   }
 
   private addDrawPoint(p: Point): void {
@@ -883,10 +963,29 @@ export class Plan2D {
     const last = this.drawPts[this.drawPts.length - 1];
     if (last && Math.hypot(p.x - last.x, p.y - last.y) < 1e-6) return;
     this.drawPts.push(p);
+    /*
+     * Landing back on the walls the chain STARTED from closes it too.
+     *
+     * A loop made of three new walls and one existing one is finished the
+     * moment that last corner lands, exactly as a loop made of four new walls
+     * is finished when it lands on its own first corner — so it must not need
+     * a keystroke the other does not. Three points minimum, or the second click
+     * of a chain drawn along a wall would close a sliver nobody asked for; and
+     * `closeChainAgainstWalls` refuses a chain through the room's interior, so
+     * a cut still reaches `trySplit` instead of being stolen here.
+     */
+    if (
+      this.drawPts.length >= 3 &&
+      closeChainAgainstWalls(this.store.design.rooms, this.drawPts, this.store.design.walls)
+    ) {
+      this.closeDrawRoom();
+      return;
+    }
     // the typed values applied to THAT segment only
     this.drawLength = '';
     this.drawAngle = '';
     this.drawField = 'length';
+    this.recomputeOutcome();
     this.pushDrawHud(); // after the clears, or the readout republishes stale text
     this.updateHint();
     this.requestDraw();
@@ -944,6 +1043,37 @@ export class Plan2D {
     this.refreshDrawHover();
   }
 
+  /**
+   * Whether the dimension box holds a character at all. Backspace is bound
+   * TWICE — dimension edit first, ring step-back second — and this is what
+   * picks between them, so an empty box never eats the key.
+   */
+  drawBufferActive(): boolean {
+    if (!this.drawInputActive()) return false;
+    return (this.drawField === 'angle' ? this.drawAngle : this.drawLength).length > 0;
+  }
+
+  /**
+   * Step the ring back one corner.
+   *
+   * The tool had no way to take back a single click: Backspace was swallowed by
+   * the dimension box whether or not anything was typed, and Escape dropped the
+   * WHOLE chain. On a ten-corner outline that is the difference between a
+   * one-key correction and re-drawing the room.
+   */
+  undoDrawVertex(): void {
+    if (!this.drawPts.length) return;
+    this.drawPts.pop();
+    this.drawLength = '';
+    this.drawAngle = '';
+    this.drawField = 'length';
+    this.recomputeOutcome();
+    this.refreshDrawHover();
+    this.pushDrawHud();
+    this.updateHint();
+    this.requestDraw();
+  }
+
   drawBackspace(): void {
     if (!this.drawInputActive()) return;
     if (this.drawField === 'angle') {
@@ -986,23 +1116,76 @@ export class Plan2D {
   }
 
   /**
-   * Finish the chain. What it BECOMES depends on what it is:
+   * Finish the chain. What it BECOMES depends on what it is, read in this
+   * order:
    *
-   * - closed on its own first corner (3+ points) → a room, via `commitRing`;
-   * - anything else → a free-standing wall chain (`store.addFreeWall`).
+   *  1. closed on its own first corner (3+ points) → a ROOM (`commitRing`);
+   *  2. both ends landed on one existing room's walls → a ROOM closed along
+   *     that existing geometry (`closeChainAgainstWalls`);
+   *  3. crossing one room twice → a SPLIT (`commitFreeWall` → `trySplit`);
+   *  4. anything else → free-standing WALLS.
    *
-   * The second case is the point: a plan is redrawn wall by wall, and a
-   * divider, a peninsula or a corner stub encloses nothing. Enter and
-   * double-click both land here, so "I am done" is one gesture whichever kind
-   * of thing was being drawn.
+   * Reading 2 is the half of "redraw a plan wall by wall" that was missing:
+   * you draw only the walls that are NEW and the room closes along the ones
+   * already there. Without it, three sides drawn against a neighbour commit as
+   * free walls and the fourth has to be re-drawn on top of a wall that exists,
+   * which is precisely how a plan ends up with doubled walls.
+   *
+   * It sits ABOVE the split because a chain hugging a room's OUTSIDE also
+   * technically touches it; `closeChainAgainstWalls` refuses a chain running
+   * through the interior, which is what keeps the two apart.
+   *
+   * `finishOpen` is the deliberate escape hatch (double-click, Shift+Enter):
+   * it skips straight to reading 3, so a divider drawn against a wall stays a
+   * divider.
    */
-  closeDrawRoom(): void {
-    if (this.ringIsClosed()) {
+  closeDrawRoom(finishOpen = false): void {
+    if (!finishOpen && this.ringIsClosed()) {
       if (!this.commitRing(this.drawPts)) return;
-      this.setDrawRoom(false);
+      this.finishGesture();
       return;
     }
+    if (!finishOpen && this.drawPts.length >= 2) {
+      const ring = closeChainAgainstWalls(this.store.design.rooms, this.drawPts, this.store.design.walls);
+      if (ring && this.commitRing(ring)) {
+        this.finishGesture();
+        return;
+      }
+    }
     this.commitFreeWall();
+  }
+
+  /**
+   * What the chain would become if it were finished right now.
+   *
+   * CACHED, and recomputed only when a vertex is added or removed — not on a
+   * pointermove. That is exact rather than an approximation: `closeDrawRoom`
+   * reads `drawPts`, never the rubber-banded hover, so the answer genuinely
+   * cannot change between clicks. It matters because the reading involves a
+   * planar subdivision and a split test per room, which is far too much work
+   * to redo at pointer rate.
+   */
+  drawOutcome(): DrawOutcome {
+    return this.outcome;
+  }
+
+  private outcome: DrawOutcome = 'none';
+
+  private recomputeOutcome(): void {
+    this.outcome = this.readChain();
+  }
+
+  private readChain(): DrawOutcome {
+    if (!this.drawRoomOn || !this.drawPts.length) return 'none';
+    if (this.ringIsClosed()) return 'room';
+    if (this.drawPts.length < 2) return 'none';
+    if (closeChainAgainstWalls(this.store.design.rooms, this.drawPts, this.store.design.walls)) {
+      return 'reuse';
+    }
+    for (const room of this.store.design.rooms) {
+      if (splitRoomByChain(room, this.drawPts)) return 'split';
+    }
+    return 'walls';
   }
 
   /**
@@ -1046,7 +1229,7 @@ export class Plan2D {
     }
     this.store.select({ kind: 'wall', id: chain.corners[0].id });
     this.store.commit();
-    this.setDrawRoom(false);
+    this.finishGesture();
   }
 
   /**
@@ -1059,22 +1242,41 @@ export class Plan2D {
    */
   private commitRing(centreline: Point[]): ReturnType<Store['addRoom']> {
     const width = this.drawWidth();
-    // closing ON the first corner leaves it in the list twice; a zero-length
-    // edge makes insetPolygon bail, so drop the repeat before converting
-    const pts = [...centreline];
-    while (
-      pts.length > 3 &&
-      Math.hypot(pts[pts.length - 1].x - pts[0].x, pts[pts.length - 1].y - pts[0].y) < 1e-6
-    ) {
-      pts.pop();
+    const rooms = this.store.design.rooms;
+    // Heal what a hand-drawn ring carries in: the stub a ring closed by Enter
+    // leaves near its first corner (whose mitre would skew a whole wall), and
+    // an edge that came down a couple of centimetres off the neighbour it was
+    // aimed at. Everything downstream demands 1 mm coincidence and reports
+    // NOTHING when it does not get it, so this is where the miss is closed.
+    const ring = ccw(regularizeDrawnRing(rooms, this.store.design.walls, [...centreline]));
+    if (ring.length < 3) {
+      this.onHint('That outline is not a usable room — it crosses itself or is too small');
+      return null;
     }
-    const ring = ccw(pts);
     // ONE pass over the rooms as they are now: which edges become partitions,
     // and which existing walls have to move out to meet them. Promoting first
     // and asking afterwards would not work — see faceRingPlan's doc comment.
-    const plan = faceRingPlan(this.store.design.rooms, ring, width / 2);
-    for (const wallId of plan.promote) this.store.alignWallToCentreline(wallId);
-    const face = insetPolygon(ring, plan.offsets);
+    const plan = faceRingPlan(rooms, ring, width / 2, this.store.design.walls);
+    // A promotion can be REFUSED (already shared, or an end anchors another
+    // partition). An edge whose walls all refused and none of which is already
+    // a partition would otherwise keep its 0 offset and land half a thickness
+    // off the neighbour's face ring — two parallel slabs, silently. Downgrade
+    // it to exterior instead. This is not a re-derivation: the plan is still
+    // the one snapshot, only the rejected entries are undone.
+    const promoted = this.store.alignWallsToCentreline(plan.promote);
+    for (let i = 0; i < plan.edgeWalls.length; i++) {
+      const walls = plan.edgeWalls[i];
+      if (!walls.length) continue;
+      const usable = walls.some(
+        (id) => promoted.has(id) || this.store.wallById(id)?.shared
+      );
+      if (!usable) plan.offsets[i] = width / 2;
+    }
+    const inset = insetPolygon(ring, plan.offsets);
+    // last stop before the ring becomes a Room: the inset shortens a shared
+    // edge by `half` at each end, and a corner left a few centimetres from the
+    // neighbour's is in the exact band the weld can neither fold nor cut
+    const face = inset && snapRingToNeighbours(rooms, inset, width / 2);
     if (!face) {
       this.onHint('That outline is not a usable room — it crosses itself or is too small');
       return null;
@@ -1100,7 +1302,7 @@ export class Plan2D {
       if (!made) continue;
       this.store.select({ kind: 'none' });
       this.store.commit();
-      this.setDrawRoom(false);
+      this.finishGesture();
       return true;
     }
     return false;
@@ -1193,12 +1395,23 @@ export class Plan2D {
     }
     if (this.drawRoomOn) {
       const shiftDoes = this.editor.angleSnap ? 'Shift frees the angle' : 'Shift snaps to 15°';
+      if (!this.drawPts.length) {
+        this.onHint(
+          'Drag a rectangle, or click corner by corner · walls snap to wall centres · Esc exits'
+        );
+        return;
+      }
+      // The cursor HUD carries what ⏎ would produce; the status bar spells out
+      // the gesture behind it, so the two do not repeat each other.
+      const ENTER: Record<DrawOutcome, string> = {
+        room: 'Enter closes the room',
+        reuse: 'Enter closes it against the existing walls',
+        split: 'Enter splits the room in two',
+        walls: 'Enter finishes these as walls',
+        none: 'Enter finishes',
+      };
       this.onHint(
-        !this.drawPts.length
-          ? 'Drag a rectangle, or click corner by corner · walls snap to wall centres · Esc cancels'
-          : this.drawPts.length >= 3
-            ? `Click the first corner to make a room, or Enter to finish the walls · ${shiftDoes}`
-            : `Click the next corner · ${shiftDoes} · type a length · Enter finishes the walls`
+        `Click the next corner, or land on a wall to close · ${ENTER[this.outcome]} · Esc undoes one · ${shiftDoes}`
       );
       return;
     }
@@ -1981,7 +2194,7 @@ export class Plan2D {
       const ring = this.drawRect;
       this.drawRect = null;
       if (wasDrag.moved && ring && this.rectUsable(ring)) {
-        if (this.commitRing(ring)) this.setDrawRoom(false);
+        if (this.commitRing(ring)) this.finishGesture();
       } else {
         this.addDrawPoint(wasDrag.a);
       }
@@ -2012,7 +2225,9 @@ export class Plan2D {
   private onDblClick(e: PointerEvent | MouseEvent): void {
     const w = this.toWorld(e.offsetX, e.offsetY);
     if (this.drawRoomOn) {
-      this.closeDrawRoom(); // the two presses already placed the last corner
+      // the two presses already placed the last corner; a double-click means
+      // "done as drawn", so it never closes the chain into a room
+      this.closeDrawRoom(true);
       return;
     }
     if (this.armedDef || this.calibrateOn) return;
@@ -2045,6 +2260,25 @@ export class Plan2D {
    * the preview through a single code path and the drag and the click produce
    * pixel-identical walls.
    */
+  /**
+   * Which segments of the ring in flight would MERGE into an existing wall.
+   *
+   * Same test the commit runs (`edgeCentrelineHits` at the regularize
+   * tolerance), so what the preview promises and what `faceRingPlan` then does
+   * cannot disagree. Cheap: a ring is a handful of edges and the centreline
+   * material is already cached per design change.
+   */
+  private sharedDrawEdges(): boolean[] {
+    const path = [...this.drawPts];
+    if (this.drawHover) path.push(this.drawHover);
+    const { segments } = wallCentrelines(this.store.design.rooms, this.store.design.walls);
+    const out: boolean[] = [];
+    for (let i = 0; i + 1 < path.length; i++) {
+      out.push(edgeCentrelineHits(segments, path[i], path[i + 1], REGULARIZE_TOL).length > 0);
+    }
+    return out;
+  }
+
   private drawRing(): DrawRing | null {
     if (!this.drawRoomOn) return null;
     if (this.drawRect) {
@@ -2067,6 +2301,7 @@ export class Plan2D {
       width: this.drawWidth(),
       typed: this.drawLength,
       angleSnap: this.editor.angleSnap,
+      sharedEdges: this.sharedDrawEdges(),
     };
   }
 

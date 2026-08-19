@@ -90,7 +90,39 @@ green gate above runs per WP.
       workspaces, CLAUDE.md gains the workspace-shell contract and drops the
       "Part Studio is a modal" / topbar-owns-view-and-scene claims.
 
-**Phase 1 shipped.** Gate: lint · typecheck · **657 unit** · build · interact
+**Phase 1 shipped.** - [x] S9 (follow-up, from a second report) two defects the first pass missed:
+      reading 2 needed **Enter** — landing the last corner on the host wall now
+      commits on the click; and a chain whose ends sat on the wall's SEGMENT
+      ends rather than its mitred corners built a room that shared NOTHING,
+      because the inset shortens the shared edge by `half` at each end and the
+      weld can neither fold (`SHARE_EPS`) nor cut (`MIN_SEAM`) that gap.
+      `snapRingToNeighbours(rooms, face, half)` closes it on the FACE ring,
+      where both rings live; the drawn chain is never moved, since nudging an
+      end shears the segment attached to it.
+
+- [x] S10 (third report) **only the first room was ever detected.** The ring
+      walk in `closeChainAgainstWalls` could close a chain against the SINGLE
+      room it started and ended on, so from the third room on — where the two
+      ends land on two DIFFERENT rooms — a closed region committed as free
+      walls. Replaced by `src/model/faces.ts` `planarFaces`, a planar
+      subdivision of every centreline: cut at every crossing, faces traced by
+      the next-edge-clockwise rule, take the face the chain bounds. Built from
+      the MITRED rings (butt-ended segments miss each other at a corner by half
+      a thickness, so no face closes). Handles two rooms, free chains,
+      T-junctions and mid-wall ends alike. `test/unit/faces.test.ts`.
+- [x] S11 `store.alignWallsToCentreline(ids)` — promote as a BATCH. Promoting
+      one at a time refused every corner anchoring a partition, which is
+      exactly the corner a third room lands on, so its whole bottom edge came
+      out doubled. Two gates replace the blanket refusal: one move per corner,
+      and a wall nobody promoted may change length at a moved corner but never
+      direction (that is what stops a propagated move tilting a neighbour).
+- [x] S12 UX — the tool STAYS ARMED after a commit (`finishGesture`), so a run
+      of rooms is one continuous gesture instead of a toolbar trip each; and
+      `DrawHudState.outcome` puts `⏎ room` / `⏎ split` / `⏎ walls` at the
+      CURSOR, where the status bar's version of it was never going to be read.
+      The outcome is cached per vertex, not recomputed per pointermove.
+
+Gate: lint · typecheck · **657 unit** · build · interact
 **106/106** (was 104 — two workspace-state assertions added) · **51/51
 Playwright** (layout.spec's topbar-height check passed here too) · exit-criteria
 walk **34/34**, no console errors. Known cosmetic follow-ups, both out of WP 1.9's
@@ -322,3 +354,96 @@ two-tier point/line resolve so two constraints can intersect, guides capped at 3
 
 Out of scope: `snapItem` (item placement — OBB edge-to-edge is a different
 problem) and persistent constraints (needs a solver and a DESIGN_VERSION bump).
+
+---
+
+# M16 — the wall tool actually closes, and merges instead of doubling
+
+Plan: `~/.claude/plans/do-thorough-analysis-of-cozy-mango.md`
+
+Reported from a real session: a room drawn beside an existing one would not
+close, `Esc` then threw the whole chain away, and what finally committed came
+out as two parallel wall slabs with one wall visibly skewed. Six distinct
+defects behind those three symptoms, four of them in pure model code.
+
+- [x] S1 `edgeCentrelineHits` — the shared-edge test becomes an OVERLAP test
+      (both endpoints within tol, shared stretch ≥ `MIN_SEAM`) returning EVERY
+      collinear wall and seeing free chains. The midpoint test it replaces
+      missed an edge longer than the wall it ran along, and could only ever
+      report one of two stacked rooms. `faceRingPlan` gains `edgeWalls`.
+- [x] S2 `commitRing` honours `alignWallToCentreline`'s refusal — an edge whose
+      walls all refused falls back to `half` instead of keeping a 0 offset that
+      puts it t/2 off the neighbour's face ring with no weld able to close it.
+- [x] S3 `regularizeDrawnRing` + `REGULARIZE_TOL` (20 mm) — collapse the stub a
+      ring closed by Enter leaves (the skewed wall), then snap a near-miss edge
+      exactly onto the centreline it was aimed at, so the 1 mm coincidence
+      everything downstream demands can actually fire.
+- [x] S4 `closeChainAgainstWalls` — a chain whose two ends land on one room's
+      walls closes along that geometry into a neighbour REUSING the wall. This
+      is the half of M14 item 1 that never shipped; `closeDrawRoom` now reads a
+      chain four ways and `finishOpen` (double-click, `Shift+Enter`) forces the
+      open one.
+- [x] S5 `close` (120) and `junction` (105) snap kinds — the ring's own first
+      vertex and the mitred centreline corner, both outranking `endpoint`, both
+      with their own glyph. The junction is the root fix: a wall's segment ends
+      sit t/2 off along either axis, so the point a neighbour's ring corner
+      belongs on was never offered. Close is also checked before the
+      typed-dimension branch, which used to switch snapping off entirely.
+- [x] S6 `Esc` / `Backspace` step the ring back ONE corner (`draw.undoVertex`,
+      `drawBufferActive` splitting the two Backspace meanings).
+- [x] S7 the in-flight ring previews which edges will MERGE (`DrawRing
+      .sharedEdges`), and the status hint names which of the four readings
+      Enter would take.
+- [x] S8 `parallelWalls` check — two slabs running along each other within one
+      thickness that the model did not merge. The tool's one remaining silent
+      failure, made visible.
+
+- [x] S9 (follow-up, from a second report) two defects the first pass missed:
+      reading 2 needed **Enter** — landing the last corner on the host wall now
+      commits on the click; and a chain whose ends sat on the wall's SEGMENT
+      ends rather than its mitred corners built a room that shared NOTHING,
+      because the inset shortens the shared edge by `half` at each end and the
+      weld can neither fold (`SHARE_EPS`) nor cut (`MIN_SEAM`) that gap.
+      `snapRingToNeighbours(rooms, face, half)` closes it on the FACE ring,
+      where both rings live; the drawn chain is never moved, since nudging an
+      end shears the segment attached to it.
+
+- [x] S10 (third report) **only the first room was ever detected.** The ring
+      walk in `closeChainAgainstWalls` could close a chain against the SINGLE
+      room it started and ended on, so from the third room on — where the two
+      ends land on two DIFFERENT rooms — a closed region committed as free
+      walls. Replaced by `src/model/faces.ts` `planarFaces`, a planar
+      subdivision of every centreline: cut at every crossing, faces traced by
+      the next-edge-clockwise rule, take the face the chain bounds. Built from
+      the MITRED rings (butt-ended segments miss each other at a corner by half
+      a thickness, so no face closes). Handles two rooms, free chains,
+      T-junctions and mid-wall ends alike. `test/unit/faces.test.ts`.
+- [x] S11 `store.alignWallsToCentreline(ids)` — promote as a BATCH. Promoting
+      one at a time refused every corner anchoring a partition, which is
+      exactly the corner a third room lands on, so its whole bottom edge came
+      out doubled. Two gates replace the blanket refusal: one move per corner,
+      and a wall nobody promoted may change length at a moved corner but never
+      direction (that is what stops a propagated move tilting a neighbour).
+- [x] S12 UX — the tool STAYS ARMED after a commit (`finishGesture`), so a run
+      of rooms is one continuous gesture instead of a toolbar trip each; and
+      `DrawHudState.outcome` puts `⏎ room` / `⏎ split` / `⏎ walls` at the
+      CURSOR, where the status bar's version of it was never going to be read.
+      The outcome is cached per vertex, not recomputed per pointermove.
+
+Gate: lint · typecheck (the 8 pre-existing `TS2531`s in context-menu.spec,
+inspector.spec and model.test are unchanged from master) · **879 unit** ·
+build · `interact.mjs` **109/109, ERRORS: none**.
+
+## Known limit, deliberately not fixed
+
+An exterior wall whose ends anchor another partition cannot be promoted
+(`alignWallToCentreline` refuses, and rightly — moving either corner un-shares
+the seam it holds). There is then no offset that makes a third room share it
+either, because sharing needs the HOST's ring to move. That case commits as
+coincident slabs and is REPORTED by `parallelWalls` rather than fixed; fixing it
+means splitting the host wall at the contact first, which is a bigger change.
+
+Playwright (`npm run test:e2e`) is still blocked by the pre-existing
+`e2e/fixtures.ts` `bootReady` mismatch with the zero-room `#btn-new` flow, so
+`e2e/tools.spec.ts`'s updated Escape walk is written and typechecked but not
+executed.

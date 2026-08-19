@@ -99,18 +99,27 @@ export function contextMaterial(segments: SnapSegment[]): {
  */
 export function pointCandidates(cursor: Point, ctx: SnapContext, reach: number): SnapPoint[] {
   const out: SnapPoint[] = [];
-  const push = (p: Point, kind: SnapKind): void => {
+  const push = (p: Point, kind: SnapKind, r = reach): void => {
     const d = dist(cursor, p);
-    if (d > reach) return;
-    out.push({ p: { x: p.x, y: p.y }, kind, score: score(kind, d, reach), ref: p });
+    if (d > r) return;
+    out.push({ p: { x: p.x, y: p.y }, kind, score: score(kind, d, r), ref: p });
   };
   for (const r of ctx.points) push(r.p, r.kind);
-  for (const v of ctx.chain) {
+  for (const j of ctx.junctions ?? []) push(j, 'junction');
+  for (let i = 0; i < ctx.chain.length; i++) {
+    const v = ctx.chain[i];
     if (ctx.anchor && v === ctx.anchor) continue;
-    push(v, 'endpoint');
+    // the first vertex of a ring long enough to close is the CLOSE target: its
+    // own kind, and a wider reach, because everything about finishing a room
+    // depends on being able to land on it
+    if (i === 0 && ctx.chain.length >= 3) push(v, 'close', reach * CLOSE_REACH_SCALE);
+    else push(v, 'endpoint');
   }
   return out;
 }
+
+/** How much further than a normal point snap the close target reaches. */
+export const CLOSE_REACH_SCALE = 1.4;
 
 /**
  * Crossings of the constraint LINES the near segments carry — extensions

@@ -80,16 +80,58 @@ describe('point candidates', () => {
   });
 
   it('a chain vertex three back is a valid target — not just the previous one', () => {
+    // chain[0] is the CLOSE target and has its own kind, so the plain-endpoint
+    // case is asserted on an interior vertex
     const chain = [
+      { x: 0, y: 0 },
       { x: 1, y: 1 },
       { x: 6, y: 1 },
       { x: 6, y: 5 },
       { x: 9, y: 5 },
     ];
-    const c = ctx({ chain, anchor: chain[3] }, []);
+    const c = ctx({ chain, anchor: chain[4] }, []);
     const r = resolveSnap({ x: 1.02, y: 1.02 }, c, cfg({ enabled: only('endpoint') }));
     expect(r.kind).toBe('endpoint');
     near(r.p, { x: 1, y: 1 });
+  });
+
+  it('the ring start is a CLOSE target, and it outranks a wall corner on top of it', () => {
+    const chain = [
+      { x: 1, y: 1 },
+      { x: 6, y: 1 },
+      { x: 6, y: 5 },
+    ];
+    // an existing wall ends on the very same point — the tie that used to stop
+    // a room drawn against a neighbour from ever closing
+    const c = ctx({ chain, anchor: chain[2] }, [{ a: { x: 1, y: 1 }, b: { x: 1, y: -3 } }]);
+    const r = resolveSnap({ x: 1.02, y: 1.02 }, c, cfg());
+    expect(r.kind).toBe('close');
+    near(r.p, { x: 1, y: 1 });
+  });
+
+  it('a chain under 3 points has no close target — there is no loop yet', () => {
+    const chain = [
+      { x: 1, y: 1 },
+      { x: 6, y: 1 },
+    ];
+    const c = ctx({ chain, anchor: chain[1] }, []);
+    const r = resolveSnap({ x: 1.02, y: 1.02 }, c, cfg());
+    expect(r.kind).toBe('endpoint');
+  });
+
+  it('a mitred junction outranks the segment ends flanking it', () => {
+    // the two ends sit half a thickness off along either axis; the junction is
+    // where the centrelines actually meet, and is the only correct target
+    const c = ctx(
+      { junctions: [{ x: 4.05, y: -0.05 }] },
+      [
+        { a: { x: 4.05, y: 0 }, b: { x: 4.05, y: 3 } },
+        { a: { x: 0, y: -0.05 }, b: { x: 4, y: -0.05 } },
+      ]
+    );
+    const r = resolveSnap({ x: 4.04, y: -0.04 }, c, cfg());
+    expect(r.kind).toBe('junction');
+    near(r.p, { x: 4.05, y: -0.05 });
   });
 
   it('the anchor itself is never a target — that would be a zero-length wall', () => {

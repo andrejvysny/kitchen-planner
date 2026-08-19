@@ -212,26 +212,78 @@ gone): a DRAG makes an axis-aligned rectangle, CLICKS make a polygon ring closed
 on the first corner or with Enter. `Plan2D.drawPts` are wall centrelines, not
 the face ring a `Room` stores, and `commitRing` converts once at the end:
 
-- `faceRingPlan(rooms, ring, half)` (rooms.ts, pure) decides per edge how far it
-  moves inward, PLUS which existing walls have to move to meet it. The offset is
-  NOT uniform, because `Room.corners` means two things: the room-side FACE on an
-  exterior wall (`faceOffset` 0) and the CENTRELINE on a partition
-  (`faceOffset` t/2). An edge drawn onto a neighbour's centreline stays put;
-  every other edge insets by half the wall width.
-- `store.alignWallToCentreline(wallId)` moves that neighbour's ring edge out onto
+- `regularizeDrawnRing(rooms, walls, ring)` runs FIRST (rooms.ts, pure). It
+  collapses every edge under `MIN_SEAM` — a ring closed by Enter keeps a stub up
+  to the close radius long, and `insetPolygon` mitres that against its
+  neighbours at a wild angle, which is how a square ring committed with one wall
+  visibly skewed — and then snaps any edge within `REGULARIZE_TOL` (20 mm) of an
+  existing wall centreline exactly onto it. That second pass exists because
+  everything downstream demands 1 mm coincidence and reports NOTHING when it
+  does not get it: a 15 mm miss used to commit silently as two parallel slabs.
+  It is the ONE place the tool alters what the user drew, which is why the band
+  is an explicit constant and why a result that is not simple falls back.
+- `faceRingPlan(rooms, ring, half, walls?, tol?)` (rooms.ts, pure) decides per
+  edge how far it moves inward, PLUS which existing walls have to move to meet
+  it. The offset is NOT uniform, because `Room.corners` means two things: the
+  room-side FACE on an exterior wall (`faceOffset` 0) and the CENTRELINE on a
+  partition (`faceOffset` t/2). An edge drawn onto a neighbour's centreline
+  stays put; every other edge insets by half the wall width. The match is
+  `edgeCentrelineHits` — an OVERLAP test (both endpoints within `tol` of the
+  line, shared stretch ≥ `MIN_SEAM`) returning EVERY collinear wall, not the
+  midpoint test returning the first that it replaced: an edge longer than the
+  wall it runs along, or spanning two stacked rooms, silently missed.
+- `store.alignWallsToCentreline(ids)` promotes the whole batch AT ONCE, and
+  that is not a convenience. A new room laid across the top of two that already
+  share a wall needs both their top walls promoted, and the corner where they
+  meet anchors that shared wall; asked one at a time each promotion is refused,
+  and the new room comes out with a doubled wall along its entire bottom edge.
+  Asked together the two moves are identical, the seam slides along itself and
+  survives. So the rule is not "never move a shared corner", it is **every
+  corner may move exactly one way, and a wall nobody promoted may change LENGTH
+  at a moved corner but never DIRECTION** — that second gate is what separates
+  sliding a seam along itself from dragging one end of a wall sideways into a
+  tilt nobody drew. `alignWallToCentreline(id)` is the one-id wrapper.
+  It moves that neighbour's ring edge out onto
   its own centreline so the two rings can hold the SAME edge — which is all
   `allWalls` needs to see a partition. The host's interior does not move: the
   t/2 it gives up is exactly the t/2 `faceOffset` hands back. Refused (and the
   edge stays exterior) when the wall is already shared or an end anchors another
   partition. Both halves come from ONE `faceRingPlan` call against ONE snapshot —
   promoting changes the centrelines, so re-deriving between the two is a bug.
+  A REFUSAL must still be honoured: `plan.edgeWalls` names the walls each edge
+  matched, and `commitRing` resets that edge's offset to `half` when none of
+  them was promoted or already shared. Skipping that leaves the edge on the
+  un-promoted neighbour's centreline, t/2 off its face ring, where `linkShared`
+  and the weld both miss it — two parallel walls, silently. Downgrading is not a
+  re-derivation: the plan is still the one snapshot, only the rejected entries
+  are undone. There is no offset that shares an exterior wall whose ends anchor
+  another partition, so that case ends as coincident slabs and is reported by
+  the `parallelWalls` check rather than fixed.
+- `snapRingToNeighbours(rooms, face, half)` is the LAST step, after
+  `insetPolygon`. The per-edge inset shortens a shared edge by `half` at each
+  end — right when the drawn ends were the mitred corners, since it lands the
+  edge on the host's own corners and `linkShared` fires at once; anywhere else
+  the two rings differ by a few centimetres, which is too big for
+  `cutOrNudge`'s `SHARE_EPS` fold and too small for its `MIN_SEAM` cut, so the
+  weld refuses and BOTH walls survive. Pass the same `half` the inset used: that
+  is the largest distance the inset can have moved a corner, so anything further
+  apart was drawn apart on purpose. The chain itself is never nudged — moving a
+  drawn end shears the segment attached to it, which is the skewed wall this all
+  exists to prevent.
 - Snapping is to `wallCentrelines(rooms).segments` — each wall's own extent
   offset perpendicular by `bandCenter`, so a segment ends exactly where its wall
-  does and exactly where promotion puts it. The MITRED `rings` from the same call
-  are a different thing: they are where two centrelines meet, which is where the
-  plan draws its corner handles (`cornerHandlePositions`, shared with
-  `Plan2D.hitCorner` so draw and hit-test cannot diverge) and which must never be
-  a snap target — a mitre overshoots the wall end by half a thickness.
+  does and exactly where promotion puts it — PLUS the MITRED `rings` from the
+  same call, as the separate `junction` snap kind. The two are still different
+  things: a segment ends where its wall ends, so at a right-angled corner the
+  two nearest endpoints sit t/2 off along either axis and the point a
+  neighbouring room's ring corner belongs on is not among them at all. Offering
+  the junction is what stopped a room drawn against a neighbour coming out half
+  a thickness wrong. It is safe for the WALL TOOL only, because `commitRing`
+  converts through `faceRingPlan`, which promotes the neighbour's wall out to
+  meet the drawn edge; `snapPointToCentrelines` and the corner drag have no such
+  conversion and must keep snapping to the face ring. The rings are also where
+  the plan draws its corner handles (`cornerHandlePositions`, shared with
+  `Plan2D.hitCorner` so draw and hit-test cannot diverge).
   `snapRectSides` snaps a drag-rectangle's four sides INDEPENDENTLY, unlike
   `snapRoomRect`'s whole-rectangle slide, because a room laid alongside another
   needs its shared side and both flanking sides flush at once.
@@ -246,8 +298,15 @@ the face ring a `Room` stores, and `commitRing` converts once at the end:
 (test/unit/snapEngine.test.ts). It resolves in three stages, and the split is the
 whole design:
 
-- **POINT** candidates (`endpoint` / `midpoint` / `intersection`) fully determine
-  the answer, so the best-scoring one returns immediately.
+- **POINT** candidates (`close` / `junction` / `endpoint` / `midpoint` /
+  `intersection`) fully determine the answer, so the best-scoring one returns
+  immediately. `close` (120) is the ring's OWN first vertex once it has 3
+  points, and reaches `CLOSE_REACH_SCALE` (1.4×) further than a normal point
+  snap; `junction` (105) is a mitred centreline corner, supplied by the caller
+  as `ctx.junctions`. Both outrank `endpoint` (100) deliberately: closing a loop
+  and landing a neighbour's corner both used to LOSE a tie against an ordinary
+  wall end sitting the same distance away, which is exactly why a room drawn
+  against an existing one would neither close nor line up.
 - **LINE** candidates (`align` / `extension` / `perpendicular` / `parallel` /
   `onSegment` / `angle`) each remove ONE degree of freedom, so the top two
   non-parallel ones are INTERSECTED — that is how "lined up with that corner AND
@@ -265,6 +324,11 @@ means a snap feels the same at every zoom (the bug being fixed was a fixed 0.15 
 that became a 45 px magnet at 300 px/m), and the clamp stops zooming OUT turning
 it into a magnet spanning metres. `hitRadius` is applied by the CALLER, so
 src/model never imports src/plan2d.
+
+`Plan2D.onCloseTarget` uses the same `CLOSE_REACH_SCALE` reach as the engine, and
+the close target is checked BEFORE the typed-dimension branch in `snapDrawPoint`
+— a typed length otherwise bypasses `resolveSnap` entirely, and with a digit in
+the box the ring could not be closed at all.
 
 Three rules that are easy to break and are pinned by tests:
 
@@ -300,10 +364,28 @@ placement) is deliberately NOT on the engine: OBB edge-to-edge plus wall-face
 hugging is a different problem.
 
 **A chain need not close, and what it becomes depends on what it touches.**
-`closeDrawRoom` reads the finished chain three ways, in order:
+`closeDrawRoom(finishOpen?)` reads the finished chain FOUR ways, in order:
 
 1. back on its own first corner → a ROOM (`commitRing`, above);
-2. crossing one room's ring twice → a SPLIT (`store.splitRoom` →
+2. both ends landed on existing walls → a ROOM closed along that existing
+   geometry (`closeChainAgainstWalls`, pure in rooms.ts → `commitRing`). This is
+   how a plan gets redrawn wall by wall: you draw only the walls that are NEW.
+   The answer comes from **`src/model/faces.ts` `planarFaces`**, not from
+   walking one room's corner ring. That distinction is the whole feature: a ring
+   walk can only close a chain against the SINGLE room it started and ended on,
+   and from the third room onward the two ends land on two DIFFERENT rooms (or
+   on a free chain), so a perfectly closed region committed as free-standing
+   walls instead. The subdivision does not care — it cuts every centreline at
+   every crossing and hands back the face the chain bounds, whatever the
+   topology. The graph is built from the MITRED `rings`, never the butt-ended
+   `segments`: a segment stops at its own wall's extent, so at a corner two
+   centrelines miss each other by half a thickness and no face would ever close.
+   Both ends must land within `REGULARIZE_TOL` and are projected exactly onto
+   the geometry first (the graph joins only what actually meets). Faces
+   containing an existing room's centroid are rejected, the smallest survivor
+   wins, and a chain through a room's INTERIOR returns null so reading 3 keeps
+   the split.
+3. crossing one room's ring twice → a SPLIT (`store.splitRoom` →
    `splitRoomByChain`, pure in rooms.ts). The chain is clipped to its two ring
    crossings and becomes the shared edge of both halves; the outer arcs stay on
    the original ring. That works because the two meanings of `corners` hold at
@@ -312,7 +394,32 @@ hugging is a different problem.
    rooms**: the original's name/style/overrides do not survive a cut that
    describes only part of what it used to. Items are re-homed by position,
    openings by nearest wall (`reprojectOpeningsNearest`).
-3. anything else → FREE WALLS (`store.addFreeWall`).
+4. anything else → FREE WALLS (`store.addFreeWall`).
+
+**The tool stays ARMED after every commit** (`Plan2D.finishGesture`, not
+`setDrawRoom(false)`). A plan is a run of rooms, and a trip back to the toolbar
+between each was the slowest thing about drawing one; `addRoom` already makes
+the new room active, so its Width/Depth/Ceiling are in the inspector either way.
+Escape twice leaves — ring first, then tool. Note the toolbar button still
+TOGGLES, so re-pressing it mid-plan disarms rather than re-arms.
+
+**Reading 2 fires on the CLICK, not on Enter** (`addDrawPoint`): a loop of three
+new walls and one existing one is finished the moment the last corner lands, and
+must not need a keystroke that a loop of four new walls does not. Three points
+minimum, or the second click of a chain drawn along a wall would close a sliver;
+and because `closeChainAgainstWalls` refuses a chain through the interior, a cut
+still reaches reading 3 instead of being stolen.
+
+`finishOpen` (double-click, `Shift+Enter` → `tool.finishOpen`) skips straight to
+reading 3, so a divider drawn against a wall stays a divider. `Plan2D.drawOutcome()`
+reports which reading is live — CACHED, recomputed only when a vertex is added
+or removed, which is exact rather than an approximation because `closeDrawRoom`
+reads `drawPts` and never the hover. It rides `DrawHudState.outcome` so the
+answer is drawn AT THE CURSOR (`⏎ room` / `⏎ split` / `⏎ walls`); the status bar
+saying it at the bottom of the window was nowhere near where anyone drawing a
+wall is looking. The status hint names the gesture behind it — the four readings
+are not guessable from the drawing, and picking one silently is what turned
+"three walls against a neighbour" into free-standing walls.
 
 **`design.walls` is the second source of walls** (`FreeWall` — an OPEN chain of
 `Corner`s, its own thickness, sharing the design-wide corner-id space so a
@@ -598,8 +705,20 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   wins**, so table ORDER is load-bearing (Shift+Ctrl+Z above Ctrl+Z): one key may
   appear twice and `canExecute` picks between them by context — a digit is a wall
   dimension while a ring is in flight (`draw.digit*`) and a workspace switch at
-  rest, Backspace likewise. The gates (typing, modal) are evaluated PER
-  candidate, so a blocked row never hides the one below it.
+  rest. **Backspace appears THREE times** and is the sharpest example: it edits
+  the dimension box while a character is typed (`draw.backspace`, gated on
+  `drawBufferActive`), steps the drawn ring back one corner while a ring is live
+  (`draw.undoVertex`, gated on `drawInputActive`), and deletes the selection at
+  rest. Splitting those two gates is what lets an EMPTY box hand the key on
+  instead of eating it. `Shift+Enter` (`tool.finishOpen`) sits above plain Enter
+  for the same reason — the plain row is shift-don't-care. The gates (typing,
+  modal) are evaluated PER candidate, so a blocked row never hides the one below
+  it.
+- **Escape steps the wall tool's ring BACK ONE CORNER**, and disarms the tool
+  only when the ring is empty (`Plan2D.cancelDrawRoom` → `undoDrawVertex`). It
+  used to discard the whole chain, which made it the most expensive key in the
+  tool: nothing else could take a corner back, so one mis-click on a ten-corner
+  outline cost the outline. e2e/tools.spec.ts pins the walk.
 - `src/editor/input/types.ts` and `src/editor/tools/Tool.ts` are **type
   declarations with no runtime** — the Phase C contracts. No `ToolManager`
   yet, on purpose; it lands with the first tool that exercises it. See
@@ -710,6 +829,10 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   `store.warnings()` lazy-caches the result, invalidated by every `notify()`.
   Severity is a strict contract every consumer switches on, never `kind`:
   error = collision (overlap/throughWall — red 3D tint), warn = clearance
+  + `parallelWalls` (two slabs running along each other within one thickness
+  that the model did NOT merge into a partition — the tool's one remaining
+  silent failure, made visible; `itemIds` is empty, so the row is unfocusable
+  by design)
   (blocksDoor/frontClearance/walkway/workAisle/bedAccess — amber tint), info =
   hint (doorLanding/workTriangle — never tints, never counts toward the
   status bar's issue total). Each `CLEARANCE` constant carries its

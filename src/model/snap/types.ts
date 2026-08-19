@@ -15,6 +15,21 @@
 import type { Point } from '../types';
 
 export type SnapKind =
+  /**
+   * The ring being drawn, back on its OWN first corner — the close target.
+   * Its own kind rather than an `endpoint`, because closing a loop has to beat
+   * a neighbouring room's corner sitting the same distance away: that tie is
+   * why a room drawn against an existing one refused to close.
+   */
+  | 'close'
+  /**
+   * Where two of a room's wall centrelines MEET — the mitred ring corner.
+   * This is the point a neighbouring room's ring corner has to land on, and it
+   * is NOT any wall's segment end: at a right angle the two ends nearest it sit
+   * half a thickness away along either axis, so without this candidate the tool
+   * could only ever offer a corner that was t/2 wrong.
+   */
+  | 'junction'
   /** a wall-centreline segment end, a free-chain end, or a chain vertex */
   | 'endpoint'
   /** the midpoint of a centreline segment */
@@ -98,6 +113,15 @@ export interface SnapRef {
 export interface SnapContext {
   segments: SnapSegment[];
   points: SnapRef[];
+  /**
+   * Mitred centreline junctions — where a room's wall centrelines actually
+   * meet. Design-derived like `points`, but kept apart because only the WALL
+   * tool may have them: it converts its ring through `faceRingPlan`, which
+   * promotes the neighbouring wall out to meet the drawn edge. A gesture with
+   * no such conversion (the corner drag) must keep snapping to the face ring,
+   * so it simply leaves this empty.
+   */
+  junctions?: Point[];
   /** the chain being drawn, in the same space as `segments`; [] outside a draw */
   chain: Point[];
   /**
@@ -146,6 +170,8 @@ export const DEFAULT_SNAP_CONFIG: Omit<SnapConfig, 'zoom'> = {
  * true without being an absolute rule the user cannot escape.
  */
 export const TYPE_WEIGHT: Record<SnapKind, number> = {
+  close: 120,
+  junction: 105,
   endpoint: 100,
   intersection: 90,
   midpoint: 80,

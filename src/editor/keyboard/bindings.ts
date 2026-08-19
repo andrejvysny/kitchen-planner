@@ -64,7 +64,10 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
     preventDefault: false,
   },
   // guarded to the drawRoom tool by tool.finish's canExecute; a plain Enter
-  // anywhere else therefore stays the browser's
+  // anywhere else therefore stays the browser's. Shift+Enter is the escape
+  // hatch: finish the chain as OPEN walls, never closing it into a room — so
+  // it has to sit ABOVE the plain row, which does not care about shift.
+  { key: 'enter', shift: true, commandId: 'tool.finishOpen' },
   { key: 'enter', commandId: 'tool.finish' },
 
   { key: 'z', mod: true, shift: true, commandId: 'history.redo' },
@@ -78,6 +81,11 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   // bindings below (delete the selection, switch workspace). First match wins,
   // so these rows must stay above their at-rest twins.
   { key: 'backspace', commandId: 'draw.backspace' },
+  // …and with the box EMPTY the same key steps the ring back one corner, which
+  // is the only non-destructive way out of a long chain. `draw.backspace`'s
+  // canExecute now requires a typed character, so exactly one of these two can
+  // ever run and no third row is shadowed.
+  { key: 'backspace', commandId: 'draw.undoVertex' },
   // Tab is otherwise unbound, so this needs no ordering care; preventDefault
   // stays on (its default) or focus would leave the canvas mid-gesture
   { key: 'tab', commandId: 'draw.toggleField' },

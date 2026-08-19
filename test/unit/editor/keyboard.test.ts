@@ -70,10 +70,15 @@ describe('key bindings', () => {
   it('Delete and Backspace both delete, with or without modifiers', () => {
     expect(hit('delete')).toBe('selection.delete');
     expect(hit('delete', true, true)).toBe('selection.delete');
-    // Backspace carries TWO meanings told apart by context, not by modifiers:
-    // the wall tool's dimension box outranks deleting, and hands the key on
-    // when no ring is in flight (draw.backspace's canExecute)
-    expect(hits('backspace')).toEqual(['draw.backspace', 'selection.delete']);
+    // Backspace carries THREE meanings told apart by context, not by
+    // modifiers: the wall tool's dimension box first (only while a character
+    // is typed), then stepping the drawn ring back one corner, then deleting
+    // the selection once no ring is in flight at all
+    expect(hits('backspace')).toEqual([
+      'draw.backspace',
+      'draw.undoVertex',
+      'selection.delete',
+    ]);
   });
 
   it('r rotates 90°, Shift+R rotates 15°', () => {
@@ -110,7 +115,8 @@ describe('key bindings', () => {
   it('the dimension keys outrank their at-rest twins, and only those', () => {
     const draw = KEY_BINDINGS.filter((b) => b.commandId.startsWith('draw.'));
     expect(draw.map((b) => b.key)).toEqual([
-      'backspace',
+      'backspace', // edits the dimension box…
+      'backspace', // …and, with it empty, steps the ring back one corner
       // Tab moves between the length and angle boxes. It has no at-rest twin,
       // so its position here is free — but it is still a typed-input key and
       // must obey the modal/typing gates asserted below.

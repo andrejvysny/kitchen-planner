@@ -18,7 +18,7 @@ import { demoDesign, Store } from '../../../src/model/store';
 // lift: same mutations, same guards, same `store.commit()` discipline.
 
 /** Records every port call so a command's tool-cancelling path is observable. */
-function fakePlan(drawing = false): PlanToolPort & { calls: string[] } {
+function fakePlan(drawing = false, buffered = drawing): PlanToolPort & { calls: string[] } {
   const calls: string[] = [];
   return {
     calls,
@@ -26,10 +26,12 @@ function fakePlan(drawing = false): PlanToolPort & { calls: string[] } {
     setCalibrate: (on) => calls.push(`setCalibrate:${on}`),
     setMeasure: (on) => calls.push(`setMeasure:${on}`),
     cancelDrawRoom: () => calls.push('cancelDrawRoom'),
-    closeDrawRoom: () => calls.push('closeDrawRoom'),
+    closeDrawRoom: (open) => calls.push(`closeDrawRoom:${open ?? false}`),
     drawInputActive: () => drawing,
+    drawBufferActive: () => buffered,
     drawDigit: (ch) => calls.push(`drawDigit:${ch}`),
     drawBackspace: () => calls.push('drawBackspace'),
+    undoDrawVertex: () => calls.push('undoDrawVertex'),
     drawToggleField: () => calls.push('drawToggleField'),
   };
 }
@@ -285,6 +287,7 @@ describe('app commands', () => {
       idleReg.registerAll(APP_COMMANDS);
       expect(idleReg.execute('draw.digit4')).toBe(false);
       expect(idleReg.execute('draw.backspace')).toBe(false);
+      expect(idleReg.execute('draw.undoVertex')).toBe(false);
       expect(idle.calls).toEqual([]);
 
       const live = fakePlan(true);
@@ -301,6 +304,25 @@ describe('app commands', () => {
       expect(liveReg.execute('draw.digitDot')).toBe(true);
       expect(liveReg.execute('draw.backspace')).toBe(true);
       expect(live.calls).toEqual(['drawDigit:4', 'drawDigit:.', 'drawBackspace']);
+    });
+
+    it('an EMPTY dimension box hands Backspace to the ring step-back', () => {
+      // this is the whole point of splitting drawInputActive from
+      // drawBufferActive: with nothing typed, draw.backspace must decline so
+      // the next binding (draw.undoVertex) gets the key
+      const plan = fakePlan(true, false);
+      const reg = new CommandRegistry({
+        store,
+        editor,
+        plan,
+        modal,
+        workspace: ws,
+        help,
+      });
+      reg.registerAll(APP_COMMANDS);
+      expect(reg.execute('draw.backspace')).toBe(false);
+      expect(reg.execute('draw.undoVertex')).toBe(true);
+      expect(plan.calls).toEqual(['undoDrawVertex']);
     });
 
     it.each([
@@ -386,6 +408,12 @@ describe('app commands', () => {
 
     editor.setTool('drawRoom');
     expect(reg.execute('tool.finish')).toBe(true);
-    expect(plan.calls).toEqual(['closeDrawRoom']);
+    expect(plan.calls).toEqual(['closeDrawRoom:false']);
+  });
+
+  it('tool.finishOpen forces the OPEN reading — never a room', () => {
+    editor.setTool('drawRoom');
+    expect(reg.execute('tool.finishOpen')).toBe(true);
+    expect(plan.calls).toEqual(['closeDrawRoom:true']);
   });
 });

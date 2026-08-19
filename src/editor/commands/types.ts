@@ -38,11 +38,16 @@ export interface PlanToolPort {
   setCalibrate(on: boolean): void;
   setMeasure(on: boolean): void;
   cancelDrawRoom(): void;
-  closeDrawRoom(): void;
-  /** whether a keystroke should feed the wall tool's dimension box */
+  /** `finishOpen` skips the room readings and commits the chain as walls */
+  closeDrawRoom(finishOpen?: boolean): void;
+  /** whether a keystroke should feed the wall tool at all (a ring is live) */
   drawInputActive(): boolean;
+  /** whether the dimension box holds a character Backspace could delete */
+  drawBufferActive(): boolean;
   drawDigit(ch: string): void;
   drawBackspace(): void;
+  /** step the ring back one corner — Backspace with an empty box, and Escape */
+  undoDrawVertex(): void;
   /** Tab: move between the wall tool's length and angle boxes. */
   drawToggleField(): void;
 }

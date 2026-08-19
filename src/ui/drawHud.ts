@@ -20,6 +20,14 @@ import type { Point } from '../model/types';
 /** Which box the digits are going into. */
 export type DrawField = 'length' | 'angle';
 
+/**
+ * What the chain would become if it were finished right now. It rides the HUD
+ * because the HUD is already AT THE CURSOR: the status bar said the same thing
+ * at the bottom of the window, which is nowhere near where anybody drawing a
+ * wall is looking, so the tool's four readings stayed invisible.
+ */
+export type DrawOutcome = 'room' | 'reuse' | 'split' | 'walls' | 'none';
+
 export interface DrawHudState {
   /** where to float the readout, in CSS px relative to the plan canvas */
   at: Point;
@@ -37,6 +45,8 @@ export interface DrawHudState {
   typedLength: string;
   typedAngle: string;
   field: DrawField;
+  /** what finishing right now would produce */
+  outcome: DrawOutcome;
 }
 
 let state: DrawHudState | null = null;

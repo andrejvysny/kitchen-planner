@@ -1,5 +1,5 @@
 export { resolveSnap } from './engine';
-export { contextMaterial } from './sources';
+export { contextMaterial, CLOSE_REACH_SCALE } from './sources';
 export {
   DEFAULT_SNAP_CONFIG,
   TYPE_WEIGHT,

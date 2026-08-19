@@ -1868,20 +1868,23 @@ const added = await page.evaluate(() => {
     n: rooms.length,
     activeIsNew: st.activeRoomId === rooms[rooms.length - 1].id,
     sel: st.selection.kind,
-    toolOff: window.__kp.plan.toolState().draw === false,
+    // the tool STAYS armed after a commit — a plan is a run of rooms, and
+    // going back to the toolbar between each was the slowest thing about it
+    toolArmed: window.__kp.plan.toolState().draw === true,
     shared: st.allWalls().some((w) => w.shared),
   };
 });
 results.push([
-  'wall tool drag places a second room',
+  'wall tool drag places a second room and stays armed for the next',
   roomToolArmed.on &&
     roomToolArmed.active &&
     added.n === 2 &&
     added.activeIsNew &&
     added.sel === 'none' &&
-    added.toolOff &&
+    added.toolArmed &&
     !added.shared,
 ]);
+await page.keyboard.press('Escape'); // back to select for the blocks below
 await page.keyboard.press('Control+z');
 await waitUntil((n) => window.__kp.store.design.rooms.length < n, added.n);
 results.push([
@@ -2706,25 +2709,39 @@ const drawArmed = await page.evaluate(() => ({
   active: document.getElementById('btn-draw-room').classList.contains('active'),
   measureOff: window.__kp.plan.toolState().measure === false,
 }));
-// Esc drops the ring in progress first, and only then the tool itself
+// Esc steps the ring back ONE corner at a time, and only disarms the tool once
+// the ring is empty — a mis-click must never cost the whole outline
 await clickAt(7, 1);
 await clickAt(9, 1);
-await page.keyboard.press('Escape');
-const ringCancelled = await page.evaluate(() => ({
-  ring: window.__kp.plan.overlayState().drawRing,
-  on: window.__kp.plan.toolState().draw,
-  rooms: window.__kp.store.design.rooms.length,
-}));
+const ringSteps = [];
+const ringState = () =>
+  page.evaluate(() => {
+    const r = window.__kp.plan.overlayState().drawRing;
+    return {
+      pts: r ? r.pts.length : 0,
+      on: window.__kp.plan.toolState().draw,
+      rooms: window.__kp.store.design.rooms.length,
+    };
+  });
+for (let i = 0; i < 3; i++) {
+  await page.keyboard.press('Escape');
+  ringSteps.push(await ringState());
+}
 results.push([
-  'draw-room tool arms; Esc discards the ring before the tool',
+  'draw-room tool arms; Esc steps the ring back one corner, then disarms',
   drawArmed.on &&
     drawArmed.active &&
     drawArmed.measureOff &&
-    ringCancelled.ring === null &&
-    ringCancelled.on === true &&
-    ringCancelled.rooms === 1,
+    ringSteps[0].pts === 1 &&
+    ringSteps[0].on === true &&
+    ringSteps[1].pts === 0 &&
+    ringSteps[1].on === true &&
+    ringSteps[2].on === false &&
+    ringSteps[2].rooms === 1,
 ]);
 
+// the third Escape above disarmed the tool; re-arm it for the L
+await page.click('#btn-draw-room');
 // an L clear of the 4x3 room at the origin, closed on its first corner
 for (const [x, y] of [
   [7, 1],
@@ -2740,6 +2757,7 @@ const midRing = await page.evaluate(() => {
   return { pts: r ? r.pts.length : 0, rooms: window.__kp.store.design.rooms.length };
 });
 await clickAt(7, 1);
+await page.keyboard.press('Escape'); // the tool stays armed after a commit now
 const drawn = await page.evaluate(() => {
   const st = window.__kp.store;
   const r = st.design.rooms[st.design.rooms.length - 1];
@@ -2835,7 +2853,7 @@ const welded = await page.evaluate(() => {
     shortest: Math.min(...st.allWalls().map((w) => w.len)),
     hostFace: Math.max(...st.design.rooms[0].corners.map((c) => c.x)),
     corners: st.design.rooms.map((r) => r.corners.length),
-    toolOff: window.__kp.plan.toolState().draw === false,
+    toolArmed: window.__kp.plan.toolState().draw === true,
   };
 });
 results.push([
@@ -2849,8 +2867,9 @@ results.push([
     // the interior straight back — the host room is not one millimetre smaller
     Math.abs(welded.hostFace - host.centre) < 1e-6 &&
     welded.corners.every((n) => n === 4) &&
-    welded.toolOff,
+    welded.toolArmed,
 ]);
+await page.keyboard.press('Escape');
 // 38. angle snap: on by default, Shift inverts it, and the toggle turns it off
 await page.click('#btn-new');
 await resetReady();
@@ -2893,6 +2912,73 @@ results.push([
 ]);
 await page.click('#btn-angle-snap'); // leave it as the app defaults
 await page.keyboard.press('Escape');
+await page.keyboard.press('Escape');
+await page.keyboard.press('Escape');
+
+// 39. draw only the walls that are NEW: three sides landed on an existing
+// room's wall close along it, reusing that wall instead of doubling it. This
+// is the half of "redraw a plan wall by wall" that used to commit as
+// free-standing walls, forcing the fourth wall to be drawn over one that
+// already existed.
+await page.click('#btn-new');
+await resetReady();
+await page.evaluate(() => window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 }));
+await page.click('#btn-draw-room');
+const seed = await (async () => {
+  const a = await worldToScreen(1, 1);
+  const b = await worldToScreen(5, 4);
+  const gc = await page.evaluate(() => window.__kp.plan.debug().gestureCount);
+  await page.mouse.move(drawBb.x + a.x, drawBb.y + a.y);
+  await page.mouse.down();
+  await page.mouse.move(drawBb.x + b.x, drawBb.y + b.y, { steps: 6 });
+  await page.mouse.up();
+  await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gc);
+  return page.evaluate(() => {
+    const st = window.__kp.store;
+    const right = st.allWalls().reduce((m, w) => (w.a.x + w.b.x > m.a.x + m.b.x ? w : m));
+    const c = right.faceOffset - right.thickness / 2;
+    return {
+      x: right.a.x + right.inward.x * c,
+      y0: Math.min(right.a.y, right.b.y) + right.inward.y * c,
+      y1: Math.max(right.a.y, right.b.y) + right.inward.y * c,
+    };
+  });
+})();
+
+// NO second '#btn-draw-room' click: the tool is still armed from the drag
+// above, and the button toggles — pressing it here would disarm it
+const roomsBefore = await page.evaluate(() => window.__kp.store.design.rooms.length);
+// three corners only: out from the host wall, across, and back to it
+await clickAt(seed.x, seed.y0);
+await clickAt(seed.x + 3, seed.y0);
+await clickAt(seed.x + 3, seed.y1);
+// the LAST corner lands back on the host wall — that completes the loop, so it
+// must commit on the click, exactly as landing on the ring's own first corner
+// does. Needing Enter here is the bug this pins.
+await clickAt(seed.x, seed.y1);
+const closedOnLanding = await page.evaluate(
+  () => window.__kp.plan.overlayState().drawRing === null
+);
+const reused = await page.evaluate(() => {
+  const st = window.__kp.store;
+  const shared = st.allWalls().filter((w) => w.shared);
+  return {
+    rooms: st.design.rooms.length,
+    freeWalls: (st.design.walls ?? []).length,
+    shared: shared.length,
+    doubled: st.warnings().filter((w) => w.kind === 'parallelWalls').length,
+    toolArmed: window.__kp.plan.toolState().draw === true,
+  };
+});
+results.push([
+  'a chain landed on an existing wall closes into a room reusing it, on the click',
+  closedOnLanding &&
+    reused.rooms === roomsBefore + 1 &&
+    reused.freeWalls === 0 &&
+    reused.shared === 2 &&
+    reused.doubled === 0 &&
+    reused.toolArmed,
+]);
 await page.keyboard.press('Escape');
 
 let pass = 0;

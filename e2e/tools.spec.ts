@@ -173,12 +173,23 @@ test('Escape walks the tools in order, and the draw ring goes before its tool', 
     expect(await isActive(app, btn)).toBe(false);
   }
 
-  // two-stage: the ring first, the tool only once the ring is empty
+  // two-stage: the ring first, the tool only once the ring is EMPTY — and the
+  // ring empties one corner at a time, so a mis-click never costs the outline
   await app.click('#btn-draw-room');
   await clickPlan(app, 6, 1);
+  await clickPlan(app, 9, 1);
+  await clickPlan(app, 9, 4);
   await expect
-    .poll(() => app.evaluate(() => !!window.__kp.plan.overlayState().drawRing))
-    .toBe(true);
+    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().drawRing?.pts.length ?? 0))
+    .toBe(3);
+
+  for (const left of [2, 1]) {
+    await app.keyboard.press('Escape');
+    expect(await app.evaluate(() => window.__kp.plan.overlayState().drawRing?.pts.length)).toBe(
+      left
+    );
+    expect(await editorTool(app)).toBe('drawRoom');
+  }
 
   await app.keyboard.press('Escape');
   expect(await app.evaluate(() => window.__kp.plan.overlayState().drawRing)).toBe(null);

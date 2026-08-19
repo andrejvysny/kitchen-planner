@@ -1,14 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { insetPolygon, signedArea } from '../../src/model/geometry';
+import { insetPolygon, pointInPolygon, signedArea } from '../../src/model/geometry';
 import {
   allWalls,
   bandCenter,
   defaultRoomStyle,
+  closeChainAgainstWalls,
+  edgeCentrelineHits,
+  regularizeDrawnRing,
+  snapRingToNeighbours,
   snapPointToCentrelines,
   faceRingPlan,
+  REGULARIZE_TOL,
+  type Centreline,
   snapRectSides,
   wallCentrelines,
 } from '../../src/model/rooms';
+import { runChecks } from '../../src/model/checks';
 import { Store } from '../../src/model/store';
 import type { Design, FreeWall, Point, Room } from '../../src/model/types';
 
@@ -430,3 +437,428 @@ function design(rooms: Room[]): Design {
     scene: { sunAzimuth: 135, sunElevation: 45, brightness: 1, night: false },
   } as unknown as Design;
 }
+
+/**
+ * The three pure pieces the wall tool's commit path gained: an OVERLAP-based
+ * shared-edge test, the regularize pass that heals a near-miss before the
+ * 1 mm coincidence downstream has to see it, and closing a chain against the
+ * walls it was drawn off. Every one of them exists because the old code failed
+ * SILENTLY — a missed match commits as two parallel slabs with no warning.
+ */
+describe('edgeCentrelineHits — overlap, not midpoint', () => {
+  const segs = (rooms: Room[], walls?: FreeWall[]): Centreline[] =>
+    wallCentrelines(rooms, walls).segments;
+
+  it('matches an edge far LONGER than the wall it runs along', () => {
+    // A is 3 m tall; the drawn edge runs 9 m down the same line, so its
+    // MIDPOINT falls well past A's bottom corner — the old test's blind spot
+    const x = 4.05; // A's right wall centreline
+    const hits = edgeCentrelineHits(segs([rect('A', 0, 0, 4, 3, 0.1)]), { x, y: 0 }, { x, y: 9 });
+    expect(hits.length).toBe(1);
+    expect(hits[0].overlap).toBeCloseTo(3, 6);
+  });
+
+  it('returns EVERY collinear wall an edge spans, not just the first', () => {
+    // two rooms stacked; one edge drawn down both their right walls
+    const rooms = [rect('A', 0, 0, 4, 3, 0.1), rect('B', 0, 3, 4, 3, 0.1)];
+    const hits = edgeCentrelineHits(segs(rooms), { x: 4.05, y: 0 }, { x: 4.05, y: 6 });
+    expect(hits.map((h) => h.wall.roomId).sort()).toEqual(['A', 'B']);
+  });
+
+  it('an overlap shorter than MIN_SEAM is not a shared edge', () => {
+    const rooms = [rect('A', 0, 0, 4, 3, 0.1)];
+    // only 5 cm of the drawn edge touches A's right wall
+    const hits = edgeCentrelineHits(segs(rooms), { x: 4.05, y: 2.95 }, { x: 4.05, y: 5 });
+    expect(hits).toEqual([]);
+  });
+
+  it('sees a free-standing chain, which the old midpoint test never did', () => {
+    const chain: FreeWall = {
+      id: 'f1',
+      corners: [
+        { id: 'f1a', x: 8, y: 0 },
+        { id: 'f1b', x: 8, y: 4 },
+      ],
+      thickness: 0.1,
+    };
+    const hits = edgeCentrelineHits(segs([], [chain]), { x: 8, y: 0.5 }, { x: 8, y: 3.5 });
+    expect(hits.length).toBe(1);
+    expect(hits[0].wall.roomId).toBe('');
+  });
+
+  it('honours the tolerance: 15 mm off misses at SHARE_EPS, hits when widened', () => {
+    const rooms = [rect('A', 0, 0, 4, 3, 0.1)];
+    const a = { x: 4.065, y: 0.2 };
+    const b = { x: 4.065, y: 2.8 };
+    expect(edgeCentrelineHits(segs(rooms), a, b)).toEqual([]);
+    expect(edgeCentrelineHits(segs(rooms), a, b, REGULARIZE_TOL).length).toBe(1);
+  });
+});
+
+describe('regularizeDrawnRing', () => {
+  it('collapses the stub a ring closed by Enter leaves behind', () => {
+    // the last click landed 30 mm short of the first — the skewed-wall bug
+    const ring: Point[] = [
+      { x: 0, y: 0 },
+      { x: 3, y: 0 },
+      { x: 3, y: 2 },
+      { x: 0, y: 2 },
+      { x: 0.03, y: 0.01 },
+    ];
+    const out = regularizeDrawnRing([], undefined, ring);
+    expect(out.length).toBe(4);
+    near(out[0], { x: 0, y: 0 });
+  });
+
+  it('pulls a near-miss edge exactly onto the neighbour it was aimed at', () => {
+    const rooms = [rect('A', 0, 0, 4, 3, 0.1)];
+    // drawn 8 mm to the right of A's right-wall centreline (x = 4.05)
+    const ring: Point[] = [
+      { x: 4.058, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 3 },
+      { x: 4.058, y: 3 },
+    ];
+    const ccwRing = signedArea(ring) > 0 ? ring : [...ring].reverse();
+    const out = regularizeDrawnRing(rooms, undefined, ccwRing);
+    for (const p of out) {
+      if (p.x < 5) expect(p.x).toBeCloseTo(4.05, 9);
+    }
+  });
+
+  it('leaves a deliberate cavity alone — 60 mm is not a near miss', () => {
+    const rooms = [rect('A', 0, 0, 4, 3, 0.1)];
+    const ring: Point[] = [
+      { x: 4.11, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 3 },
+      { x: 4.11, y: 3 },
+    ];
+    const ccwRing = signedArea(ring) > 0 ? ring : [...ring].reverse();
+    const out = regularizeDrawnRing(rooms, undefined, ccwRing);
+    for (const p of out) if (p.x < 5) expect(p.x).toBeCloseTo(4.11, 9);
+  });
+});
+
+describe('closeChainAgainstWalls', () => {
+  const A = (): Room[] => [rect('A', 0, 0, 4, 3, 0.1)];
+
+  it('three sides drawn off a wall close into a neighbour reusing it', () => {
+    // A's right-wall centreline is x = 4.05; draw out, across and back
+    const chain: Point[] = [
+      { x: 4.05, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 3 },
+      { x: 4.05, y: 3 },
+    ];
+    const ring = closeChainAgainstWalls(A(), chain)!;
+    expect(ring).toBeTruthy();
+    // the closing arc is A's right wall, so the ring is exactly the rectangle
+    expect(ring.length).toBe(4);
+    expect(Math.abs(signedArea(ring))).toBeCloseTo(2.95 * 3, 6);
+  });
+
+  it('rejects the arc that would swallow the host room', () => {
+    const chain: Point[] = [
+      { x: 4.05, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 3 },
+      { x: 4.05, y: 3 },
+    ];
+    const ring = closeChainAgainstWalls(A(), chain)!;
+    // A's centroid must stay OUTSIDE the room we just described
+    expect(pointInPolygon({ x: 2, y: 1.5 }, ring)).toBe(false);
+  });
+
+  it('a chain across the interior is a SPLIT, and is refused here', () => {
+    const chain: Point[] = [
+      { x: 2, y: -0.05 },
+      { x: 2, y: 3.05 },
+    ];
+    expect(closeChainAgainstWalls(A(), chain)).toBeNull();
+  });
+
+  it('a chain touching nothing returns null', () => {
+    const chain: Point[] = [
+      { x: 20, y: 0 },
+      { x: 23, y: 0 },
+      { x: 23, y: 3 },
+    ];
+    expect(closeChainAgainstWalls(A(), chain)).toBeNull();
+  });
+});
+
+/**
+ * The whole commit path, composed exactly as `Plan2D.commitRing` composes it:
+ * regularize → faceRingPlan → promote (honouring the refusal) → inset →
+ * addRoom. Plan2D itself needs a canvas, so this mirror is the closest a unit
+ * test gets — and the composition is where the two reported failures lived,
+ * not in any one piece.
+ */
+function commitRing(store: Store, centreline: Point[], width: number): boolean {
+  const ring = regularizeDrawnRing(store.design.rooms, store.design.walls, [...centreline]);
+  const ccwRing = signedArea(ring) > 0 ? ring : [...ring].reverse();
+  const plan = faceRingPlan(store.design.rooms, ccwRing, width / 2, store.design.walls);
+  const promoted = store.alignWallsToCentreline(plan.promote);
+  for (let i = 0; i < plan.edgeWalls.length; i++) {
+    const walls = plan.edgeWalls[i];
+    if (!walls.length) continue;
+    if (!walls.some((id) => promoted.has(id) || store.wallById(id)?.shared)) {
+      plan.offsets[i] = width / 2;
+    }
+  }
+  const inset = insetPolygon(ccwRing, plan.offsets);
+  const face = inset && snapRingToNeighbours(store.design.rooms, inset, width / 2);
+  return !!face && !!store.addRoom({ polygon: face, style: { wallThickness: width } });
+}
+
+describe('commitRing composition — the two reported failures', () => {
+  it('a ring drawn 8 mm off the neighbour still welds into ONE partition', () => {
+    const store = new Store(design([]));
+    const w = 0.1;
+    expect(commitRing(store, [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 3 },
+      { x: 0, y: 3 },
+    ], w)).toBe(true);
+    // the second ring's left edge misses the shared centreline by 8 mm —
+    // far outside SHARE_EPS, so before regularize this committed as two
+    // parallel slabs with no warning at all
+    expect(commitRing(store, [
+      { x: 4.008, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 3 },
+      { x: 4.008, y: 3 },
+    ], w)).toBe(true);
+
+    const shared = store.allWalls().filter((x) => x.shared);
+    expect(shared.length).toBe(2); // one partition, seen from both rooms
+    for (const x of shared) expect(x.faceOffset).toBeCloseTo(w / 2, 12);
+    expect(runChecks(store.design).some((c) => c.kind === 'parallelWalls')).toBe(false);
+  });
+
+  it('a ring closed 30 mm short commits square, with no skewed wall', () => {
+    const store = new Store(design([]));
+    // the last click landed near the first but not on it — the stub whose
+    // mitre used to drag a whole wall off axis
+    expect(commitRing(store, [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 3 },
+      { x: 0, y: 3 },
+      { x: 0.03, y: 0.01 },
+    ], 0.1)).toBe(true);
+    expect(store.design.rooms[0].corners.length).toBe(4);
+    for (const g of store.allWalls()) {
+      const axis = Math.min(Math.abs(g.dir.x), Math.abs(g.dir.y));
+      expect(axis).toBeLessThan(1e-9); // every wall is exactly axis-aligned
+    }
+  });
+
+  it('a REFUSED promotion downgrades to exterior, and the doubling is REPORTED', () => {
+    // A and B already share a partition, so A's top wall — whose ends anchor
+    // it — cannot be promoted: moving either corner would un-share the seam.
+    // There is then no offset that makes the third room share it either, since
+    // sharing needs the HOST's ring to move and the store forbids exactly
+    // that. So the edge falls back to exterior and the two slabs land on top
+    // of each other, which is the honest outcome — but it must not be a SILENT
+    // one, and that is what the check is for.
+    const store = new Store(design([]));
+    const w = 0.1;
+    commitRing(store, [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 3 },
+      { x: 0, y: 3 },
+    ], w);
+    commitRing(store, [
+      { x: 4, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 3 },
+      { x: 4, y: 3 },
+    ], w);
+    const before = store.allWalls().length;
+    expect(commitRing(store, [
+      { x: 0, y: -3 },
+      { x: 4, y: -3 },
+      { x: 4, y: 0 },
+      { x: 0, y: 0 },
+    ], w)).toBe(true);
+    expect(store.allWalls().length).toBeGreaterThan(before);
+
+    // the edge did NOT keep the 0 offset a successful promotion would have
+    // earned — that is what used to push the new room's slab INTO its
+    // neighbour's floor
+    const c = store.design.rooms[2];
+    expect(Math.max(...c.corners.map((p) => p.y))).toBeCloseTo(-0.05, 9);
+
+    const warned = runChecks(store.design).filter((x) => x.kind === 'parallelWalls');
+    expect(warned.length).toBe(1);
+    expect(warned[0].severity).toBe('warn');
+  });
+});
+
+describe('closeChainAgainstWalls — the end lands where the weld can use it', () => {
+  const HOST = (): Room[] => [rect('A', 0, 0, 4, 3, 0.1)];
+
+  /**
+   * The chain is returned AS DRAWN — no end is moved. Nudging an end onto the
+   * ring corner would shear the segment attached to it, which is the skewed
+   * wall this whole change exists to stop. The end-of-edge mismatch is settled
+   * later, on the face ring, by `snapRingToNeighbours`.
+   */
+  it('closes the chain without moving what the user drew', () => {
+    const ring = closeChainAgainstWalls(HOST(), [
+      { x: 4.05, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 3 },
+      { x: 4.05, y: 3 },
+    ])!;
+    expect(ring).toBeTruthy();
+    expect(ring.length).toBe(4);
+    for (const p of ring) expect(Math.min(Math.abs(p.y), Math.abs(p.y - 3))).toBeCloseTo(0, 9);
+  });
+
+  it.each([
+    ['mitred corners', 0, 3],
+    ['wall segment ends', 0.05, 2.95],
+    ['mid-wall, a partial overlap', 0.4, 2.4],
+  ] as const)('commits ONE partition with the ends on the %s', (_name, y0, y1) => {
+    const store = new Store(design([]));
+    const w = 0.1;
+    commitRing(store, [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 3 },
+      { x: 0, y: 3 },
+    ], w);
+    const ring = closeChainAgainstWalls(store.design.rooms, [
+      { x: 4, y: y0 },
+      { x: 7, y: y0 },
+      { x: 7, y: y1 },
+      { x: 4, y: y1 },
+    ]);
+    expect(ring).toBeTruthy();
+    expect(commitRing(store, ring!, w)).toBe(true);
+    expect(store.allWalls().filter((x) => x.shared).length).toBe(2);
+    expect(runChecks(store.design).filter((x) => x.kind === 'parallelWalls')).toEqual([]);
+  });
+
+  it('ends too far off the wall are not a loop — the chain stays open', () => {
+    // 40 mm is outside REGULARIZE_TOL: the tool must not invent a room from a
+    // chain that merely passes near something
+    expect(
+      closeChainAgainstWalls(HOST(), [
+        { x: 4.09, y: -0.05 },
+        { x: 7, y: -0.05 },
+        { x: 7, y: 3.05 },
+        { x: 4.09, y: 3.05 },
+      ])
+    ).toBeNull();
+  });
+});
+
+/**
+ * What the ring walk could not do at all. Each of these committed as
+ * free-standing walls before `closeChainAgainstWalls` moved onto the planar
+ * subdivision, which is what made a plan stop growing after the second room.
+ */
+describe('closeChainAgainstWalls — topologies the ring walk could not reach', () => {
+  const two = (): Store => {
+    const store = new Store(design([]));
+    commitRing(store, [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 3 },
+      { x: 0, y: 3 },
+    ], 0.1);
+    commitRing(store, [
+      { x: 4, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 3 },
+      { x: 4, y: 3 },
+    ], 0.1);
+    return store;
+  };
+
+  it('a chain whose ends land on TWO DIFFERENT rooms still closes', () => {
+    const store = two();
+    expect(store.design.rooms.length).toBe(2);
+    // across the top of both, from room A's top-left corner to room B's top-right
+    const ring = closeChainAgainstWalls(
+      store.design.rooms,
+      [
+        { x: 0, y: 0 },
+        { x: 0, y: -2 },
+        { x: 7, y: -2 },
+        { x: 7, y: 0 },
+      ],
+      store.design.walls
+    );
+    expect(ring).toBeTruthy();
+    expect(commitRing(store, ring!, 0.1)).toBe(true);
+    expect(store.design.rooms.length).toBe(3);
+    // it shares a wall with BOTH rooms below it
+    const shared = store.allWalls().filter((w) => w.shared);
+    expect(new Set(shared.map((w) => w.roomId)).size).toBe(3);
+    expect(runChecks(store.design).filter((w) => w.kind === 'parallelWalls')).toEqual([]);
+  });
+
+  it('the enclosed face is taken, never the one wrapping the whole plan', () => {
+    const store = two();
+    const ring = closeChainAgainstWalls(
+      store.design.rooms,
+      [
+        { x: 0, y: 0 },
+        { x: 0, y: -2 },
+        { x: 7, y: -2 },
+        { x: 7, y: 0 },
+      ],
+      store.design.walls
+    )!;
+    // both existing rooms stay OUTSIDE what was just drawn
+    for (const c of [{ x: 2, y: 1.5 }, { x: 5.5, y: 1.5 }]) {
+      expect(pointInPolygon(c, ring)).toBe(false);
+    }
+    expect(Math.abs(signedArea(ring))).toBeCloseTo(7 * 2, 6);
+  });
+
+  it('a chain closing against a FREE wall chain makes a room', () => {
+    const store = new Store(design([]));
+    commitRing(store, [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 3 },
+      { x: 0, y: 3 },
+    ], 0.1);
+    // a peninsula off the right wall, enclosing nothing on its own
+    expect(store.addFreeWall([{ x: 4, y: 0 }, { x: 6, y: 0 }], 0.1)).toBeTruthy();
+    store.commit();
+    const ring = closeChainAgainstWalls(
+      store.design.rooms,
+      [
+        { x: 6, y: 0 },
+        { x: 6, y: 3 },
+        { x: 4, y: 3 },
+      ],
+      store.design.walls
+    );
+    expect(ring).toBeTruthy();
+    expect(Math.abs(signedArea(ring!))).toBeCloseTo(2 * 3, 6);
+  });
+
+  it('a chain across a room is still a SPLIT, not a face grab', () => {
+    const store = two();
+    expect(
+      closeChainAgainstWalls(
+        store.design.rooms,
+        [
+          { x: 2, y: -0.1 },
+          { x: 2, y: 3.1 },
+        ],
+        store.design.walls
+      )
+    ).toBeNull();
+  });
+});

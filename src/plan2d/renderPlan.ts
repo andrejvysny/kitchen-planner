@@ -76,7 +76,14 @@ const GUIDE_STYLE: Record<string, { color: string; width: number; dash: number[]
  * "I snapped to nothing in particular" is exactly the absence of a marker, and
  * a symbol on every single pointermove would be noise.
  */
-const SNAP_GLYPH: Partial<Record<SnapKind, 'square' | 'diamond' | 'cross' | 'perp' | 'par'>> = {
+const SNAP_GLYPH: Partial<
+  Record<SnapKind, 'square' | 'diamond' | 'cross' | 'perp' | 'par' | 'circle' | 'junction'>
+> = {
+  // the loop closes here — a ring, matching the close target drawn on pts[0]
+  close: 'circle',
+  // two centrelines meeting: a square turned 45° INSIDE a square, so it never
+  // reads as the plain endpoint it has to be told apart from
+  junction: 'junction',
   endpoint: 'square',
   midpoint: 'diamond',
   intersection: 'cross',
@@ -117,6 +124,14 @@ export interface DrawRing {
   pts: Point[];
   /** snapped cursor the pending segment rubber-bands to */
   hover: Point | null;
+  /**
+   * Per SEGMENT of `pts` (plus the wrap edge), whether it will merge into an
+   * existing wall rather than build a new one. Drawn in the accent instead of
+   * ink, because "this becomes one shared partition" and "this becomes a
+   * second wall beside the one already there" are the two outcomes that used
+   * to be indistinguishable until after the commit.
+   */
+  sharedEdges?: boolean[];
   /** the cursor is on the first corner, i.e. a click would close the ring */
   closing: boolean;
   /** already a full ring (the drag rectangle) — no rubber band, no close target */
@@ -848,8 +863,13 @@ function drawDrawRing(
   // ---- bodies ----
   ctx.save();
   ctx.globalAlpha = 0.55;
+  const shared = ring.sharedEdges ?? [];
+  bands.forEach((q, i) => {
+    if (!q) return;
+    ctx.fillStyle = shared[i] ? ACCENT : INK;
+    fillPoly(ctx, q);
+  });
   ctx.fillStyle = INK;
-  for (const q of bands) if (q) fillPoly(ctx, q);
   // junction patches: the convex hull of the two incident bands' facing ends,
   // which is what squares off a 90° corner instead of leaving it chamfered
   for (let i = 0; i + 1 < bands.length; i++) {
@@ -981,6 +1001,17 @@ export function drawSnapMarker(
         ctx.lineTo(x + r * 0.15, y - r);
         ctx.moveTo(x + r * 0.25, y + r);
         ctx.lineTo(x + r * 0.85, y - r);
+        break;
+      case 'circle':
+        ctx.arc(x, y, r * 1.2, 0, Math.PI * 2);
+        break;
+      case 'junction':
+        ctx.rect(x - r, y - r, r * 2, r * 2);
+        ctx.moveTo(x, y - r * 0.62);
+        ctx.lineTo(x + r * 0.62, y);
+        ctx.lineTo(x, y + r * 0.62);
+        ctx.lineTo(x - r * 0.62, y);
+        ctx.closePath();
         break;
     }
   };

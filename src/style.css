@@ -2262,6 +2262,22 @@ body {
   white-space: nowrap;
 }
 
+/* What ⏎ would produce, at the cursor. Tinted for the two readings that CREATE
+   something so "this click makes a room" reads at a glance, plain for the ones
+   that only finish what is already there. */
+.draw-hud-outcome {
+  padding-left: 6px;
+  margin-left: 2px;
+  border-left: 1px solid #d6d3cb;
+  color: #6b6961;
+  font-weight: 600;
+}
+
+.draw-hud-outcome[data-outcome='room'],
+.draw-hud-outcome[data-outcome='reuse'] {
+  color: #2f6f52;
+}
+
 .draw-hud-field {
   display: inline-flex;
   align-items: baseline;

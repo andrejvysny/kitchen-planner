@@ -171,6 +171,12 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     canExecute: (ctx) => ctx.editor.isTool('drawRoom'),
     execute: (ctx) => ctx.plan.closeDrawRoom(),
   },
+  {
+    id: 'tool.finishOpen',
+    label: 'Finish as walls',
+    canExecute: (ctx) => ctx.editor.isTool('drawRoom'),
+    execute: (ctx) => ctx.plan.closeDrawRoom(true),
+  },
 
   /*
    * Type-in dimensions for the wall tool. These sit ABOVE the workspace digits
@@ -187,8 +193,16 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
   {
     id: 'draw.backspace',
     label: 'Dimension backspace',
-    canExecute: (ctx) => ctx.plan.drawInputActive(),
+    // an EMPTY box must hand Backspace on to `draw.undoVertex` below it in the
+    // table, so this asks for a typed character rather than just a live ring
+    canExecute: (ctx) => ctx.plan.drawBufferActive(),
     execute: (ctx) => ctx.plan.drawBackspace(),
+  },
+  {
+    id: 'draw.undoVertex',
+    label: 'Undo last corner',
+    canExecute: (ctx) => ctx.plan.drawInputActive(),
+    execute: (ctx) => ctx.plan.undoDrawVertex(),
   },
   {
     id: 'draw.toggleField',

@@ -2,7 +2,7 @@ import { useLayoutEffect, useState, type ReactElement } from 'react';
 import type { View3D } from '../../view3d/view3d';
 import { formatAngle, formatLength } from '../../model/units';
 import { unitPrefs } from '../../model/prefs';
-import { drawHud, type DrawField } from '../drawHud';
+import { drawHud, type DrawField, type DrawOutcome } from '../drawHud';
 import { workspace } from '../workspaceState';
 import { useChannel } from './hooks/useStore';
 import { useAppServices, useStore } from './services';
@@ -158,6 +158,19 @@ export function SceneOverlay(): ReactElement | null {
  * nothing else — in particular not <PropsBody/>, whose committed-render count
  * e2e/transient-perf.spec.ts asserts stays flat through a drag.
  */
+/**
+ * What ⏎ would do, said at the cursor. The four readings of a chain are not
+ * guessable from the drawing, and the status bar that used to say it is at the
+ * far edge of the window from where the user is drawing.
+ */
+const OUTCOME: Record<DrawOutcome, string> = {
+  room: '⏎ room',
+  reuse: '⏎ room',
+  split: '⏎ split',
+  walls: '⏎ walls',
+  none: '',
+};
+
 export function DrawHud(): ReactElement | null {
   useChannel('draw');
   useChannel('units');
@@ -177,6 +190,11 @@ export function DrawHud(): ReactElement | null {
     <div id="draw-hud" style={{ left: `${hud.at.x}px`, top: `${hud.at.y}px` }}>
       {box('length', hud.typedLength, formatLength(hud.length, prefs), prefs.unit)}
       {box('angle', hud.typedAngle, formatAngle(hud.angle), hud.relative ? '°↺' : '°')}
+      {OUTCOME[hud.outcome] && (
+        <span className="draw-hud-outcome" data-outcome={hud.outcome}>
+          {OUTCOME[hud.outcome]}
+        </span>
+      )}
     </div>
   );
 }
