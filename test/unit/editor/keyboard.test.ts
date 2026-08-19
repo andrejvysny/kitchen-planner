@@ -74,16 +74,17 @@ describe('key bindings', () => {
     // modifiers: the wall tool's dimension box first (only while a character
     // is typed), then stepping the drawn ring back one corner, then deleting
     // the selection once no ring is in flight at all
-    expect(hits('backspace')).toEqual([
-      'draw.backspace',
-      'draw.undoVertex',
-      'selection.delete',
-    ]);
+    expect(hits('backspace')).toEqual(['draw.backspace', 'draw.undoVertex', 'selection.delete']);
   });
 
   it('r rotates 90°, Shift+R rotates 15°', () => {
     expect(hit('r')).toBe('transform.rotate90');
     expect(hit('r', false, true)).toBe('transform.rotate15');
+  });
+
+  it('Ctrl/Cmd+R is the browser reload — never bound', () => {
+    expect(hit('r', true, false)).toBeNull();
+    expect(hit('r', true, true)).toBeNull();
   });
 
   it('arrows nudge, and Shift picks the coarse step', () => {

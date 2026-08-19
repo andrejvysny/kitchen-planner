@@ -104,8 +104,11 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   { key: 'delete', commandId: 'selection.delete' },
   { key: 'backspace', commandId: 'selection.delete' },
 
-  { key: 'r', shift: true, commandId: 'transform.rotate15' },
-  { key: 'r', shift: false, commandId: 'transform.rotate90' },
+  // `mod: false` is REQUIRED: Ctrl/Cmd+R is the browser's reload. The old
+  // listener never checked modifiers here and swallowed it (TODO.md M11 note);
+  // rotating an item is never worth eating a reload.
+  { key: 'r', mod: false, shift: true, commandId: 'transform.rotate15' },
+  { key: 'r', mod: false, shift: false, commandId: 'transform.rotate90' },
 
   { key: 'arrowleft', shift: false, commandId: 'transform.nudgeLeft' },
   { key: 'arrowright', shift: false, commandId: 'transform.nudgeRight' },
