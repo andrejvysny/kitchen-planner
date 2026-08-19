@@ -175,6 +175,11 @@ test.describe('plan canvas', () => {
   });
 
   test('"Wall colour…" lands on the room section that owns the finish', async ({ app }) => {
+    // #section-walls is a FURNISH room-panel section (roomSections.ts): finishes
+    // moved out of Plan when the room panel was split per workspace, and the
+    // plan canvas is right-clickable in both. See the PRODUCT NOTE below.
+    await app.click('#ws-tab-furnish');
+
     const w = await wallMid(app);
     await rightClickPlan(app, w.x, w.y);
     await entry(app, 'wall-colour').click();
@@ -185,6 +190,14 @@ test.describe('plan canvas', () => {
     await expect.poll(() => app.evaluate(() => window.__kp.store.selection.kind)).toBe('none');
     await expect(app.locator('#section-walls')).toBeVisible();
   });
+
+  /**
+   * 'Wall colour…' is FURNISH-ONLY by model decision now: its destination
+   * (#section-walls) is a Furnish room-panel section, so contextMenuModel.ts
+   * omits the row in Plan rather than shipping a dead entry. The matrix is
+   * pinned in test/unit/contextMenuModel.test.ts; the test above pins the
+   * working wiring.
+   */
 
   test('"Add door" arms the placement tool with the door def', async ({ app }) => {
     const w = await wallMid(app);

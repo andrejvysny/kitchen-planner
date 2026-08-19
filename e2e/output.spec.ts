@@ -64,12 +64,27 @@ test('the GLB card disables its button while the export is in flight', async ({ 
   const btn = app.locator('#out-card-glb button');
   await expect(btn).toHaveText('Export GLB');
 
-  const [download] = await Promise.all([
-    app.waitForEvent('download'),
-    btn.click(),
-    expect(btn).toHaveText('Exporting…'),
-  ]);
+  // The busy window is one design's worth of GLTFExporter work — on a 4x3 room
+  // with one cabinet that can be shorter than a poll interval, so polling for
+  // 'Exporting…' is a race that passes or fails on machine speed. Record every
+  // state the button passes THROUGH instead: React flushes `setGlbBusy(true)`
+  // before `exportGlb` is awaited, so the transition is in the DOM regardless
+  // of how briefly it stays there.
+  await app.evaluate(() => {
+    const el = document.querySelector('#out-card-glb button')!;
+    const seen: string[] = [el.textContent ?? ''];
+    (window as unknown as { __glbStates: string[] }).__glbStates = seen;
+    new MutationObserver(() => {
+      const t = el.textContent ?? '';
+      if (t !== seen[seen.length - 1]) seen.push(t);
+    }).observe(el, { childList: true, characterData: true, subtree: true });
+  });
+
+  const [download] = await Promise.all([app.waitForEvent('download'), btn.click()]);
   expect(download.suggestedFilename()).toBe('interior.glb');
-  await expect(btn).toHaveText('Export GLB');
+
+  await expect
+    .poll(() => app.evaluate(() => (window as unknown as { __glbStates: string[] }).__glbStates))
+    .toEqual(['Export GLB', 'Exporting…', 'Export GLB']);
   await expect(btn).toBeEnabled();
 });

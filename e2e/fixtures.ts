@@ -9,12 +9,17 @@ import { test as base, expect, type Page } from '@playwright/test';
  * empty 4x3 room, which is the whole point of the migration.
  */
 
-/** The app has booted: store, plan and 3D view are live and a room exists. */
+/**
+ * The app has booted: store, plan and 3D view are live. Deliberately does NOT
+ * require a room — `#btn-new` has produced a ZERO-room design since the
+ * zero-room New flow (baba3e7), so a room-count wait here deadlocks every
+ * spec. `resetDesign` seeds the room explicitly instead.
+ */
 export async function bootReady(page: Page): Promise<void> {
   await page.waitForFunction(
     () => {
       const kp = window.__kp;
-      return !!(kp && kp.store && kp.plan && kp.view && kp.store.design.rooms.length > 0);
+      return !!(kp && kp.store && kp.plan && kp.view);
     },
     undefined,
     { timeout: 30_000, polling: 50 }
@@ -26,7 +31,59 @@ export async function resetDesign(page: Page): Promise<void> {
   await page.evaluate(() => localStorage.clear());
   await page.click('#btn-new');
   await bootReady(page);
+  // New is zero-room by design; seed the deterministic 4x3 room the specs
+  // assume, through the same addRoom() a real "Add a room" click would use.
+  await page.evaluate(() => {
+    const st = window.__kp.store;
+    if (st.design.rooms.length === 0) {
+      st.addRoom();
+      st.commit();
+    }
+  });
+  await expect.poll(() => page.evaluate(() => window.__kp.store.design.rooms.length)).toBe(1);
   await expect.poll(() => page.evaluate(() => window.__kp.store.design.items.length)).toBe(0);
+}
+
+/**
+ * Reset to a genuinely EMPTY design: zero rooms, zero items, no underlay.
+ *
+ * `#btn-new` has produced a zero-room design since baba3e7, so this is what a
+ * user gets from File ▸ New — and it is the literal state the Plan starter card
+ * gates on (src/ui/react/EmptyState.tsx). `resetDesign` seeds a room on top of
+ * it because almost every other spec needs one; the empty-state specs need it
+ * gone again, which is all this does.
+ */
+export async function resetEmpty(page: Page): Promise<void> {
+  await page.evaluate(() => localStorage.clear());
+  await page.click('#btn-new');
+  await bootReady(page);
+  await expect.poll(() => page.evaluate(() => window.__kp.store.design.rooms.length)).toBe(0);
+  await expect.poll(() => page.evaluate(() => window.__kp.store.design.items.length)).toBe(0);
+}
+
+/** The open workspace: a DEVICE preference, read once at import. */
+export const WORKSPACE_KEY = 'interior-planner-workspace-v1';
+
+/**
+ * Re-boot the app so its FIRST PAINT is in `ws`, then reset to the fixture's
+ * deterministic room.
+ *
+ * Clicking `#ws-tab-plan` also works now (PropsBody subscribes to the
+ * 'workspace' channel since the staleness fix), but this helper pins the other
+ * real path: the shell's FIRST PAINT with the preference already persisted,
+ * which is what a returning user gets. Specs that pin the per-workspace room
+ * panel (src/ui/react/props/roomSections.ts) use it so the panel under test is
+ * the one the app OPENED on, not one arrived at mid-session.
+ */
+export async function bootInWorkspace(page: Page, ws: 'plan' | 'furnish'): Promise<void> {
+  await page.addInitScript(([k, v]) => localStorage.setItem(k, v), [WORKSPACE_KEY, ws] as [
+    string,
+    string,
+  ]);
+  await page.reload({ waitUntil: 'networkidle' });
+  await bootReady(page);
+  await resetDesign(page);
+  await expect.poll(() => page.evaluate(() => window.__kp.workspace())).toBe(ws);
 }
 
 /**

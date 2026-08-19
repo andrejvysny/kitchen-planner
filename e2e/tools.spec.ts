@@ -296,8 +296,10 @@ test('the hint chip follows the pointer while a tool is armed', async ({ app }) 
   const p = await at(app, 6, 5); // mid-canvas, clear of the corner clusters
   await app.mouse.move(p.x, p.y);
 
+  // the chip has its own copy table (src/ui/react/HintChip.tsx TOOL_HINTS) —
+  // shorter and gesture-first, deliberately not the status bar's longer line
   const chip = app.locator('#hint-chip-2d');
-  await expect(chip).toContainText('Drag a rectangle');
+  await expect(chip).toContainText('click wall by wall');
   await expect(chip).toHaveCSS('opacity', '1');
   // pointer-events:none is what keeps this from ever stealing a canvas click
   await expect(chip).toHaveCSS('pointer-events', 'none');
@@ -386,28 +388,42 @@ test('the wall tool reports what it snapped to, and Alt suppresses it in place',
 test('the snap reach is screen-relative, so zooming in escapes a snap', async ({ app }) => {
   await app.click('#btn-draw-room');
 
-  // the SAME world point, 100 mm off the corner, at two zooms: in reach when
-  // 100 mm is a few pixels, out of reach once it is tens of them
-  await app.evaluate(() => window.__kp.plan.setViewport({ zoom: 40, panX: 120, panY: 120 }));
-  const far = await app.evaluate(() => {
-    const v = window.__kp.plan.viewport();
-    return { x: 4.1 * v.zoom + v.panX, y: 0 * v.zoom + v.panY };
-  });
   const box = (await app.locator('#canvas2d').boundingBox())!;
-  await app.mouse.move(box.x + far.x, box.y + far.y);
-  await expect
-    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().snap?.kind))
-    .toBe('endpoint');
+  /**
+   * The SAME world point — (4.1, 0), 100 mm off the room's NE corner — read at
+   * two zooms. `panX` has to move with the zoom: at 400 px/m the point would
+   * project past the right edge of the canvas with the pan pinned, the pointer
+   * would never reach it, and `snap === null` would satisfy any "no longer
+   * snapped" assertion without the snap engine having been asked anything.
+   */
+  const snapAt = async (zoom: number, panX: number): Promise<string | undefined> => {
+    await app.evaluate((v) => window.__kp.plan.setViewport({ ...v, panY: 120 }), { zoom, panX });
+    const p = await app.evaluate(() => {
+      const v = window.__kp.plan.viewport();
+      return { x: 4.1 * v.zoom + v.panX, y: 0 * v.zoom + v.panY };
+    });
+    expect(p.x, 'probe point is off-canvas').toBeGreaterThan(0);
+    expect(p.x, 'probe point is off-canvas').toBeLessThan(box.width);
+    // two moves: the first guarantees a pointermove even if the second lands on
+    // the pixel the pointer already sits on
+    await app.mouse.move(box.x + p.x + 1, box.y + p.y);
+    await app.mouse.move(box.x + p.x, box.y + p.y);
+    return app.evaluate(() => window.__kp.plan.overlayState().snap?.kind);
+  };
 
-  await app.evaluate(() => window.__kp.plan.setViewport({ zoom: 400, panX: 120, panY: 120 }));
-  const close = await app.evaluate(() => {
-    const v = window.__kp.plan.viewport();
-    return { x: 4.1 * v.zoom + v.panX, y: 0 * v.zoom + v.panY };
-  });
-  await app.mouse.move(box.x + close.x, box.y + close.y);
-  await expect
-    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().snap?.kind))
-    .not.toBe('endpoint');
+  // 100 mm is ~4 px here, so the corner's mitred centreline JUNCTION (the wall
+  // tool snaps in centreline space — CLAUDE.md) captures the cursor…
+  await expect.poll(() => snapAt(40, 120)).toBe('junction');
+  expect(await app.evaluate(() => window.__kp.plan.overlayState().snap!.p.x)).toBeCloseTo(
+    4.0575,
+    3
+  );
+
+  // …and at 400 px/m the same 100 mm is 40 px, out of every POINT candidate's
+  // reach. Only the weaker `align` LINE constraint survives, and it removes one
+  // degree of freedom without pulling the cursor off the point it is on.
+  await expect.poll(() => snapAt(400, -1440)).toBe('align');
+  expect(await app.evaluate(() => window.__kp.plan.overlayState().snap!.p.x)).toBeCloseTo(4.1, 3);
 
   await app.keyboard.press('Escape');
   await app.keyboard.press('Escape');

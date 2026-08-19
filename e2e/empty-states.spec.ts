@@ -1,14 +1,20 @@
-import { expect, test } from './fixtures';
+import { expect, resetEmpty, test } from './fixtures';
 
 /**
  * EMPTY-STATE AIDS (WS-SPEC §5.4, WP 2.4) — the starter card in Plan, the
  * furnish nudge, and the Workshop parts caption.
  *
- * SPEC CORRECTION: WS-SPEC's "Plan, no rooms (possible after New)" trigger is
- * unreachable — `emptyDesign()` always ships one room and `store.deleteRoom`
- * refuses the last one (store.ts ~L722). `#btn-new` (the fixture's own reset
- * path) IS the pristine state this spec exercises: one room, no items, no
- * openings.
+ * WS-SPEC's "Plan, no rooms (possible after New)" trigger IS reachable:
+ * `emptyDesign()` ships zero rooms and `#btn-new` lands on it (baba3e7). That
+ * is exactly what <PlanStarterCard/> gates on — `workspace === 'plan' && tool
+ * === 'select' && rooms.length === 0 && !underlayRef()`
+ * (src/ui/react/EmptyState.tsx L38-42). The shared `app` fixture SEEDS one room
+ * because every other spec needs one, so the card's tests call `resetEmpty`
+ * first to get back to the zero-room design.
+ *
+ * <FurnishNudge/> is a different condition — `workspace === 'furnish' &&
+ * items.length === 0` — and says nothing about rooms, which is why its tests do
+ * not clear the fixture's room.
  *
  * These two components are new, so they own their ids outright — no
  * dom-contract.spec.ts row: both are conditional (never present at every
@@ -16,9 +22,10 @@ import { expect, test } from './fixtures';
  * markup end to end.
  */
 
-test('plan starter card shows on a pristine design, hides while a tool is armed, and returns on Escape', async ({
+test('plan starter card shows with no rooms, hides while a tool is armed, and returns on Escape', async ({
   app,
 }) => {
+  await resetEmpty(app);
   await app.click('#ws-tab-plan');
   await expect(app.locator('#plan-starter')).toBeVisible();
   await expect(app.locator('#plan-starter')).toContainText('Start with a room');
@@ -34,6 +41,7 @@ test('plan starter card shows on a pristine design, hides while a tool is armed,
 });
 
 test('the photo-import button on the starter card does the right thing', async ({ app }) => {
+  await resetEmpty(app);
   await app.click('#ws-tab-plan');
   const card = app.locator('#plan-starter');
 
@@ -46,20 +54,34 @@ test('the photo-import button on the starter card does the right thing', async (
   expect(chooser).toBeTruthy();
 });
 
-test('placing an item leaves the design non-pristine: the starter card and the furnish nudge both disappear', async ({
-  app,
-}) => {
+/**
+ * The two aids answer DIFFERENT questions, and each retires on its own answer:
+ * the card asks for a room and goes once one exists (items are irrelevant to
+ * it), the nudge asks for something placed and goes once an item exists (rooms
+ * are irrelevant to it).
+ */
+test('a room retires the starter card, an item retires the furnish nudge', async ({ app }) => {
+  await resetEmpty(app);
   await app.click('#ws-tab-plan');
   await expect(app.locator('#plan-starter')).toBeVisible();
+
+  // a ROOM is the card's condition — nothing else clears it
+  await app.evaluate(() => {
+    const st = window.__kp.store;
+    st.addRoom();
+    st.commit();
+  });
+  await expect(app.locator('#plan-starter')).toHaveCount(0);
+
+  // the nudge is still up: it counts ITEMS, and there are none yet
+  await app.click('#ws-tab-furnish');
+  await expect(app.locator('#furnish-nudge')).toBeVisible();
 
   await app.evaluate(() => {
     const st = window.__kp.store;
     st.addItem(st.defOf('base-cabinet'), 2, 2.6, 0);
     st.commit();
   });
-  await expect(app.locator('#plan-starter')).toHaveCount(0);
-
-  await app.click('#ws-tab-furnish');
   await expect(app.locator('#furnish-nudge')).toHaveCount(0);
 });
 

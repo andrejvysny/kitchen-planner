@@ -136,6 +136,9 @@ test.describe('shortcut cheatsheet', () => {
   });
 
   test('a ? typed into a field is a question mark, not the sheet', async ({ page }) => {
+    // the inspector's rename field is a PLAN section (roomSections.ts); the
+    // persisted workspace puts it on the first paint
+    await page.addInitScript((k) => localStorage.setItem(k, 'plan'), WORKSPACE_KEY);
     await bootOnboarded(page);
 
     const name = page.locator('#props-inner .room-name');

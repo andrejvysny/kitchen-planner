@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { bootInWorkspace, expect, test } from './fixtures';
 
 /**
  * THE PROPERTIES INSPECTOR — the shape of every selection panel, pinned.
@@ -49,23 +49,26 @@ async function place(app: Page, defId: string, x: number, y: number): Promise<st
   return id;
 }
 
-test('the room panel is the no-selection panel, section for section', async ({ app }) => {
+/**
+ * The no-selection room panel is WORKSPACE-SCOPED — src/ui/react/props/
+ * roomSections.ts `WORKSPACE_ROOM_SECTIONS` is the registry, Plan owning the
+ * floor-plan STRUCTURE and Furnish the FINISH — so "the room panel" is two
+ * panels and each gets its own list pinned below.
+ *
+ * Both tests reach their workspace through `bootInWorkspace`, not a tab click:
+ * see that helper's note in e2e/fixtures.ts for why the two are not the same
+ * thing here.
+ */
+test('the Plan room panel is the no-selection panel, section for section', async ({ app }) => {
+  await bootInWorkspace(app, 'plan');
+
   // A fresh 4x3 room is clean, so there is no Checks section between the photo
   // and Size — that section only exists when runChecks() has something to say.
+  // `identity` and `tip` bracket the list and carry no .prop-section-title.
   await expect
     .poll(() => sections(app))
-    .toEqual([
-      'Rooms',
-      'Reference photo',
-      'Size',
-      'Room shape',
-      'Ceiling',
-      'Walls',
-      'Floor',
-      'Worktops',
-      'Lighting',
-      'Actions',
-    ]);
+    .toEqual(['Rooms', 'Reference photo', 'Size', 'Room shape', 'Ceiling', 'Actions']);
+  await expect(app.locator('#props-inner .props-empty-tip')).toHaveCount(1);
 
   // the room panel's title IS its rename field, so there is no .props-title
   await expect(app.locator('#props-inner .props-title')).toHaveCount(0);
@@ -81,10 +84,32 @@ test('the room panel is the no-selection panel, section for section', async ({ a
   await expect(
     app.locator('#props-inner .btn-row button', { hasText: 'Import photo…' })
   ).toHaveCount(1);
+  await expect(app.locator('#props-inner input[type=range]')).toHaveCount(0);
+
+  // the finish sections belong to the other workspace, the room list to this one
+  await expect(app.locator('#section-walls')).toHaveCount(0);
+  await expect(app.locator('#props-inner .room-row')).toHaveCount(1);
+});
+
+test('the Furnish room panel is the finish half of the same registry', async ({ app }) => {
+  // the fixture already boots into Furnish (the persisted default with cleared
+  // storage), so this is the panel the app opens on
+  expect(await app.evaluate(() => window.__kp.workspace())).toBe('furnish');
+
+  await expect.poll(() => sections(app)).toEqual(['Walls', 'Floor', 'Worktops', 'Lighting']);
+  await expect(app.locator('#props-inner .props-title')).toHaveCount(0);
   await expect(app.locator('#props-inner input[type=range]')).toHaveCount(3); // the three Lighting sliders
+
+  // the context menu's "Wall colour…" destination lives here, not in Plan
+  await expect(app.locator('#section-walls')).toBeVisible();
+  // …and Plan's structure sections do not
+  await expect(app.locator('#props-inner .room-name')).toHaveCount(0);
+  await expect(app.locator('#props-inner .room-row')).toHaveCount(0);
 });
 
 test('a room row switches rooms without leaving the room panel', async ({ app }) => {
+  await bootInWorkspace(app, 'plan'); // the room switcher is a Plan section
+
   const second = await app.evaluate(() => {
     const st = window.__kp.store;
     const room = st.addRoom({ against: { wallId: st.allWalls()[0].id }, d: 3 })!;
@@ -109,6 +134,8 @@ test('a room row switches rooms without leaving the room panel', async ({ app })
  * anywhere else must not yank the field the caret sits in.
  */
 test('the room name field survives a re-render while it holds the caret', async ({ app }) => {
+  await bootInWorkspace(app, 'plan'); // the rename field is Plan's `identity` section
+
   const name = app.locator('#props-inner .room-name');
   await name.click();
   await name.fill('Galley');
@@ -223,6 +250,8 @@ test('wall, opening and corner panels keep their sections and their data-cls fie
 });
 
 test('dropping the selection returns to the room panel', async ({ app }) => {
+  await bootInWorkspace(app, 'plan'); // .room-name is how the room panel is recognised
+
   await place(app, 'base-cabinet', 2.0, 1.0);
   await expect(app.locator('#props-inner .props-title')).toHaveText('Base cabinet');
 
