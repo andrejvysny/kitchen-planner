@@ -15,22 +15,26 @@
  * them would only buy a spurious render.
  */
 
-let hintText = '';
+/** Severity for the status-bar hint — drives StatusHint's class, nothing else. */
+export type HintKind = 'info' | 'success' | 'error';
+
+let hintState: { text: string; kind: HintKind } = { text: '', kind: 'info' };
 let drawerOpen = false;
 let wallLabelText = 'Wall';
 let sheetOpen = false;
 let pdfFile: File | null = null;
+let underlayFailed = false;
 
 const listeners = new Set<() => void>();
 
-export function hint(): string {
-  return hintText;
+export function hint(): { text: string; kind: HintKind } {
+  return hintState;
 }
 
-/** Identical text is a no-op: no emit, so a repeated hint costs no render. */
-export function setHint(text: string): void {
-  if (hintText === text) return;
-  hintText = text;
+/** Identical text+kind is a no-op: no emit, so a repeated hint costs no render. */
+export function setHint(text: string, kind: HintKind = 'info'): void {
+  if (hintState.text === text && hintState.kind === kind) return;
+  hintState = { text, kind };
   emit();
 }
 
@@ -94,6 +98,25 @@ export function pdfImport(): File | null {
 export function setPdfImport(f: File | null): void {
   if (pdfFile === f) return;
   pdfFile = f;
+  emit();
+}
+
+export function underlayStoreFailed(): boolean {
+  return underlayFailed;
+}
+
+/**
+ * Persistent twin of `SaveFailWarning` (StatusBar.tsx) for the ONE other thing
+ * that lives outside the Design snapshot: the reference photo, in its own
+ * localStorage key (CLAUDE.md's underlay note). A transient hint is not enough
+ * — the failure happened on import/calibration, long before whatever status
+ * text is showing now — so src/ui/underlayImport.ts sets this at the same
+ * `store.setUnderlay()` refusal that produces the error hint, and clears it on
+ * the next successful store.
+ */
+export function setUnderlayStoreFailed(failed: boolean): void {
+  if (underlayFailed === failed) return;
+  underlayFailed = failed;
   emit();
 }
 

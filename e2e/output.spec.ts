@@ -60,6 +60,18 @@ test('the PNG card saves a snapshot while the pane covers the 3D canvas', async 
   expect(buf.length).toBeGreaterThan(20_000);
 });
 
+test('every card label matches the Export ▾ menu row, in the same order', async ({ app }) => {
+  // both surfaces now map the SAME EXPORT_DOCS array (src/ui/react/exportActions.ts)
+  // — this is the copy half of the parity the cut-list test above proves for behavior
+  const cardLabels = await app.locator('.out-card-title').allTextContents();
+
+  await app.click('#ws-tab-furnish');
+  await app.click('#btn-export');
+  const menuLabels = await app.locator('#export-menu button').allTextContents();
+
+  expect(menuLabels).toEqual(cardLabels);
+});
+
 test('the GLB card disables its button while the export is in flight', async ({ app }) => {
   const btn = app.locator('#out-card-glb button');
   await expect(btn).toHaveText('Export GLB');

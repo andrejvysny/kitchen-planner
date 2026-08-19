@@ -1,14 +1,6 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { workspace } from '../workspaceState';
-import {
-  exportBomSheet,
-  exportBuyCsv,
-  exportCutCsv,
-  exportGlb,
-  exportPlanSheet,
-  exportRenderPackage,
-  exportSnapshotPng,
-} from './exportActions';
+import { EXPORT_DOCS, exportGlb, exportRenderPackage } from './exportActions';
 import { useChannel } from './hooks/useStore';
 import { useAppServices } from './services';
 
@@ -69,57 +61,46 @@ export function OutputPane(): ReactElement | null {
         <span className="workspace-pane-caption">Documents &amp; exports</span>
       </div>
       <div className="out-cards">
-        <OutCard
-          id="out-card-plan"
-          title="Plan sheet"
-          desc="Print-ready A4 floor plan at 1:50"
-          action="Open print sheet"
-          onRun={() => exportPlanSheet(store)}
-        />
-        <OutCard
-          id="out-card-bom"
-          title="Printable BOM sheet"
-          desc="Item schedule and cut list for the browser's print dialog"
-          action="Open BOM sheet"
-          onRun={() => exportBomSheet(store)}
-        />
-        <OutCard
-          id="out-card-cut"
-          title="Cut list (CSV)"
-          desc="Every board with dimensions, for the saw"
-          action="Download CSV"
-          onRun={() => exportCutCsv(store)}
-        />
-        <OutCard
-          id="out-card-buy"
-          title="Shopping list (CSV)"
-          desc="Bought products, grouped"
-          action="Download CSV"
-          onRun={() => exportBuyCsv(store)}
-        />
-        <OutCard
-          id="out-card-png"
-          title="3D snapshot (PNG)"
-          desc="The current 3D view as an image"
-          action="Save PNG"
-          onRun={() => exportSnapshotPng(view3d)}
-        />
-        <OutCard
-          id="out-card-glb"
-          title="Blender export (GLB)"
-          desc="The whole scene for Blender or any 3D tool"
-          action={glbBusy ? 'Exporting…' : 'Export GLB'}
-          disabled={glbBusy}
-          onRun={() => void onGlb()}
-        />
-        <OutCard
-          id="out-card-render"
-          title="Render package (.zip)"
-          desc="Manifest + canonical GLB + design, for render/render.sh"
-          action={renderBusy ? 'Exporting…' : 'Export package'}
-          disabled={renderBusy}
-          onRun={() => void onRender()}
-        />
+        {EXPORT_DOCS.map((doc) => {
+          // glb/render alone are async and own a busy/disabled state — every
+          // other doc's `run` is fire-and-forget, called straight off the ctx
+          if (doc.id === 'glb') {
+            return (
+              <OutCard
+                key={doc.id}
+                id="out-card-glb"
+                title={doc.label}
+                desc={doc.caption}
+                action={glbBusy ? 'Exporting…' : doc.button}
+                disabled={glbBusy}
+                onRun={() => void onGlb()}
+              />
+            );
+          }
+          if (doc.id === 'render') {
+            return (
+              <OutCard
+                key={doc.id}
+                id="out-card-render"
+                title={doc.label}
+                desc={doc.caption}
+                action={renderBusy ? 'Exporting…' : doc.button}
+                disabled={renderBusy}
+                onRun={() => void onRender()}
+              />
+            );
+          }
+          return (
+            <OutCard
+              key={doc.id}
+              id={`out-card-${doc.id}`}
+              title={doc.label}
+              desc={doc.caption}
+              action={doc.button}
+              onRun={() => doc.run({ store, view3d })}
+            />
+          );
+        })}
       </div>
       <div className="out-foot">All exports come from the same design — nothing to sync.</div>
     </div>

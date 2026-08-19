@@ -99,8 +99,9 @@ export async function exportRenderPackage(store: Store, view3d: View3D): Promise
       PACKAGE_FILENAME
     );
     setHint('interior-render.zip exported — render it with render/render.sh');
-  } catch {
-    setHint('Render package export failed — try again after a reload.');
+  } catch (err) {
+    console.error(err);
+    setHint('Render package export failed — try again after a reload.', 'error');
   }
 }
 
@@ -110,7 +111,88 @@ export async function exportGlb(view3d: View3D): Promise<void> {
     const blob = await view3d.exportGLB();
     download(URL.createObjectURL(blob), 'interior.glb');
     setHint('interior.glb exported — in Blender: File → Import → glTF 2.0');
-  } catch {
-    setHint('GLB export failed — try again after a reload.');
+  } catch (err) {
+    console.error(err);
+    setHint('GLB export failed — try again after a reload.', 'error');
   }
 }
+
+/**
+ * One row per exportable document, in the ONE canonical order/label both
+ * surfaces render from (WS-SPEC — the Topbar's Export ▾ menu and the Output
+ * workspace's cards already shared every handler above; this is what stops
+ * them drifting on COPY too). `run` takes whichever of store/view3d the
+ * underlying handler needs; GLB and render stay async so a caller can await
+ * them, but the busy-flag/disabled-state dance around those two is still the
+ * CALLER's job (menu-close timing differs between the two surfaces).
+ */
+export interface ExportCtx {
+  store: Store;
+  view3d: View3D;
+}
+
+export interface ExportDoc {
+  id: 'plan' | 'bom' | 'cut' | 'buy' | 'png' | 'glb' | 'render';
+  /** Menu row text / card title — identical wording on both surfaces. */
+  label: string;
+  /** Output pane card body copy. */
+  caption: string;
+  /** Output pane card button text (idle state only — GLB/render own their busy text). */
+  button: string;
+  /** `data-export` value, where it differs from `id` (the printable sheet kept "sheet"). */
+  dataExport?: string;
+  run: (ctx: ExportCtx) => void | Promise<void>;
+}
+
+export const EXPORT_DOCS: readonly ExportDoc[] = [
+  {
+    id: 'plan',
+    label: 'Plan sheet (PDF-ready)',
+    caption: 'Print-ready A4 floor plan at 1:50',
+    button: 'Open print sheet',
+    run: ({ store }) => exportPlanSheet(store),
+  },
+  {
+    id: 'bom',
+    label: 'BOM sheet (print)',
+    caption: "Item schedule and cut list for the browser's print dialog",
+    button: 'Open BOM sheet',
+    dataExport: 'sheet',
+    run: ({ store }) => exportBomSheet(store),
+  },
+  {
+    id: 'cut',
+    label: 'Cut list (CSV)',
+    caption: 'Every board with dimensions, for the saw',
+    button: 'Download CSV',
+    run: ({ store }) => exportCutCsv(store),
+  },
+  {
+    id: 'buy',
+    label: 'Shopping list (CSV)',
+    caption: 'Bought products, grouped',
+    button: 'Download CSV',
+    run: ({ store }) => exportBuyCsv(store),
+  },
+  {
+    id: 'png',
+    label: '3D snapshot (PNG)',
+    caption: 'The current 3D view as an image',
+    button: 'Save PNG',
+    run: ({ view3d }) => exportSnapshotPng(view3d),
+  },
+  {
+    id: 'glb',
+    label: 'Blender export (GLB)',
+    caption: 'The whole scene for Blender or any 3D tool',
+    button: 'Export GLB',
+    run: ({ view3d }) => exportGlb(view3d),
+  },
+  {
+    id: 'render',
+    label: 'Render package (.zip)',
+    caption: 'Manifest + canonical GLB + design, for render/render.sh',
+    button: 'Export package',
+    run: ({ store, view3d }) => exportRenderPackage(store, view3d),
+  },
+];

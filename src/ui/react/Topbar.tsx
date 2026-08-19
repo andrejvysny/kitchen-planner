@@ -10,19 +10,22 @@ import { useAppServices, useEditor, useStore } from './services';
 import { navInput, setNavInput } from '../../model/navPref';
 import { emptyDesign, sanitizeDesign } from '../../model/store';
 import { isMac, NAV_INPUTS, type NavInput } from '../../view3d/wheelInput';
-import { catalogOpen, setCatalogOpen, setCheatsheetOpen, setHint, setPdfImport } from '../shellState';
+import {
+  catalogOpen,
+  setCatalogOpen,
+  setCheatsheetOpen,
+  setHint,
+  setPdfImport,
+} from '../shellState';
 import { isPdf } from '../pdfImport';
 import { applyCalibration, importUnderlay } from '../underlayImport';
 import { workspace, type WorkspaceId } from '../workspaceState';
 import {
   download,
-  exportBomSheet,
-  exportBuyCsv,
-  exportCutCsv,
+  EXPORT_DOCS,
   exportGlb,
-  exportPlanSheet,
   exportRenderPackage,
-  exportSnapshotPng,
+  type ExportDoc,
 } from './exportActions';
 import { useChannel } from './hooks/useStore';
 import { useMenuDismiss } from './hooks/useMenuDismiss';
@@ -371,12 +374,14 @@ function FileGroup(): ReactElement {
       store.replaceDesign(d);
       if (hasSrc && d.underlay && !store.setUnderlay(src as string)) {
         setHint(
-          'Design loaded, but the reference photo could not be stored — storage is full or blocked'
+          'Design loaded, but the reference photo could not be stored — storage is full or blocked',
+          'error'
         );
       }
       plan.zoomFit();
-    } catch {
-      setHint('Could not read that file — is it an interior-design.json?');
+    } catch (err) {
+      console.error(err);
+      setHint('Could not read that file — is it an interior-design.json?', 'error');
     }
   };
 
@@ -411,15 +416,23 @@ function FileGroup(): ReactElement {
 
 /* ================= export menu ================= */
 
+/** Title tooltip for the two entries the bar-button title's own summary doesn't cover. */
+const EXPORT_TITLE: Partial<Record<ExportDoc['id'], string>> = {
+  png: 'Export the 3D view as a PNG image',
+  glb: 'Export the modelled interior as .glb for Blender',
+  render: 'Manifest + canonical GLB + design in one zip, for render/render.sh',
+};
+
 /**
  * Everything that produces a file: the two CSVs, the two printable sheets, and
  * — since WS-SPEC §2.3 took them out of the bar — the 3D snapshot and the GLB.
  *
- * The handlers themselves live in src/ui/react/exportActions.ts, because the
- * Output workspace's pane (WP 1.8) runs the same ones; this component owns only
- * what a MENU owns, which is when to close and whether the long-running entry is
- * busy. GLB is the one entry that can take seconds, so it says so in place
- * rather than leaving a dead-looking menu behind.
+ * The handlers AND the label/order live in src/ui/react/exportActions.ts's
+ * `EXPORT_DOCS` — the Output workspace's pane (WP 1.8) maps the same array —
+ * so this component owns only what a MENU owns: when to close, and whether
+ * the long-running entries are busy. GLB and render are the two that can take
+ * seconds, so they say so in place rather than leaving a dead-looking menu
+ * behind.
  */
 function ExportMenu(): ReactElement {
   const { store, view3d } = useAppServices();
@@ -471,43 +484,46 @@ function ExportMenu(): ReactElement {
         Export ▾
       </button>
       <div id="export-menu" className={open ? 'topbar-menu open' : 'topbar-menu'} ref={menu}>
-        <button data-export="cut" onClick={run(() => exportCutCsv(store))}>
-          Cut list (CSV)
-        </button>
-        <button data-export="buy" onClick={run(() => exportBuyCsv(store))}>
-          Shopping list (CSV)
-        </button>
-        <button data-export="sheet" onClick={run(() => exportBomSheet(store))}>
-          Printable sheet…
-        </button>
-        <button data-export="plan" onClick={run(() => exportPlanSheet(store))}>
-          Plan sheet…
-        </button>
-        <button
-          id="btn-png"
-          data-export="png"
-          title="Export the 3D view as a PNG image"
-          onClick={run(() => exportSnapshotPng(view3d))}
-        >
-          Snapshot (PNG)
-        </button>
-        <button
-          id="btn-glb"
-          data-export="glb"
-          title="Export the modelled interior as .glb for Blender"
-          disabled={glbBusy}
-          onClick={() => void onGlb()}
-        >
-          {glbBusy ? 'Exporting…' : 'Blender (GLB)…'}
-        </button>
-        <button
-          data-export="render"
-          title="Manifest + canonical GLB + design in one zip, for render/render.sh"
-          disabled={renderBusy}
-          onClick={() => void onRender()}
-        >
-          {renderBusy ? 'Exporting…' : 'Render package (.zip)…'}
-        </button>
+        {EXPORT_DOCS.map((doc) => {
+          if (doc.id === 'glb') {
+            return (
+              <button
+                key={doc.id}
+                id="btn-glb"
+                data-export="glb"
+                title={EXPORT_TITLE.glb}
+                disabled={glbBusy}
+                onClick={() => void onGlb()}
+              >
+                {glbBusy ? 'Exporting…' : doc.label}
+              </button>
+            );
+          }
+          if (doc.id === 'render') {
+            return (
+              <button
+                key={doc.id}
+                data-export="render"
+                title={EXPORT_TITLE.render}
+                disabled={renderBusy}
+                onClick={() => void onRender()}
+              >
+                {renderBusy ? 'Exporting…' : doc.label}
+              </button>
+            );
+          }
+          return (
+            <button
+              key={doc.id}
+              id={doc.id === 'png' ? 'btn-png' : undefined}
+              data-export={doc.dataExport ?? doc.id}
+              title={EXPORT_TITLE[doc.id]}
+              onClick={run(() => void doc.run({ store, view3d }))}
+            >
+              {doc.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

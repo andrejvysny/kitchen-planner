@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { useStore } from './services';
-import { hint } from '../shellState';
+import { hint, underlayStoreFailed } from '../shellState';
 import { statusInfoText } from '../statusText';
 import { useChannel } from './hooks/useStore';
 
@@ -15,6 +15,7 @@ export function StatusBar(): ReactElement {
     <footer id="statusbar">
       <StatusHint />
       <SaveFailWarning />
+      <UnderlayFailWarning />
       <span className="statusbar-spacer"></span>
       <StatusInfo />
     </footer>
@@ -25,11 +26,18 @@ export function StatusBar(): ReactElement {
  * Transient one-liner: what the armed tool expects next, or the outcome of the
  * last command. Every writer — Plan2D's hint callback, the export handlers,
  * ui.ts — goes through shellState.setHint, so this is the only thing that
- * touches the element.
+ * touches the element. `kind` becomes a class so an error reads as an error,
+ * not just more grey status text.
  */
 function StatusHint(): ReactElement {
   useChannel('shell');
-  return <span id="status-hint">{hint()}</span>;
+  const { text, kind } = hint();
+  const cls = kind === 'error' ? 'hint-error' : kind === 'success' ? 'hint-success' : undefined;
+  return (
+    <span id="status-hint" className={cls}>
+      {text}
+    </span>
+  );
 }
 
 /**
@@ -43,6 +51,21 @@ function SaveFailWarning(): ReactElement {
   return (
     <span id="status-savefail" className="statusbar-warn" hidden={!store.savingFailed()}>
       ⚠ Changes are NOT being saved — storage full or blocked
+    </span>
+  );
+}
+
+/**
+ * Persistent, like SaveFailWarning above: the reference photo lives in its own
+ * storage key (CLAUDE.md's underlay note), so a failed `store.setUnderlay()`
+ * is invisible to `store.savingFailed()` and needs its own flag —
+ * shellState's `underlayStoreFailed()`, set in src/ui/underlayImport.ts.
+ */
+function UnderlayFailWarning(): ReactElement {
+  useChannel('shell');
+  return (
+    <span id="status-underlayfail" className="statusbar-warn" hidden={!underlayStoreFailed()}>
+      ⚠ Reference photo is NOT saved
     </span>
   );
 }

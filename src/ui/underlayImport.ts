@@ -8,7 +8,7 @@ import {
   UNDERLAY_MAX_PX,
   underlayScaleFrom,
 } from '../model/underlay';
-import { setHint } from './shellState';
+import { setHint, setUnderlayStoreFailed } from './shellState';
 
 /**
  * The tracing photo's two blocking side-effects — decoding a picked file and
@@ -64,16 +64,13 @@ export interface CalibratePort {
 }
 
 /** Import a picked IMAGE file and drop it centred on the active room. */
-export async function importUnderlay(
-  store: Store,
-  f: File,
-  plan?: CalibratePort
-): Promise<void> {
+export async function importUnderlay(store: Store, f: File, plan?: CalibratePort): Promise<void> {
   let img: { src: string; w: number; h: number };
   try {
     img = await downscaleImage(f);
-  } catch {
-    setHint('Could not read that image — try a JPEG or PNG');
+  } catch (err) {
+    console.error(err);
+    setHint('Could not read that image — try a JPEG or PNG', 'error');
     return;
   }
   placeUnderlay(store, img, plan);
@@ -99,9 +96,11 @@ export function placeUnderlay(
   const b = room ? polygonBounds(room.corners) : null;
   const center = b ? { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 } : { x: 0, y: 0 };
   if (!store.setUnderlay(img.src, initialUnderlay(img.w, img.h, center))) {
-    setHint('Could not store the reference — browser storage is full or blocked');
+    setUnderlayStoreFailed(true);
+    setHint('Could not store the reference — browser storage is full or blocked', 'error');
     return false;
   }
+  setUnderlayStoreFailed(false);
   store.commit();
   if (plan) {
     // frame it before arming: an imported plan the user cannot see reads as an
