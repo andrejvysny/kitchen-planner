@@ -75,7 +75,7 @@ export function contextMenu(hit: ContextHit, ws: WorkspaceId, opts: MenuOpts): M
       // its destination (#section-walls) is a FURNISH room-panel section
       // (roomSections.ts) — in Plan the row would scroll nowhere, and a dead
       // entry is the one thing this menu never ships
-      if (ws === 'furnish') out.push({ id: 'wall-colour', label: 'Wall colour…' });
+      if (ws === 'furnish') out.push({ id: 'wall-colour', label: 'Room wall colour…' });
       return out;
     }
 

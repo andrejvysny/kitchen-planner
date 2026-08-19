@@ -734,6 +734,32 @@ export class ZoneCanvas {
 
   /* ---------------- drawing ---------------- */
 
+  /**
+   * Centered footer caption, ellipsized to fit `maxWidth` instead of running
+   * off the canvas at narrow Workshop-pane widths. Canvas text has no DOM
+   * node to hang a `title` on, so a shortened caption keeps the full string
+   * as `canvas.title` — a hover fallback for whatever got cut.
+   */
+  private fillFooterCaption(text: string, cx: number, y: number, maxWidth: number): void {
+    const ctx = this.ctx;
+    let fitted = text;
+    if (ctx.measureText(text).width > maxWidth) {
+      let lo = 0;
+      let hi = text.length;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        const candidate = `${text.slice(0, mid).trimEnd()}…`;
+        if (ctx.measureText(candidate).width <= maxWidth) lo = mid;
+        else hi = mid - 1;
+      }
+      fitted = `${text.slice(0, lo).trimEnd()}…`;
+      this.canvas.title = text;
+    } else if (this.canvas.title) {
+      this.canvas.title = '';
+    }
+    ctx.fillText(fitted, cx, y);
+  }
+
   draw(): void {
     const dpr = window.devicePixelRatio || 1;
     const cw = this.canvas.clientWidth || 400;
@@ -837,10 +863,11 @@ export class ZoneCanvas {
     ctx.rotate(-Math.PI / 2);
     ctx.fillText(fmtCm(v.faceH), 0, 0);
     ctx.restore();
-    ctx.fillText(
+    this.fillFooterCaption(
       'cabinet front — click a zone, drag the lines between zones, double-click for its interior',
       cw / 2,
-      ch - 12
+      ch - 12,
+      cw - 24
     );
   }
 
@@ -916,6 +943,11 @@ export class ZoneCanvas {
     ctx.rotate(-Math.PI / 2);
     ctx.fillText(fmtCm(cav.h), 0, 0);
     ctx.restore();
-    ctx.fillText(`${leafCaption(leaf)} — interior · drag to move, Esc when done`, cw / 2, ch - 12);
+    this.fillFooterCaption(
+      `${leafCaption(leaf)} — interior · drag to move, Esc when done`,
+      cw / 2,
+      ch - 12,
+      cw - 24
+    );
   }
 }
