@@ -8,7 +8,7 @@ import { polygonCentroid, wallPoint } from '../model/geometry';
 import { findHost } from '../model/attach';
 import { hostContexts } from '../model/worktops';
 import type { HostContext } from '../model/panels';
-import { snapItem } from '../model/snapping';
+import { snapItem, type SnapResult } from '../model/snapping';
 import {
   defaultRoomStyle,
   openingsOfWall,
@@ -17,9 +17,7 @@ import {
   type RoomWall,
 } from '../model/rooms';
 import type { Store } from '../model/store';
-import type { Corner, Item, Opening, Point,
-  RoomStyle,
-} from '../model/types';
+import type { Corner, Item, Opening, Point, RoomStyle } from '../model/types';
 import { AMBIENT_DAY, skyState } from '../model/sky';
 import { resolveFinish } from '../model/variables';
 import { buildItemGroup, lightLocalY, shade } from './itemMeshes';
@@ -96,6 +94,14 @@ const scratchColor = new THREE.Color();
 const TINT_SELECTED = '#1e5a49';
 const TINT_ERROR = '#c0392b';
 const TINT_WARN = '#d98324';
+
+/**
+ * Press-to-release travel under which a pointer gesture is still a CLICK, in
+ * CSS px. Shared by the deselect test and the body-drag gesture, so a click
+ * that selects can never also nudge the thing it selected (Plan2D calls the
+ * same threshold RECT_DRAG_SLOP).
+ */
+const CLICK_SLOP_PX = 4;
 
 // Trackpad-navigation tuning + scratch (see onWheel / wheelInput.ts).
 const WHEEL_ZOOM_STEP = 1 / 0.95; // radius factor per mouse-wheel notch
@@ -184,6 +190,23 @@ export class View3D {
   private sunDir = new THREE.Vector3();
 
   private downPos = new THREE.Vector2();
+  private curPos = new THREE.Vector2();
+  /**
+   * The live free-move gesture: a drag on the BODY of the item that was
+   * already selected. `grabX/grabY` is the offset from the floor point under
+   * the cursor to the item's pose, so the item never jumps to the cursor;
+   * `moved` flips once the pointer passes CLICK_SLOP_PX, which is what keeps a
+   * plain click a click. Null whenever the canvas is orbiting instead.
+   */
+  private moveDrag: {
+    id: string;
+    pointerId: number;
+    grabX: number;
+    grabY: number;
+    /** OrbitControls' flag from before the gesture, restored when it ends */
+    orbitWasEnabled: boolean;
+    moved: boolean;
+  } | null = null;
   /** item id → tint colour currently written into its materials */
   private appliedTints = new Map<string, string>();
   private scratchToCam = new THREE.Vector3();
@@ -271,7 +294,10 @@ export class View3D {
     );
 
     canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e), { signal });
+    canvas.addEventListener('pointermove', (e) => this.onPointerMove(e), { signal });
     canvas.addEventListener('pointerup', (e) => this.onPointerUp(e), { signal });
+    // a cancelled pointer (browser gesture takeover) must still hand orbit back
+    canvas.addEventListener('pointercancel', (e) => this.onPointerCancel(e), { signal });
     canvas.addEventListener('dblclick', (e) => this.onDblClick(e), { signal });
 
     // MacBook trackpad navigation: take over the wheel so two-finger swipe pans,
@@ -304,6 +330,9 @@ export class View3D {
    */
   detach(): void {
     if (!this.attached) return;
+    // no pointerup can arrive once the listeners are gone: end the gesture here
+    // or the design keeps a moved item with no undo step and orbit stays off
+    this.endMoveDrag();
     this.attached = false;
     this.running = false;
     if (this.animRaf) cancelAnimationFrame(this.animRaf);
@@ -678,7 +707,6 @@ export class View3D {
     this.buildJoints(walls);
   }
 
-
   /**
    * One wall's group: the slab in segments around its openings, plus the
    * openings themselves. Shared by ROOM walls and free-standing chains — a
@@ -694,70 +722,70 @@ export class View3D {
     idx: number
   ): void {
     const design = this.store.design;
-      // a partition is built once, under the room that owns it
-      const t = g.thickness;
-      // corners are the room-side wall FACE, so the slab hangs outside it
-      const zc = g.faceOffset - t / 2;
+    // a partition is built once, under the room that owns it
+    const t = g.thickness;
+    // corners are the room-side wall FACE, so the slab hangs outside it
+    const zc = g.faceOffset - t / 2;
 
-      const group = new THREE.Group();
-      group.name = `Wall_${idx}`;
-      group.position.set(g.a.x, 0, g.a.y);
-      group.rotation.y = -g.angle;
+    const group = new THREE.Group();
+    group.name = `Wall_${idx}`;
+    group.position.set(g.a.x, 0, g.a.y);
+    group.rotation.y = -g.angle;
 
-      const wallFin = resolveFinish(
-        design,
-        style.wallColor,
-        style.wallMaterial,
-        style.wallMaterialRot
-      );
-      const wallMat = stampShell(
-        wallFin.material
-          ? surfMat(wallFin)
-          : new THREE.MeshStandardMaterial({ color: wallFin.color, roughness: 0.94 }),
-        'wall'
-      );
-      const openings = openingsOfWall(design, g).sort((a, b) => a.offset - b.offset);
+    const wallFin = resolveFinish(
+      design,
+      style.wallColor,
+      style.wallMaterial,
+      style.wallMaterialRot
+    );
+    const wallMat = stampShell(
+      wallFin.material
+        ? surfMat(wallFin)
+        : new THREE.MeshStandardMaterial({ color: wallFin.color, roughness: 0.94 }),
+      'wall'
+    );
+    const openings = openingsOfWall(design, g).sort((a, b) => a.offset - b.offset);
 
-      const addSeg = (x0: number, x1: number, y0: number, y1: number) => {
-        if (x1 - x0 < 0.005 || y1 - y0 < 0.005) return;
-        const geo = new THREE.BoxGeometry(x1 - x0, y1 - y0, t);
-        // meter-scaled UVs, offset so the pattern runs continuously across
-        // the segments around openings (front/back faces are the visible ones)
-        scaleBoxUV(geo, x1 - x0, y1 - y0, t);
-        const uv = geo.attributes.uv as THREE.BufferAttribute;
-        for (let i = 16; i < 24; i++) uv.setXY(i, uv.getX(i) + x0, uv.getY(i) + y0);
-        const m = new THREE.Mesh(geo, wallMat);
-        m.position.set((x0 + x1) / 2, (y0 + y1) / 2, zc);
-        m.castShadow = true;
-        m.receiveShadow = true;
-        group.add(m);
-      };
+    const addSeg = (x0: number, x1: number, y0: number, y1: number) => {
+      if (x1 - x0 < 0.005 || y1 - y0 < 0.005) return;
+      const geo = new THREE.BoxGeometry(x1 - x0, y1 - y0, t);
+      // meter-scaled UVs, offset so the pattern runs continuously across
+      // the segments around openings (front/back faces are the visible ones)
+      scaleBoxUV(geo, x1 - x0, y1 - y0, t);
+      const uv = geo.attributes.uv as THREE.BufferAttribute;
+      for (let i = 16; i < 24; i++) uv.setXY(i, uv.getX(i) + x0, uv.getY(i) + y0);
+      const m = new THREE.Mesh(geo, wallMat);
+      m.position.set((x0 + x1) / 2, (y0 + y1) / 2, zc);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      group.add(m);
+    };
 
-      // butt ends: the slab spans exactly [0, len] and buildJoints fills the
-      // corners, so opening offsets keep measuring from the true wall start
-      let cursor = 0;
-      for (const o of openings) {
-        const oL = o.offset - o.width / 2;
-        const oR = o.offset + o.width / 2;
-        addSeg(cursor, oL, 0, H);
-        if (o.sill > 0.01) addSeg(oL, oR, 0, o.sill);
-        addSeg(oL, oR, o.sill + o.height, H);
-        this.buildOpening(group, o, t, zc);
-        cursor = oR;
-      }
-      addSeg(cursor, g.len, 0, H);
+    // butt ends: the slab spans exactly [0, len] and buildJoints fills the
+    // corners, so opening offsets keep measuring from the true wall start
+    let cursor = 0;
+    for (const o of openings) {
+      const oL = o.offset - o.width / 2;
+      const oR = o.offset + o.width / 2;
+      addSeg(cursor, oL, 0, H);
+      if (o.sill > 0.01) addSeg(oL, oR, 0, o.sill);
+      addSeg(oL, oR, o.sill + o.height, H);
+      this.buildOpening(group, o, t, zc);
+      cursor = oR;
+    }
+    addSeg(cursor, g.len, 0, H);
 
-      this.roomGroup.add(group);
-      const mid = wallPoint(g, g.len / 2);
-      this.walls.push({
-        id: g.id,
-        roomId,
-        twinRoomId: g.shared?.roomId ?? null,
-        group,
-        inward: new THREE.Vector3(g.inward.x, 0, g.inward.y),
-        mid: new THREE.Vector3(mid.x, H / 2, mid.y),
-        height: H,
-      });
+    this.roomGroup.add(group);
+    const mid = wallPoint(g, g.len / 2);
+    this.walls.push({
+      id: g.id,
+      roomId,
+      twinRoomId: g.shared?.roomId ?? null,
+      group,
+      inward: new THREE.Vector3(g.inward.x, 0, g.inward.y),
+      mid: new THREE.Vector3(mid.x, H / 2, mid.y),
+      height: H,
+    });
   }
 
   /**
@@ -1186,25 +1214,46 @@ export class View3D {
     g.addEventListener('objectChange', () => this.onGizmoChange());
   }
 
-  private onGizmoChange(): void {
-    const obj = this.gizmo.object;
-    if (!obj) return;
-    const id = obj.userData.itemId as string | undefined;
-    if (!id) return;
+  /**
+   * THE horizontal move path, shared by the gizmo handles and the body drag:
+   * route (x, y) through the same snapper the plan uses — so both still hug
+   * walls and click to neighbouring cabinets — and write the result
+   * TRANSIENTLY. Transient is the contract: no rebuild, no undo step and no
+   * inspector re-render until the gesture's pointerup commits.
+   *
+   * `glue` sees the snapped pose BEFORE the write, because the write re-places
+   * the item group (softUpdate → placeItem) and must have the last word: a
+   * spot's group sits at the ceiling, not at the elevation the caller passed.
+   */
+  private snapMoveItem(
+    id: string,
+    x: number,
+    y: number,
+    elevation: number,
+    glue?: (res: SnapResult) => void
+  ): void {
     const it = this.store.itemById(id);
     if (!it) return;
     const def = this.store.defOf(it.defId);
-    const elevation = Math.max(0, obj.position.y); // never below the floor
-    // Route the horizontal move through the same snapper the floor drag uses so
-    // gizmo moves still hug walls and click to neighbouring cabinets.
-    const res = snapItem(this.store, def, id, obj.position.x, obj.position.z, it.rotation);
-    // glue the gizmo handle to the snapped pose so it doesn't drift from the item
-    obj.position.set(res.x, elevation, res.y);
+    const res = snapItem(this.store, def, id, x, y, it.rotation);
+    glue?.(res);
     this.store.updateItem(
       id,
       { x: res.x, y: res.y, rotation: res.rotation, elevation, roomId: res.roomId },
       { structural: false, transient: true }
     );
+  }
+
+  private onGizmoChange(): void {
+    const obj = this.gizmo.object;
+    if (!obj) return;
+    const id = obj.userData.itemId as string | undefined;
+    if (!id) return;
+    const elevation = Math.max(0, obj.position.y); // never below the floor
+    this.snapMoveItem(id, obj.position.x, obj.position.z, elevation, (res) => {
+      // glue the gizmo handle to the snapped pose so it doesn't drift from the item
+      obj.position.set(res.x, elevation, res.y);
+    });
   }
 
   /** Attach the gizmo to the selected item's group, or detach when nothing is selected. */
@@ -1289,19 +1338,108 @@ export class View3D {
       return;
     }
 
-    // Selecting an item only arms the move gizmo; the body itself is not
-    // draggable — a drag on the body falls through to OrbitControls (orbit).
     const item = this.pickItem(e);
-    if (item) this.store.select({ kind: 'item', id: item.id });
+    if (!item) return; // empty space: OrbitControls orbits, pointerup deselects
+
+    // Direct manipulation: dragging the body of the item that is ALREADY
+    // selected moves it across the floor, the free-move complement of the
+    // gizmo's axis-constrained handles. The FIRST click on an item only
+    // selects (and arms the gizmo), so select-then-drag is a deliberate two
+    // step and a click meant to select can never move anything. An attached
+    // appliance derives its pose from its host and is refused here for the
+    // same reason updateGizmo() refuses it a gizmo.
+    const sel = this.store.selection;
+    if (sel.kind === 'item' && sel.id === item.id && !item.attach) {
+      const p = this.floorPoint(e);
+      if (p) {
+        this.beginMoveDrag(e, item, p);
+        return;
+      }
+    }
+    this.store.select({ kind: 'item', id: item.id });
+  }
+
+  /**
+   * Take the gesture away from OrbitControls for a body drag.
+   *
+   * OrbitControls has ALREADY seen this pointerdown — it binds in bindCanvas(),
+   * before attach() adds these listeners — but clearing `enabled` now still
+   * stops the orbit, because its move handler re-checks the flag on every
+   * event. That is the same trick the gizmo's 'dragging-changed' plays.
+   */
+  private beginMoveDrag(e: PointerEvent, item: Item, floor: THREE.Vector3): void {
+    this.moveDrag = {
+      id: item.id,
+      pointerId: e.pointerId,
+      grabX: item.x - floor.x,
+      grabY: item.y - floor.z,
+      orbitWasEnabled: this.controls.enabled,
+      moved: false,
+    };
+    this.controls.enabled = false;
+    const canvas = this.boundCanvas;
+    if (canvas && !canvas.hasPointerCapture(e.pointerId)) canvas.setPointerCapture(e.pointerId);
+  }
+
+  private onPointerMove(e: PointerEvent): void {
+    const drag = this.moveDrag;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    // under the slop this is still a click: move nothing yet
+    if (!drag.moved) {
+      if (this.downPos.distanceTo(this.curPos.set(e.clientX, e.clientY)) < CLICK_SLOP_PX) return;
+      drag.moved = true;
+    }
+    const p = this.floorPoint(e);
+    const it = this.store.itemById(drag.id);
+    if (!p || !it) return;
+    // a floor drag is x/y only — the item keeps whatever elevation it had
+    this.snapMoveItem(drag.id, p.x + drag.grabX, p.z + drag.grabY, it.elevation);
+  }
+
+  /**
+   * End a body drag: one undo step for the whole gesture, then hand orbit
+   * back. Returns whether the item actually moved — a gesture under the slop
+   * is a click, and its pointerup still owes the click behaviour below.
+   */
+  private endMoveDrag(): boolean {
+    const drag = this.moveDrag;
+    if (!drag) return false;
+    this.moveDrag = null;
+    this.controls.enabled = drag.orbitWasEnabled;
+    const canvas = this.boundCanvas;
+    if (canvas?.hasPointerCapture(drag.pointerId)) canvas.releasePointerCapture(drag.pointerId);
+    // the transient writes already changed the design; only a commit makes
+    // them one undo step, so a cancelled drag commits exactly like a finished one
+    if (drag.moved) this.store.commit();
+    return drag.moved;
+  }
+
+  private onPointerCancel(e: PointerEvent): void {
+    if (this.moveDrag?.pointerId === e.pointerId) this.endMoveDrag();
   }
 
   private onPointerUp(e: PointerEvent): void {
+    // a body drag owns this gesture; only a sub-slop one falls through as a click
+    if (this.moveDrag && this.endMoveDrag()) return;
     // gizmo drag/click resolves in its own handler — never treat it as a deselect
     if (this.gizmo.axis || this.gizmo.dragging) return;
     // a click (not a drag-orbit) on empty space clears the selection
-    if (e.button === 0 && this.downPos.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) < 4) {
+    if (
+      e.button === 0 &&
+      this.downPos.distanceTo(this.curPos.set(e.clientX, e.clientY)) < CLICK_SLOP_PX
+    ) {
       if (!this.pickItem(e)) this.store.select({ kind: 'none' });
     }
+  }
+
+  /**
+   * The item a body drag is currently moving, or null. Read-only test seam
+   * (e2e/3d-move.spec.ts): a free move, an orbit and a gizmo drag are three
+   * different gestures over the same pixels, and none of them is visible in
+   * the DOM.
+   */
+  get movingItemId(): string | null {
+    return this.moveDrag?.id ?? null;
   }
 
   /* ---------------- macOS trackpad navigation ---------------- */
