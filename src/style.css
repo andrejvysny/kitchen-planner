@@ -1593,6 +1593,23 @@ body {
   align-self: center;
 }
 
+/*
+ * What replaced the Save button (WS-SPEC WP 3.1). The studio writes every
+ * change straight into the design, so the footer states the contract instead of
+ * offering a checkpoint that no longer exists.
+ */
+.studio-live-note {
+  font-size: 12px;
+  color: var(--ink-soft);
+  align-self: center;
+}
+
+/* …and while the part is not legal it would be a lie: the write is held back
+   until the validation message clears, so the message is the whole caption. */
+.studio-hosted.studio-invalid .studio-live-note {
+  display: none;
+}
+
 .board-list {
   display: flex;
   flex-direction: column;

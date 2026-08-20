@@ -395,17 +395,18 @@ await waitUntil(() => {
 const rect = await page.evaluate(() => window.__kp.store.rectangleSize());
 results.push(['room resize', rect && Math.abs(rect.w - 5) < 0.01 && Math.abs(rect.d - 3.5) < 0.01]);
 
-// 8. create a custom part via studio (type picker → cabinet editor → save)
+// 8. create a custom part via studio (type picker → cabinet editor). Live-apply
+// (WS-SPEC WP 3.1): picking the type IS the creation, there is no Save button.
 await page.click('#ws-tab-furnish'); // "My parts" / ＋New part tiles are Furnish-only
 await page.click('.cat-new');
 await studioReady('picker');
 const pickerCards = await page.locator('.studio-card').count();
 await page.click('.studio-card[data-type="cabinet"]');
 await studioReady('editor');
-await page.click('.studio-save');
+const partsLive = await page.evaluate(() => window.__kp.store.design.customParts.length);
 await leaveWorkshop();
 const parts = await page.evaluate(() => window.__kp.store.design.customParts.length);
-results.push(['save custom part', pickerCards >= 2 && parts === 2]); // sample + new
+results.push(['create custom part', pickerCards >= 2 && partsLive === 2 && parts === 2]);
 
 // 9. place the custom part
 const partId = await page.evaluate(() => window.__kp.store.design.customParts[1].id);
@@ -428,15 +429,14 @@ await page.click('.cat-new');
 await studioReady('picker');
 await page.click('.studio-card[data-type="freeform"]');
 await studioReady('editor');
-const saveGated = await page.locator('.studio-save').isDisabled();
+// a boardless freeform is not legal, so the live write is HELD BACK and the
+// validation line says why — the live-apply spelling of the old disabled Save
+const gateMsg = await page.locator('.studio-validation').textContent();
+const saveGated = gateMsg.includes('at least one board');
 await page.click('.board-add');
 await page.click('.board-add');
-await waitUntil(() => {
-  const btn = document.querySelector('.studio-save');
-  return !!btn && !btn.disabled;
-});
-const saveOpen = await page.locator('.studio-save').isEnabled();
-await page.click('.studio-save');
+await waitUntil(() => !document.querySelector('.studio-validation')?.textContent);
+const saveOpen = !(await page.locator('.studio-validation').textContent());
 await leaveWorkshop();
 const ffState = await page.evaluate(() => {
   const parts = window.__kp.store.design.customParts;
@@ -506,9 +506,8 @@ const yInput = page
   .nth(1);
 await yInput.fill('-440');
 await yInput.press('Enter');
-await waitUntil(() => !document.querySelector('.studio-save')?.disabled);
-const saveOk = await page.locator('.studio-save').isEnabled();
-await page.click('.studio-save');
+await waitUntil(() => !document.querySelector('.studio-validation')?.textContent);
+const saveOk = !(await page.locator('.studio-validation').textContent());
 await leaveWorkshop();
 const boardPart = await page.evaluate(() => {
   const parts = window.__kp.store.design.customParts;
@@ -575,7 +574,6 @@ const splitEnabled = await page.locator('.zone-toolbar button:has-text("⬌ Spli
 await page.click('.zone-toolbar button:has-text("⬌ Split")');
 // page.click() below already auto-waits for the post-split "Door" fill button
 await page.click('.zone-toolbar button:text-is("Door")');
-await page.click('.studio-save');
 await leaveWorkshop();
 const zonePart = await page.evaluate(() => {
   const parts = window.__kp.store.design.customParts;
@@ -583,7 +581,7 @@ const zonePart = await page.evaluate(() => {
   return p.type === 'cabinet' ? p.face : null;
 });
 results.push([
-  'zone editor: split + fill + save',
+  'zone editor: split + fill applies live',
   splitEnabled &&
     zonePart &&
     zonePart.kind === 'split' &&
@@ -599,8 +597,6 @@ await studioReady('picker');
 await page.click('.studio-card[data-type="cabinet"]');
 await studioReady('editor');
 await page.click('.foot-choice button:has-text("Diagonal corner")');
-// page.click() below already auto-waits for .studio-save
-await page.click('.studio-save');
 await leaveWorkshop();
 const cornerPart = await page.evaluate(() => {
   const parts = window.__kp.store.design.customParts;
@@ -1573,8 +1569,7 @@ const custBtn = page.locator('#props-inner button', { hasText: 'Customize in Wor
 const custVisible = await custBtn.count();
 await custBtn.click();
 await studioReady('editor'); // "Customize in Workshop…" forks straight into the editor
-const studioOpen = await page.locator('.studio-save').count();
-await page.click('.studio-save');
+const studioOpen = await page.locator('.studio-live-note').count();
 await leaveWorkshop();
 const customized = await page.evaluate((arg) => {
   const st = window.__kp.store;
@@ -1693,7 +1688,6 @@ const interiorToolbar = await page.locator('.zone-toolbar button', { hasText: '�
 await page.click('.zone-toolbar button:has-text("＋ Drawer")');
 // page.click() below already auto-waits for the "← Done" button
 await page.click('.zone-toolbar button:has-text("← Done")');
-await page.click('.studio-save');
 await leaveWorkshop();
 const interiorSaved = await page.evaluate(() => {
   const parts = window.__kp.store.design.customParts;

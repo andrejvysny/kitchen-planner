@@ -43,9 +43,14 @@ export class BoardPanel {
   private canvas: PolygonCanvas;
   private inspectorEl: HTMLElement | null = null;
   private topCaption: (() => void) | null = null;
-  private onChange: () => void;
+  private onChange: (transient?: boolean) => void;
 
-  constructor(rail: HTMLElement, part: BoardPartDef, canvas: PolygonCanvas, onChange: () => void) {
+  constructor(
+    rail: HTMLElement,
+    part: BoardPartDef,
+    canvas: PolygonCanvas,
+    onChange: (transient?: boolean) => void
+  ) {
     this.part = part;
     this.canvas = canvas;
     this.onChange = onChange;
@@ -56,9 +61,9 @@ export class BoardPanel {
       slab,
       'Thickness',
       () => part.h,
-      (v) => {
+      (v, transient) => {
         part.h = v;
-        onChange();
+        onChange(transient);
       },
       0.012,
       0.08

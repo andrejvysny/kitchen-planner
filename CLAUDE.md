@@ -579,12 +579,14 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   `workshopTarget` ({defId, itemId?, returnTo}) that says which part the
   Workshop opens on and where "Back" goes. Module singleton with ONE listener
   Set, shaped like src/ui/shellState.ts; StoreBridge carries it as the
-  `'workspace'` channel. **`createServices().switchWorkspace` is the ONE guarded
+  `'workspace'` channel. **`createServices().switchWorkspace` is the ONE
   switch** — the topbar tabs, `‹ Back` and the `workspace.*` commands behind
-  keys 1-4 (`WorkspacePort` in EditorContext, `allowInModal` so the digits work
-  over the studio) all go through it, so the Part-Studio dirty confirm and the
-  two resets (`editor.setTool('select')`, `setCatalogOpen(false)`) are written
-  once; a refused close returns false and ABORTS the switch. A workspace is a
+  keys 1-4 (`WorkspacePort` in EditorContext) all go through it, so the two
+  resets (`editor.setTool('select')`, `setCatalogOpen(false)`) are written once.
+  Nothing can REFUSE a switch any more: the Part-Studio dirty confirm went with
+  the drafts (WP 3.1), so the boolean is `WorkspacePort`'s shape rather than a
+  live veto, and tearing the studio down is <WorkshopPane/>'s cleanup effect
+  reacting to the workspace change. A workspace is a
   different TASK, so surfaces scope to it: the room tools render in Plan only
   and measure/checks in Plan+Furnish (React), `CatalogSection.workspace` splits
   the catalog ('Room & utilities' = plan, the rest = furnish, `#catalog-search`
@@ -607,17 +609,52 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   keeps the old renderCatalogIfPartsChanged signature (JSON of
   `design.customParts`) as a `useMemo` key, so tile defs keep their identity and
   memoized <CatalogTile/>s skip the thumbnail redraw on arming ticks. The Part
-  Studio is an AppServices singleton (`studio`) with a no-op close callback: save
-  and delete both `store.commit()`, so the 'history' channel is the refresh. It
-  is the last imperative DOM in the app, deliberately out of scope — but it is
-  NOT a modal any more: `open(existing, host)` builds `.studio-hosted` into the
-  Workshop pane's host div (no backdrop, no ✕, Escape only clears the in-studio
-  selection), save keeps it open (`syncFooter` patches the footer in place),
-  Cancel is `Revert`, and deleting the part lands on the type picker. Every
+  Studio is an AppServices singleton (`studio`) with a no-op close callback: every
+  path that changes the library commits, so the 'history' channel is the refresh.
+  It is the last imperative DOM in the app, deliberately out of scope — but it is
+  NOT a modal: `open(existing, host)` builds `.studio-hosted` into the Workshop
+  pane's host div (no backdrop, no ✕, Escape only clears the in-studio
+  selection), and deleting the part lands on the type picker. Every
   route in — the catalog's ＋/✎ tiles, the Workshop sidebar's rows, the props
   panel's "Edit part template…" / "Customize part…" — goes through
   `openInWorkshop`, and <WorkshopPane/> is the only thing that hands it a
   host.
+- **The Part Studio is LIVE-APPLY, and that is the rule the rest of it follows
+  from (WS-SPEC WP 3.1).** `studio.part` IS the object in
+  `design.customParts`, not a draft of it: the rail panels mutate it directly,
+  the one `changed(transient?)` choke point hands it to
+  `store.updateCustomPart(id, mutate, transient)`, and the plan and 3D redraw off
+  the ordinary structural notify. So there is **no Save, no Revert, no
+  `originalJson`, no dirty guard and no leave-confirm** — after this WP the app
+  raises ZERO native dialogs (every question is <ConfirmHost/>), which
+  e2e/fixtures.ts pins by registering no `page.on('dialog')` handler at all.
+  Four consequences, each load-bearing:
+  - **Opening MATERIALIZES.** A preset is deep-frozen and lives outside the
+    design, so `store.materializePart(def)` shadows it design-locally under the
+    SAME id (decision D4) and the studio edits the shadow — which is why placed
+    instances follow rather than fork. It does NOT commit; picking a type in the
+    picker does, because that one is a deliberate creation.
+  - **Leaving DISCARDS a pristine shadow.** `PartStudio.close()` is the single
+    choke point (leaving the Workshop, opening another part, delete, duplicate
+    all go through it) and calls `store.discardPristineShadow(id)`, which removes
+    a shadow still byte-identical to its preset — deliberately NOT
+    `deleteCustomPart`, which would take the placed instances with it. With
+    materialize uncommitted, the trailing `commit()` dedupes to a no-op, so
+    browsing the built-ins costs no undo step and leaves no litter.
+  - **An INVALID part is not written.** `sanitizePart` would rebuild a
+    self-crossing outline from its bounding box, so `changed()` holds the write
+    back while `validate()` reports anything — the live-apply spelling of the old
+    disabled Save button, and what `.studio-validation` is still for.
+  - **Undo REPLACES the design's objects**, so the studio subscribes to
+    'history' and re-opens on whatever its id resolves to now (resident part,
+    the preset it shadowed, or the picker). Its OWN commits are told apart by
+    object IDENTITY — after `updateCustomPart` the resident IS the held part —
+    which is what keeps focus and caret through an ordinary edit. `close()`
+    therefore unsubscribes BEFORE it can commit, or the discard would re-enter.
+  Because `sanitizePart` REBUILDS things (`sanitizeZone` mints a new object per
+  leaf, `normalizeBoardOutline` re-winds a ring), it is skipped on a `transient`
+  tick and any editor handler must resolve a leaf by PATH at click time, never
+  capture one (`live()` in zoneCanvas.ts).
 - **Fields commit on the DOM's native `change` event, never React's onChange**
   — src/ui/react/fields/ is the shared set (SwatchRow, MaterialRow, VarChips,
   ChoiceRow, ToggleRow, SliderRow, StepperRow, RotToggle, Number/Length/Angle
@@ -700,10 +737,14 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   `attach(target)`/`dispose()` adapter around it. Three behaviours are pinned by
   test/unit/editor/keyboard.test.ts because they are easy to lose: Escape runs
   even while TYPING (`allowWhileTyping`) and never calls `preventDefault`; every
-  other binding is suppressed while typing or while the studio is open, unless
-  it opts out with `allowInModal` (the workspace digits 1-4 do, so you can
-  always leave the Workshop by keyboard); and
-  `preventDefault` fires only on a command that ran. **First match that CAN RUN
+  other binding is suppressed while TYPING, and that is the map's only gate —
+  the "a modal is open" suppression went with the Part Studio's drafts (WP 3.1 /
+  decision D2), because live-apply makes Ctrl+Z in the Workshop the feature.
+  What that suppression really bought is now `onCanvas` in appCommands.ts: the
+  commands that would edit an INVISIBLE selection or an invisible wall ring
+  (selection.*, transform.*, tool.finish*, draw.*) require the plan or furnish
+  workspace, since Workshop and Output cover the canvases; history.undo/redo
+  deliberately do not. And `preventDefault` fires only on a command that ran. **First match that CAN RUN
   wins**, so table ORDER is load-bearing (Shift+Ctrl+Z above Ctrl+Z): one key may
   appear twice and `canExecute` picks between them by context — a digit is a wall
   dimension while a ring is in flight (`draw.digit*`) and a workspace switch at
@@ -786,7 +827,7 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   the other half: `src/ui/shortcuts.ts` is the ONE list of gestures (data, no
   React), `cheatsheetOpen()`/`setCheatsheetOpen()` on the 'shell' channel is
   its state, `?` reaches it through the `help.shortcuts` command + `HelpPort`
-  (`mod: false`, `allowInModal`, typing-guarded), and the settings menu's
+  (`mod: false`, typing-guarded), and the settings menu's
   `Shortcuts…` is the pointer route. Both overlays own Escape in the CAPTURE
   phase while they are up, so closing one never also cancels the live tool.
   **A new Playwright suite MUST seed `interior-planner-onboarded-v1` at page

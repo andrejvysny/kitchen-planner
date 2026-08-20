@@ -9,8 +9,10 @@ import { useAppServices } from './services';
  * #canvases that hosts the Part Studio while `workspace() === 'workshop'`
  * (WS-SPEC WP 1.6). Before this the studio was a document.body modal with its
  * own backdrop and ✕; now it is a place you navigate to, and "leaving" is the
- * Back button or a topbar tab — both of which run the ONE guarded switch in
- * src/app/services.ts, so the unsaved-edits confirm lives there, once.
+ * Back button or a topbar tab — both of which run the ONE switch in
+ * src/app/services.ts. There is nothing to confirm on the way out any more
+ * (WS-SPEC WP 3.1: the studio writes through to the store as you edit), so the
+ * cleanup below simply closes.
  *
  * <Workspace/> must stay STATELESS (see its doc comment), so every
  * subscription and every ref this pane needs lives HERE and the parent just
@@ -63,7 +65,9 @@ export function WorkshopPane(): ReactElement | null {
     // preview renderer, so paying for both would be paying twice
     view3d.setActive(false);
     return () => {
-      if (studio.isOpen()) studio.close(true); // the guard already ran in switchWorkspace
+      // nothing to confirm — live-apply put every edit in the design already —
+      // but this IS where a pristine preset shadow gets discarded (WP 3.1)
+      if (studio.isOpen()) studio.close();
       opened.current = undefined;
       // the topbar's 2D/3D toggle owns `.hidden` on #pane3d — read it, never
       // duplicate it, or a Workshop visit would resurrect a hidden 3D pane

@@ -258,16 +258,16 @@ Next tasks, in order:
    numbers differ.
 2. **Run the B1 acceptance walk by hand** (WS-SPEC §9, eight steps) and record
    the result here — it closes Phase 2.
-3. **WP 3.1 live-apply** (plan §Phase 3, invariant I5 target): design
-   `store.updateCustomPart(id, mutate)` inline first (follow two neighbouring
-   store mutations' notify/commit idiom); studio edits write through it,
-   materialize-on-open for new/preset defs, DELETE the dirty guard +
-   `originalJson` + Revert + the `studio.close()` abort path in
-   `switchWorkspace`, revisit the keyboard modal gate (plan decision D2 — the
-   suppression can go once draft semantics die), and implement
-   discard-if-pristine on leave (REQUIRED: a materialized preset shadow that
-   still deep-equals its source preset is silently removed, one mutation +
-   commit). Tests: unit for materialize/discard, e2e live-update + undo.
+3. ~~**WP 3.1 live-apply**~~ — DONE. `store.updateCustomPart` /
+   `materializePart` / `discardPristineShadow`; the studio's `part` IS the
+   resident def and every field writes through it; Save / Revert / dirty guard /
+   `originalJson` / the `switchWorkspace` abort path and the app's LAST native
+   `confirm()` are gone. D2 resolved by removing the modal gate outright
+   (`KeyBinding.allowInModal` and `KeyboardOptions.modalOpen` deleted) and
+   moving what it protected into an `onCanvas` precondition on the commands that
+   edit an invisible selection/ring — undo/redo excluded, deliberately.
+   `PartStudio.close()` is the discard-if-pristine choke point. Tests:
+   test/unit/livePart.test.ts + e2e/live-apply.spec.ts.
 4. **WP 3.2 scope header** — pure instance-count helper in `src/model/` +
    `Fork for this item only` via `store.forkPartForItem` (store.ts ~L1094).
 5. **WP 3.3 Simple/Advanced split** — studio form column sub-tabs, session
@@ -294,7 +294,7 @@ PreToolUse hook (project tooling, not an attack) and that suites seed
 
 ## Phase 3 — workshop maturation
 
-- [ ] WP 3.1 live-apply (`store.updateCustomPart`, guard deletion, discard-if-pristine)
+- [x] WP 3.1 live-apply (`store.updateCustomPart`, guard deletion, discard-if-pristine)
 - [ ] WP 3.2 scope header (def vs instances, fork-for-this-item)
 - [ ] WP 3.3 Simple / Advanced split
 - [ ] WP 3.4 front-layout presets (`faceLayouts.ts`)

@@ -270,8 +270,11 @@ const STUDIO_EDITOR: readonly ContractEntry[] = [
   vis('.studio-preview'),
   vis('.choice-btn'), // footprint picker (rect / chamfer / corner-L)
   vis('.studio-foot'),
-  vis('.studio-cancel'),
-  vis('.studio-save'),
+  // Save and Revert died with the drafts (WS-SPEC WP 3.1) — the footer now
+  // carries the part's own actions plus the live-apply caption.
+  vis('.studio-delete'),
+  vis('.studio-duplicate'),
+  vis('.studio-live-note'),
 ];
 
 /**
@@ -509,17 +512,16 @@ test('DOM contract: selector table stays present across every pinned app state',
     await assertContract(app, STUDIO_EDITOR);
   });
 
-  await test.step('leave the Workshop without saving', async () => {
-    // Picking a type is not an edit — the fresh part IS the baseline — so this
-    // switch runs the dirty gate and passes it without a confirm. (The fixture
-    // auto-accepts dialogs, so the parts-count assertion below is what proves
-    // nothing was written either way.)
+  await test.step('leave the Workshop', async () => {
+    // Under live-apply (WS-SPEC WP 3.1) picking a type IS the creation: the new
+    // part is in the library from that click on, and leaving neither asks nor
+    // takes it away. Nothing to confirm — the app has no native dialogs left.
     await app.click('#ws-tab-furnish');
     await expect(app.locator('#ws-tab-furnish')).toHaveClass(/active/);
     await expect(app.locator('#pane-workshop')).toHaveCount(0);
     await expect(app.locator('.studio')).toHaveCount(0);
     const partsAfter = await app.evaluate(() => window.__kp.store.design.customParts.length);
-    expect(partsAfter).toBe(partsBefore);
+    expect(partsAfter).toBe(partsBefore + 1);
   });
 
   // ---- context menu (open over a wall, assert, dismiss) ----

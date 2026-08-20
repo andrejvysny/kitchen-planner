@@ -51,16 +51,16 @@ const FOOT_LABELS: [FootKind, string, string][] = [
 export function renderCabinetPanel(
   rail: HTMLElement,
   part: CabinetPartDef,
-  onChange: () => void
+  onChange: (transient?: boolean) => void
 ): void {
   const dims = section(rail, `Dimensions (${unitSuffix()})`);
   dimRow(
     dims,
     'Width',
     () => part.w,
-    (v) => {
+    (v, transient) => {
       part.w = v;
-      onChange();
+      onChange(transient);
     },
     0.2,
     3.0
@@ -69,9 +69,9 @@ export function renderCabinetPanel(
     dims,
     'Depth',
     () => part.d,
-    (v) => {
+    (v, transient) => {
       part.d = v;
-      onChange();
+      onChange(transient);
     },
     0.2,
     1.2
@@ -80,9 +80,9 @@ export function renderCabinetPanel(
     dims,
     'Height',
     () => part.h,
-    (v) => {
+    (v, transient) => {
       part.h = v;
-      onChange();
+      onChange(transient);
     },
     0.2,
     2.5

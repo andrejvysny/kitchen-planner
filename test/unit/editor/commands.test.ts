@@ -401,6 +401,74 @@ describe('app commands', () => {
     });
   });
 
+  /**
+   * WS-SPEC WP 3.1 / decision D2. The blanket "a modal is open" keyboard
+   * suppression is gone, so the commands that would edit something the covering
+   * pane HIDES carry the precondition themselves — and undo, which is the whole
+   * point of the change, deliberately does not.
+   */
+  describe('the covered-canvas guard', () => {
+    const CANVAS_ONLY = [
+      'selection.duplicate',
+      'selection.delete',
+      'transform.rotate90',
+      'transform.rotate15',
+      'transform.nudgeLeft',
+      'transform.nudgeDownCoarse',
+    ];
+
+    it('blocks selection and transform commands in workshop and output', () => {
+      selectNewItem();
+      for (const id of CANVAS_ONLY) expect(reg.canExecute(id)).toBe(true);
+
+      for (const w of ['workshop', 'output'] as const) {
+        ws.current = w;
+        for (const id of CANVAS_ONLY) expect(reg.canExecute(id), `${id} in ${w}`).toBe(false);
+      }
+
+      ws.current = 'plan';
+      for (const id of CANVAS_ONLY) expect(reg.canExecute(id)).toBe(true);
+    });
+
+    it('leaves undo/redo alone — Ctrl+Z in the Workshop is the WP 3.1 feature', () => {
+      const id = selectNewItem();
+      const before = store.itemById(id)!.x;
+      reg.execute('transform.nudgeRight');
+
+      ws.current = 'workshop';
+      expect(reg.canExecute('history.undo')).toBe(true);
+      expect(reg.execute('history.undo')).toBe(true);
+      expect(store.itemById(id)!.x).toBeCloseTo(before, 12);
+      expect(reg.execute('history.redo')).toBe(true);
+      expect(store.itemById(id)!.x).toBeCloseTo(before + 0.01, 12);
+    });
+
+    it('blocks the wall tool’s keys too — the plan is not on screen there', () => {
+      const live = fakePlan(true);
+      const liveReg = new CommandRegistry({
+        store,
+        editor,
+        plan: live,
+        modal,
+        workspace: ws,
+        help,
+      });
+      liveReg.registerAll(APP_COMMANDS);
+      editor.setTool('drawRoom');
+      expect(liveReg.canExecute('draw.digit4')).toBe(true);
+      expect(liveReg.canExecute('tool.finish')).toBe(true);
+
+      ws.current = 'workshop';
+      expect(liveReg.execute('draw.digit4')).toBe(false);
+      expect(liveReg.execute('draw.backspace')).toBe(false);
+      expect(liveReg.execute('draw.undoVertex')).toBe(false);
+      expect(liveReg.execute('draw.toggleField')).toBe(false);
+      expect(liveReg.execute('tool.finish')).toBe(false);
+      expect(liveReg.execute('tool.finishOpen')).toBe(false);
+      expect(live.calls).toEqual([]);
+    });
+  });
+
   it('tool.finish only applies to the draw-room tool', () => {
     expect(reg.canExecute('tool.finish')).toBe(false);
     expect(reg.execute('tool.finish')).toBe(false);

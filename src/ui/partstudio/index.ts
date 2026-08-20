@@ -6,12 +6,11 @@ import {
   normalizeBoardOutline,
   normalizeFreeform,
 } from '../../model/parts';
-import { presetPart } from '../../model/presets';
 import type { Store } from '../../model/store';
 import { confirmDialog } from '../dialogService';
 import type { CustomPartDef } from '../../model/types';
 import { uid } from '../../model/types';
-import { clearWorkshopTarget } from '../workspaceState';
+import { clearWorkshopTarget, openInWorkshop } from '../workspaceState';
 import { BoardPanel } from './boardPanel';
 import { renderCabinetPanel } from './cabinetPanel';
 import { FreeformPanel } from './freeformPanel';
@@ -31,15 +30,38 @@ const CREATABLE: CustomPartDef['type'][] = ['cabinet', 'board', 'freeform'];
 /**
  * Part Studio: the part editor — a form rail, a zone/polygon canvas and a live
  * 3D preview. New parts start at a type picker; the type is fixed at creation.
- * Saved parts appear in the "My parts" catalog section.
+ * Parts appear in the "My parts" catalog section.
  *
  * It is HOSTED, not modal (WS-SPEC WP 1.6): `open()` takes the element to
  * build into — <WorkshopPane/> hands it the Workshop pane's host div — and
  * there is no backdrop, no ✕ and no closed state of its own. Leaving is the
  * workspace's job (the pane's Back button, the topbar tabs), which is why
- * `switchWorkspace` owns the dirty gate and why `handleEscape` no longer
- * closes. What the footer keeps is what belongs to the PART: save (which now
- * stays open on the part it just wrote), revert, duplicate and delete.
+ * `handleEscape` no longer closes.
+ *
+ * It is also LIVE-APPLY (WS-SPEC WP 3.1), and that is the rule everything else
+ * here follows from: **`this.part` IS the object in `design.customParts`**, not
+ * a draft of it. The panels mutate it directly, `changed()` runs the model
+ * normalizers and hands it to `store.updateCustomPart`, and the 2D plan and the
+ * 3D scene redraw off the ordinary structural notify. So there is no Save, no
+ * Revert, no dirty flag and no leave-confirm — Ctrl+Z is the undo, and it works
+ * with the studio open because a committed edit is an ordinary undo step.
+ *
+ * Three consequences worth stating, because they are not obvious:
+ *
+ *  - **Opening MATERIALIZES.** A preset is deep-frozen and lives outside the
+ *    design, so `store.materializePart` shadows it design-locally first (D4) and
+ *    the studio edits the shadow. `close()` throws that shadow away again if it
+ *    was never actually changed, so browsing the built-ins leaves no litter.
+ *  - **An INVALID part is not written.** A self-crossing outline would be
+ *    rebuilt from its bounding box by `sanitizePart` — the user's polygon would
+ *    vanish under their cursor — so `changed()` holds the write back until
+ *    `validate()` is happy again. That is the live-apply spelling of the old
+ *    disabled Save button, and the reason `.studio-validation` is still here.
+ *  - **Undo REPLACES the design's objects.** After `store.undo()` our `part` is
+ *    an orphan, so the studio watches the 'history' channel and re-opens on
+ *    whatever its id resolves to now (the resident part, the preset it shadowed,
+ *    or the picker). Our OWN commits are told apart by object identity: after
+ *    one of those, `customPartById(id)` is still the very object we hold.
  *
  * `overlay` is the wrapper element inside that host — kept as the name for
  * `isOpen()`'s sake; "open" means "built into a host", not "covering the app".
@@ -50,14 +72,13 @@ export class PartStudio {
   private host: HTMLElement | null = null;
   private overlay: HTMLElement | null = null;
   private part: CustomPartDef | null = null;
-  private isNew = true;
-  private originalJson = '';
   private preview: StudioPreview | null = null;
   private freeform: FreeformPanel | null = null;
   private board: BoardPanel | null = null;
   private polyCanvas: PolygonCanvas | null = null;
   private zoneCanvas: ZoneCanvas | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private offHistory: (() => void) | null = null;
 
   constructor(store: Store, onClose: () => void) {
     this.store = store;
@@ -70,19 +91,19 @@ export class PartStudio {
 
   /**
    * Build the studio into `host` — the Workshop pane's host div. `existing` is
-   * deep-cloned (so a deep-frozen preset def is a legal argument); omitting it
-   * starts at the type picker.
+   * MATERIALIZED (see the class comment): a preset or a part from another
+   * design's library becomes a design-local shadow under the same id, and what
+   * the studio edits from then on is that resident object. Omitting it starts
+   * at the type picker.
    *
    * `host` is optional in the signature only so the throw can name the rule:
    * there is no un-hosted studio any more.
    */
   open(existing?: CustomPartDef, host?: HTMLElement): void {
     if (!host) throw new Error('PartStudio.open needs a host (WS-SPEC WP1.6)');
-    if (!this.close()) return;
+    this.close();
     this.host = host;
-    this.isNew = !existing;
-    this.part = existing ? (JSON.parse(JSON.stringify(existing)) as CustomPartDef) : null;
-    this.originalJson = JSON.stringify(this.part);
+    this.part = existing ? this.store.materializePart(existing) : null;
 
     const overlay = document.createElement('div');
     overlay.className = 'studio-hosted';
@@ -95,22 +116,20 @@ export class PartStudio {
         <div class="studio-body"></div>
         <div class="studio-foot">
           <button class="btn danger studio-delete">Delete part</button>
-          <button class="btn studio-duplicate" title="Save an independent copy of this part">⧉ Duplicate</button>
+          <button class="btn studio-duplicate" title="Continue on an independent copy of this part">⧉ Duplicate</button>
           <span class="studio-validation"></span>
           <span style="flex:1"></span>
-          <button class="btn studio-cancel" title="Discard changes and reload the saved part">Revert</button>
-          <button class="btn primary studio-save"></button>
+          <span class="studio-live-note">Changes apply as you edit — ⌘Z / Ctrl+Z undoes</span>
         </div>
       </div>`;
     host.appendChild(overlay);
     this.overlay = overlay;
 
-    (overlay.querySelector('.studio-cancel') as HTMLElement).addEventListener(
-      'click',
-      () => void this.revert()
-    );
     this.keyHandler = (e) => this.onKeyDown(e);
     document.addEventListener('keydown', this.keyHandler);
+    // an undo/redo/import swaps every object in design.customParts; the part we
+    // hold becomes an orphan and the editor has to be rebuilt on the new one
+    this.offHistory = this.store.on('history', this.onHistory);
 
     if (this.part) this.renderEditor();
     else this.renderPicker();
@@ -131,15 +150,24 @@ export class PartStudio {
     }
   }
 
-  /** Tear the studio out of its host. Unsaved edits ask for confirmation unless `force`. Returns false if kept open. */
-  close(force = false): boolean {
-    if (this.overlay && this.part && !force && JSON.stringify(this.part) !== this.originalJson) {
-      // DELIBERATELY NATIVE, unlike the studio's other two confirms: this one
-      // runs inside services.switchWorkspace, whose refusal contract is
-      // SYNCHRONOUS (a false return aborts the switch on the spot). The in-app
-      // dialog resolves a promise, which cannot answer a boolean this call
-      // frame. WP 3.1 removes this guard outright.
-      if (!confirm('Discard your changes to this part?')) return false;
+  /**
+   * Tear the studio out of its host. Nothing to confirm and nothing to save —
+   * every edit is already in the design — but this IS the one choke point for
+   * discard-if-pristine, which is why every route that stops editing a part
+   * comes through here: leaving the Workshop (the pane's cleanup), opening a
+   * different part (`open` closes first), deleting, duplicating.
+   */
+  close(): void {
+    // FIRST, before anything that can commit: the discard below may emit
+    // 'history', and onHistory would re-enter this method and re-open the
+    // studio on the preset we are in the middle of throwing away.
+    this.offHistory?.();
+    this.offHistory = null;
+    const id = this.part?.id;
+    if (id && this.store.discardPristineShadow(id)) {
+      // usually a no-op: materializing never committed, so the design is back
+      // to what the last commit already said
+      this.store.commit();
     }
     if (this.keyHandler) document.removeEventListener('keydown', this.keyHandler);
     this.keyHandler = null;
@@ -153,7 +181,6 @@ export class PartStudio {
     this.overlay = null;
     this.host = null;
     this.onClose();
-    return true;
   }
 
   /** Drop the canvas editors so their ResizeObservers stop watching dead nodes. */
@@ -173,18 +200,21 @@ export class PartStudio {
     (this.overlay!.querySelector('.studio-name') as HTMLInputElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-delete') as HTMLElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-duplicate') as HTMLElement).style.display = 'none';
-    (this.overlay!.querySelector('.studio-save') as HTMLElement).style.display = 'none';
-    // nothing to revert TO before a type is picked
-    (this.overlay!.querySelector('.studio-cancel') as HTMLElement).style.display = 'none';
+    (this.overlay!.querySelector('.studio-live-note') as HTMLElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-type-badge') as HTMLElement).textContent = 'New part';
     renderTypePicker(body, CREATABLE, (type) => {
-      this.part =
+      const fresh =
         type === 'cabinet'
           ? newCabinetPart()
           : type === 'board'
             ? newBoardPart()
             : newFreeformPart();
-      this.originalJson = JSON.stringify(this.part);
+      // Picking a type IS the creation now, so unlike materializing a preset
+      // shadow this one commits: the user asked for a new part and it must
+      // survive a reload (autosave runs on commit) and be undoable as one step.
+      this.store.upsertCustomPart(fresh);
+      this.store.commit();
+      this.part = this.store.customPartById(fresh.id) ?? fresh;
       this.renderEditor();
     });
   }
@@ -202,21 +232,28 @@ export class PartStudio {
     const name = overlay.querySelector('.studio-name') as HTMLInputElement;
     name.style.display = '';
     name.value = part.name;
-    name.addEventListener('input', () => (part.name = name.value || 'Part'));
+    // 'input' keeps the live preview honest without an undo step per keystroke;
+    // 'change' (blur / Enter) is the commit — the same split every React field
+    // in the inspector makes (CLAUDE.md, fields/useNativeChange)
+    name.addEventListener('input', () => {
+      part.name = name.value || 'Part';
+      this.changed(true);
+    });
+    name.addEventListener('change', () => {
+      part.name = name.value || 'Part';
+      this.changed();
+    });
 
     (overlay.querySelector('.studio-type-badge') as HTMLElement).textContent =
       TYPE_LABELS[part.type];
-
-    const save = overlay.querySelector('.studio-save') as HTMLButtonElement;
-    save.style.display = '';
-    save.addEventListener('click', () => this.save());
-    (overlay.querySelector('.studio-cancel') as HTMLElement).style.display = '';
+    (overlay.querySelector('.studio-live-note') as HTMLElement).style.display = '';
 
     const del = overlay.querySelector('.studio-delete') as HTMLButtonElement;
     const dup = overlay.querySelector('.studio-duplicate') as HTMLButtonElement;
+    del.style.display = '';
+    dup.style.display = '';
     del.addEventListener('click', () => void this.deletePart());
     dup.addEventListener('click', () => this.duplicatePart());
-    this.syncFooter();
 
     this.preview = new StudioPreview(body.querySelector('.studio-preview') as HTMLElement);
     if (part.type === 'cabinet') {
@@ -233,25 +270,11 @@ export class PartStudio {
       holder.appendChild(toggle);
     }
     this.renderRail();
+    // the def may predate a normalizer (an old save, a hand-edited file); square
+    // it up before the first preview, but without writing — opening is not an
+    // edit and must not start an undo step
+    this.normalizePart(part);
     this.refreshPreview();
-  }
-
-  /**
-   * The three footer nodes that depend on "is this part in the library yet":
-   * the save label, Delete and Duplicate. Patched in place rather than
-   * re-rendered, because save() calls it while the user is still editing —
-   * rebuilding the editor there would eat their focus and scroll position.
-   */
-  private syncFooter(): void {
-    const overlay = this.overlay;
-    const part = this.part;
-    if (!overlay || !part) return;
-    (overlay.querySelector('.studio-save') as HTMLElement).textContent = this.isNew
-      ? 'Add to my parts'
-      : 'Save changes';
-    const saved = !this.isNew && !!this.store.customPartById(part.id);
-    (overlay.querySelector('.studio-delete') as HTMLElement).style.display = saved ? '' : 'none';
-    (overlay.querySelector('.studio-duplicate') as HTMLElement).style.display = saved ? '' : 'none';
   }
 
   private renderRail(): void {
@@ -265,48 +288,107 @@ export class PartStudio {
 
     if (part.type === 'cabinet') {
       const mid = this.overlay!.querySelector('.studio-canvas') as HTMLElement;
-      this.zoneCanvas = new ZoneCanvas(mid, part, () => this.refreshPreview());
-      renderCabinetPanel(rail, part, () => {
+      this.zoneCanvas = new ZoneCanvas(mid, part, (transient) => this.changed(transient));
+      renderCabinetPanel(rail, part, (transient) => {
         this.zoneCanvas?.draw();
-        this.refreshPreview();
+        this.changed(transient);
       });
     } else if (part.type === 'freeform') {
-      this.freeform = new FreeformPanel(rail, part, () => this.refreshPreview());
+      this.freeform = new FreeformPanel(rail, part, (transient) => this.changed(transient));
       this.preview!.onPick = (id) => this.freeform?.select(id);
     } else {
       const mid = this.overlay!.querySelector('.studio-canvas') as HTMLElement;
-      this.polyCanvas = new PolygonCanvas(mid, part, () => this.refreshPreview());
-      this.board = new BoardPanel(rail, part, this.polyCanvas, () => this.refreshPreview());
+      this.polyCanvas = new PolygonCanvas(mid, part, (transient) => this.changed(transient));
+      this.board = new BoardPanel(rail, part, this.polyCanvas, (transient) =>
+        this.changed(transient)
+      );
     }
+  }
+
+  /* ---------------- live apply ---------------- */
+
+  /**
+   * The ONE thing every panel calls after touching the part: normalize, write
+   * through to the store, redraw.
+   *
+   * `transient` is the mid-gesture tick — a slider being dragged, a divider
+   * being pulled across the zone canvas. It still notifies (so the 3D scene
+   * tracks the drag) but takes no undo step; the gesture's final call commits,
+   * exactly like every plan-side drag in the app.
+   */
+  private changed(transient = false): void {
+    const part = this.part;
+    if (!part) return;
+    // An invalid intermediate is NOT written: sanitizePart would rebuild a
+    // self-crossing outline from its bounding box and the polygon the user is
+    // still dragging would disappear. The message stays up until it is legal
+    // again, and the next valid change writes everything at once.
+    if (!this.validationError()) {
+      this.store.updateCustomPart(part.id, (p) => this.normalizePart(p), transient);
+      if (!transient) this.store.commit();
+    }
+    this.refreshPreview();
+  }
+
+  /**
+   * The model-level normalizers for this part type. Idempotent, so it is safe
+   * as `updateCustomPart`'s mutate and safe again on open. Boards recentre
+   * their CUTOUTS along with the outline, which `normalizeBoardOutline` alone
+   * does not do — it only owns the winding and the w/d refresh.
+   */
+  private normalizePart(part: CustomPartDef): void {
+    if (part.type === 'freeform') {
+      normalizeFreeform(part);
+      return;
+    }
+    if (part.type !== 'board') return;
+    const b = polygonBounds(part.outline);
+    const cx = (b.minX + b.maxX) / 2;
+    const cy = (b.minY + b.maxY) / 2;
+    for (const p of part.outline) {
+      p.x -= cx;
+      p.y -= cy;
+    }
+    for (const h of part.holes) {
+      h.x -= cx;
+      h.y -= cy;
+    }
+    normalizeBoardOutline(part);
+  }
+
+  /** What the part is currently wrong about, or null. Gates the write-through. */
+  private validationError(): string | null {
+    return this.freeform?.validate() ?? this.board?.validate() ?? null;
   }
 
   private refreshPreview(): void {
     if (!this.part || !this.preview) return;
-    if (this.part.type === 'freeform') normalizeFreeform(this.part);
-    if (this.part.type === 'board') {
-      // keep w/d in sync with the outline so the preview camera frames it
-      const b = polygonBounds(this.part.outline);
-      const cx = (b.minX + b.maxX) / 2;
-      const cy = (b.minY + b.maxY) / 2;
-      for (const p of this.part.outline) {
-        p.x -= cx;
-        p.y -= cy;
-      }
-      for (const h of this.part.holes) {
-        h.x -= cx;
-        h.y -= cy;
-      }
-      this.part.w = Math.max(0.05, b.maxX - b.minX);
-      this.part.d = Math.max(0.05, b.maxY - b.minY);
-    }
     this.preview.refresh(this.part, this.freeform?.selectedId);
     this.board?.refresh();
-    const err = this.freeform?.validate() ?? this.board?.validate() ?? null;
-    const save = this.overlay!.querySelector('.studio-save') as HTMLButtonElement;
-    const msg = this.overlay!.querySelector('.studio-validation') as HTMLElement;
-    save.disabled = !!err;
-    msg.textContent = err ?? '';
+    const err = this.validationError();
+    (this.overlay!.querySelector('.studio-validation') as HTMLElement).textContent = err ?? '';
+    this.overlay!.classList.toggle('studio-invalid', !!err);
   }
+
+  /**
+   * An undo, a redo or a file load rebuilt `design.customParts` from JSON, so
+   * the object this studio is editing is now an orphan. Re-open on whatever the
+   * id resolves to NOW — the resident part, the preset it was shadowing (which
+   * `open` re-materializes), or the picker if it resolves to neither.
+   *
+   * Our OWN commits reach this handler too, and object identity is what tells
+   * them apart: after `updateCustomPart` the resident IS the part we hold, so
+   * there is nothing to rebuild and the user keeps their focus and caret.
+   */
+  private readonly onHistory = (): void => {
+    const part = this.part;
+    const host = this.host;
+    if (!part || !host) return;
+    if (this.store.customPartById(part.id) === part) return;
+    const next = this.store.partOf(part.id);
+    this.close();
+    this.open(next, host);
+  };
 
   /* ---------------- actions ---------------- */
 
@@ -320,56 +402,14 @@ export class PartStudio {
         this.zoneCanvas?.handleDelete()
       ) {
         e.preventDefault();
-        this.refreshPreview();
+        this.changed();
       }
       return;
     }
     if (this.freeform?.handleKey(e)) {
       e.preventDefault();
-      this.refreshPreview();
+      this.changed();
     }
-  }
-
-  /**
-   * Write the part to the library and STAY on it: the Workshop is a place, not
-   * a dialog, so saving is a checkpoint rather than an exit. What changes is
-   * the part's status — it is no longer new, it is no longer dirty, and it can
-   * now be deleted or duplicated — so only the footer is patched.
-   */
-  private save(): void {
-    if (!this.part) return;
-    if (this.part.type === 'freeform') normalizeFreeform(this.part);
-    if (this.part.type === 'board') normalizeBoardOutline(this.part);
-    this.store.upsertCustomPart(JSON.parse(JSON.stringify(this.part)));
-    this.store.commit();
-    this.isNew = false;
-    this.originalJson = JSON.stringify(this.part);
-    this.syncFooter();
-  }
-
-  /**
-   * Throw the current edits away and reload: the saved part if there is one,
-   * the built-in preset this id shadows if not, and the type picker for a part
-   * that was never saved at all.
-   */
-  private async revert(): Promise<void> {
-    const host = this.host;
-    const part = this.part;
-    if (!host || !part) return;
-    if (JSON.stringify(part) !== this.originalJson) {
-      const ok = await confirmDialog({
-        title: 'Discard your changes?',
-        body: 'This part goes back to how it was last saved.',
-        confirmLabel: 'Discard',
-        danger: true,
-      });
-      // the studio can have moved on while the dialog was up
-      if (!ok || this.part !== part || this.host !== host) return;
-    }
-    const id = part.id;
-    const saved = this.store.customPartById(id) ?? presetPart(id);
-    this.close(true);
-    this.open(saved, host);
   }
 
   private async deletePart(): Promise<void> {
@@ -387,22 +427,31 @@ export class PartStudio {
     if (!ok || this.part !== part || !this.host) return;
     const host = this.host;
     this.store.deleteCustomPart(part.id);
-    this.store.commit();
     // the target names a part that no longer exists; drop it and land on the
     // picker, which is the Workshop's empty state
     clearWorkshopTarget();
-    this.close(true);
+    // close BEFORE the commit: closing drops the 'history' subscription, and
+    // onHistory would otherwise see the part gone and helpfully re-open the
+    // studio on the preset it was shadowing — the one thing Delete must not do
+    this.close();
+    this.store.commit();
     this.open(undefined, host);
   }
 
-  /** Continue editing an independent copy — covers "same part, different config". */
+  /**
+   * Continue editing an independent copy — covers "same part, different
+   * config". The copy is written to the library straight away (there is no
+   * other way to persist one now) and the Workshop retargets onto it, which is
+   * what re-opens the editor and moves the sidebar's highlight.
+   */
   private duplicatePart(): void {
-    if (!this.part) return;
-    this.part.id = uid('part');
-    this.part.name = `${this.part.name} copy`.slice(0, 32);
-    this.isNew = true;
-    this.originalJson = '';
-    (this.overlay!.querySelector('.studio-name') as HTMLInputElement).value = this.part.name;
-    this.syncFooter();
+    const part = this.part;
+    if (!part) return;
+    const copy = JSON.parse(JSON.stringify(part)) as CustomPartDef;
+    copy.id = uid('part');
+    copy.name = `${part.name} copy`.slice(0, 32);
+    this.store.upsertCustomPart(copy);
+    this.store.commit();
+    openInWorkshop(copy.id);
   }
 }

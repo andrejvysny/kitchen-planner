@@ -35,7 +35,24 @@ const ROT_FINE = Math.PI / 12;
  */
 const DIMENSION_KEYS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.'] as const;
 
-const itemSelected = (ctx: EditorContext): boolean => ctx.store.selection.kind === 'item';
+/**
+ * Are the plan and 3D canvases the thing the user is looking at?
+ *
+ * The Workshop and Output panes COVER those canvases (they never unmount them),
+ * so in either workspace the selection and any live tool are invisible. Until
+ * WS-SPEC WP 3.1 that was handled bluntly, by suppressing the whole keyboard
+ * while the Part Studio was open — which also suppressed Ctrl+Z, and live-apply
+ * has since turned undo-in-the-Workshop into the headline feature. So the gate
+ * moved here, to the commands that actually need it: the ones that would edit
+ * something the user cannot see. Decision D2.
+ */
+const onCanvas = (ctx: EditorContext): boolean => {
+  const w = ctx.workspace.workspace();
+  return w === 'plan' || w === 'furnish';
+};
+
+const itemSelected = (ctx: EditorContext): boolean =>
+  onCanvas(ctx) && ctx.store.selection.kind === 'item';
 
 /** Move the selected item by (dx, dy) meters — non-structural, then commit. */
 function nudge(ctx: EditorContext, dx: number, dy: number): void {
@@ -112,7 +129,7 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     // A room's wall still has no delete of its own (you delete the room, or
     // move its corners) — but a FREE-STANDING chain is its own object, so
     // deleting one is exactly what Delete should do there.
-    canExecute: (ctx) => ctx.store.selection.kind !== 'none',
+    canExecute: (ctx) => onCanvas(ctx) && ctx.store.selection.kind !== 'none',
     execute: (ctx) => {
       const sel = ctx.store.selection;
       if (sel.kind === 'item') ctx.store.deleteItem(sel.id);
@@ -168,13 +185,13 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
   {
     id: 'tool.finish',
     label: 'Finish',
-    canExecute: (ctx) => ctx.editor.isTool('drawRoom'),
+    canExecute: (ctx) => onCanvas(ctx) && ctx.editor.isTool('drawRoom'),
     execute: (ctx) => ctx.plan.closeDrawRoom(),
   },
   {
     id: 'tool.finishOpen',
     label: 'Finish as walls',
-    canExecute: (ctx) => ctx.editor.isTool('drawRoom'),
+    canExecute: (ctx) => onCanvas(ctx) && ctx.editor.isTool('drawRoom'),
     execute: (ctx) => ctx.plan.closeDrawRoom(true),
   },
 
@@ -187,7 +204,7 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
   ...DIMENSION_KEYS.map((ch) => ({
     id: `draw.digit${ch === '.' ? 'Dot' : ch}`,
     label: `Dimension ${ch}`,
-    canExecute: (ctx: EditorContext) => ctx.plan.drawInputActive(),
+    canExecute: (ctx: EditorContext) => onCanvas(ctx) && ctx.plan.drawInputActive(),
     execute: (ctx: EditorContext) => ctx.plan.drawDigit(ch),
   })),
   {
@@ -195,19 +212,19 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     label: 'Dimension backspace',
     // an EMPTY box must hand Backspace on to `draw.undoVertex` below it in the
     // table, so this asks for a typed character rather than just a live ring
-    canExecute: (ctx) => ctx.plan.drawBufferActive(),
+    canExecute: (ctx) => onCanvas(ctx) && ctx.plan.drawBufferActive(),
     execute: (ctx) => ctx.plan.drawBackspace(),
   },
   {
     id: 'draw.undoVertex',
     label: 'Undo last corner',
-    canExecute: (ctx) => ctx.plan.drawInputActive(),
+    canExecute: (ctx) => onCanvas(ctx) && ctx.plan.drawInputActive(),
     execute: (ctx) => ctx.plan.undoDrawVertex(),
   },
   {
     id: 'draw.toggleField',
     label: 'Dimension: length / angle',
-    canExecute: (ctx) => ctx.plan.drawInputActive(),
+    canExecute: (ctx) => onCanvas(ctx) && ctx.plan.drawInputActive(),
     execute: (ctx) => ctx.plan.drawToggleField(),
   },
 

@@ -118,9 +118,11 @@ export const test = base.extend<{ app: Page }>({
     await page.addInitScript((k) => localStorage.setItem(k, '1'), ONBOARDED_KEY);
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
-    // one native dialog is left in the app: the Part Studio's dirty-close guard
-    // (src/ui/partstudio/index.ts), which must answer synchronously
-    page.on('dialog', (d) => void d.accept());
+    // NO `page.on('dialog')` handler on purpose. Since WS-SPEC WP 3.1 removed
+    // the Part Studio's dirty-close guard the app raises ZERO native dialogs —
+    // every question is <ConfirmHost/>. With no handler Playwright dismisses an
+    // unexpected one and the assertion that was waiting on it fails, which is
+    // the gate we want.
 
     await page.goto('/', { waitUntil: 'networkidle' });
     await bootReady(page);

@@ -2,8 +2,6 @@ import type { CommandRegistry } from '../commands/registry';
 import { KEY_BINDINGS, matchBindings, type KeyBinding } from './bindings';
 
 export interface KeyboardOptions {
-  /** true while a modal owns the keyboard (the Part Studio today) */
-  modalOpen: () => boolean;
   /** override for tests; defaults to the app table */
   bindings?: readonly KeyBinding[];
 }
@@ -14,6 +12,15 @@ export interface KeyboardOptions {
  * making lives in those two — this class only owns a listener and its
  * lifecycle.
  *
+ * It has exactly ONE gate of its own now: typing. The Part Studio's
+ * "modal open" suppression went with the drafts it protected (WS-SPEC WP 3.1,
+ * decision D2) — with live-apply there is no unsaved state a global key could
+ * destroy, and Ctrl+Z in the Workshop is the feature rather than the hazard.
+ * What the suppression really bought — not editing an invisible selection while
+ * a workspace pane covers the canvases — is a `canExecute` precondition on the
+ * commands that need it (`onCanvas` in commands/appCommands.ts), which is
+ * per-command and therefore lets undo through.
+ *
  * Same lifecycle contract the three views have carried since Phase A:
  * `attach(target)` is idempotent for the target it already holds (React
  * StrictMode mounts effects twice), and `dispose()` aborts the listener and can
@@ -21,15 +28,13 @@ export interface KeyboardOptions {
  */
 export class KeyboardController {
   private readonly commands: CommandRegistry;
-  private readonly opts: KeyboardOptions;
   private readonly bindings: readonly KeyBinding[];
 
   private target: EventTarget | null = null;
   private ac: AbortController | null = null;
 
-  constructor(commands: CommandRegistry, opts: KeyboardOptions) {
+  constructor(commands: CommandRegistry, opts: KeyboardOptions = {}) {
     this.commands = commands;
-    this.opts = opts;
     this.bindings = opts.bindings ?? KEY_BINDINGS;
   }
 
@@ -66,12 +71,11 @@ export class KeyboardController {
     // Table order is the priority, and a candidate that cannot run passes the
     // key on rather than swallowing it — that is what lets one key mean two
     // things in two contexts (Backspace: the wall tool's dimension box while a
-    // ring is in flight, the selection at rest). The gates are evaluated PER
-    // candidate for the same reason: a draw binding blocked by an open modal
-    // must not hide the workspace binding sitting below it.
+    // ring is in flight, the selection at rest). The typing gate is evaluated
+    // PER candidate for the same reason: a blocked row must not hide the one
+    // below it.
     for (const binding of candidates) {
       if (!binding.allowWhileTyping && isTyping(e.target)) continue;
-      if (!binding.allowWhileTyping && !binding.allowInModal && this.opts.modalOpen()) continue;
 
       // preventDefault only on a command that actually ran, so a binding whose
       // canExecute says no still reaches the browser (Ctrl+D with no selection)

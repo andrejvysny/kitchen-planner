@@ -77,7 +77,7 @@ export class ZoneCanvas {
   private ctx: CanvasRenderingContext2D;
   private toolbar: HTMLElement;
   private ro: ResizeObserver;
-  private onChange: () => void;
+  private onChange: (transient?: boolean) => void;
   private drag: DividerLine | null = null;
   selection: number[] | null = null;
   /** selected divider line (mutually exclusive with `selection`) — toolbar
@@ -88,7 +88,11 @@ export class ZoneCanvas {
   private elemSel: number | null = null;
   private elemDrag: number | null = null;
 
-  constructor(container: HTMLElement, part: CabinetPartDef, onChange: () => void) {
+  constructor(
+    container: HTMLElement,
+    part: CabinetPartDef,
+    onChange: (transient?: boolean) => void
+  ) {
     this.part = part;
     this.onChange = onChange;
     this.toolbar = document.createElement('div');
@@ -410,6 +414,17 @@ export class ZoneCanvas {
       plus.addEventListener('click', () => apply(get() + 1));
       tb.appendChild(holder);
     };
+    /**
+     * The selected leaf, RE-RESOLVED by path.
+     *
+     * `leaf` above is only good until the next write: the studio applies every
+     * change through `store.updateCustomPart`, whose `sanitizePart` runs
+     * `sanitizeZone` and REBUILDS every leaf object (WS-SPEC WP 3.1). A handler
+     * that captured one would be editing an orphan from its second click on.
+     * Resolving by path costs a tree walk and cannot go stale.
+     */
+    const live = (): LeafZone | null => this.selectedLeaf();
+
     if (leaf.fill === 'door') {
       // hinge side = drilling datum; persisted on the leaf, drives the open preview
       const hinges: [NonNullable<LeafZone['hinge']>, string, string][] = [
@@ -423,7 +438,9 @@ export class ZoneCanvas {
           label,
           title,
           () => {
-            leaf.hinge = side;
+            const l = live();
+            if (!l) return;
+            l.hinge = side;
             this.part.face = normalizeZones(this.part.face);
             this.changed();
           },
@@ -435,8 +452,11 @@ export class ZoneCanvas {
     if (leaf.fill === 'drawers') {
       stepper(
         'Drawers',
-        () => leaf.drawers ?? 2,
-        (v) => (leaf.drawers = v),
+        () => live()?.drawers ?? 2,
+        (v) => {
+          const l = live();
+          if (l) l.drawers = v;
+        },
         1,
         5
       );
@@ -452,34 +472,42 @@ export class ZoneCanvas {
         chip.textContent = 'custom interior';
         tb.appendChild(chip);
       } else {
-        // parametric counts write the auto interior; exact positions come later
-        const auto = (): Extract<Interior, { mode: 'auto' }> => {
-          const cur = interiorOf(leaf);
+        // parametric counts write the auto interior; exact positions come later.
+        // `live()` throughout, for the same reason the hinge buttons use it.
+        const auto = (): Extract<Interior, { mode: 'auto' }> | null => {
+          const l = live();
+          if (!l) return null;
+          const cur = interiorOf(l);
           if (cur?.mode === 'auto') {
-            leaf.interior = cur;
+            l.interior = cur;
             return cur;
           }
           const fresh: Interior = { mode: 'auto', shelves: 0, innerDrawers: 0 };
-          leaf.interior = fresh;
+          l.interior = fresh;
           return fresh;
+        };
+        const autoCount = (key: 'shelves' | 'innerDrawers') => (): number => {
+          const l = live();
+          const cur = l && interiorOf(l);
+          return cur?.mode === 'auto' ? cur[key] : 0;
         };
         stepper(
           'Shelves',
-          () =>
-            interiorOf(leaf)?.mode === 'auto'
-              ? (interiorOf(leaf) as { shelves: number }).shelves
-              : 0,
-          (v) => (auto().shelves = v),
+          autoCount('shelves'),
+          (v) => {
+            const a = auto();
+            if (a) a.shelves = v;
+          },
           0,
           MAX_AUTO_SHELVES
         );
         stepper(
           'Inner drawers',
-          () =>
-            interiorOf(leaf)?.mode === 'auto'
-              ? (interiorOf(leaf) as { innerDrawers: number }).innerDrawers
-              : 0,
-          (v) => (auto().innerDrawers = v),
+          autoCount('innerDrawers'),
+          (v) => {
+            const a = auto();
+            if (a) a.innerDrawers = v;
+          },
           0,
           MAX_AUTO_DRAWERS
         );
@@ -689,7 +717,9 @@ export class ZoneCanvas {
         // element is a line at y — branch on the box, never on the lines
         if (el.kind === 'drawerBox') el.y = clamp(snapped - el.h / 2, 0, cav.h - el.h);
         else el.y = clamp(snapped, 0, cav.h);
-        this.onChange();
+        // mid-drag: notify so the 3D preview tracks it, but take no undo step —
+        // onUp's changed() is the one that commits (WS-SPEC WP 3.1)
+        this.onChange(true);
         this.draw();
         return;
       }
@@ -707,7 +737,7 @@ export class ZoneCanvas {
       const extent = d.dir === 'v' ? d.rw : d.rh;
       const frac = Math.round(pos * 100) / 100 / extent;
       setDivider(this.part.face, d.path, d.index, frac);
-      this.onChange();
+      this.onChange(true); // mid-drag tick; onUp's changed() commits
       this.draw();
       return;
     }

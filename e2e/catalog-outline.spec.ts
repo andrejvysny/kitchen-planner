@@ -125,7 +125,8 @@ test('an armed tile places its def into the plan and disarms itself', async ({ a
  * Both catalog routes into the Part Studio are NAVIGATIONS now (WS-SPEC WP
  * 1.6): they switch to the Workshop workspace, where the studio is built into
  * #pane-workshop rather than into a body modal. Back returns to the workspace
- * the edit started from, and saving no longer leaves the editor.
+ * the edit started from, and there is nothing to save on the way — WP 3.1 made
+ * every field write straight through to the design.
  */
 test('＋ New part opens the type picker; ✎ opens an existing part in the editor', async ({
   app,
@@ -154,12 +155,12 @@ test('＋ New part opens the type picker; ✎ opens an existing part in the edit
   await expect(app.locator('#ws-tab-workshop')).toHaveClass(/active/);
   await expect(app.locator('#pane-workshop .studio-body .studio-form')).toBeVisible();
   await expect(app.locator('.studio-name')).toHaveValue(part.name);
-  await expect(app.locator('.studio-save')).toHaveText('Save changes');
+  await expect(app.locator('.studio-live-note')).toBeVisible();
   expect(await armed(app)).toEqual({ tool: 'select', def: null });
 
-  // renaming and saving lands in the store, and KEEPS the editor open on it
+  // renaming lands in the store on the spot — no Save button to press
   await app.locator('.studio-name').fill('Renamed part');
-  await app.click('.studio-save');
+  await app.locator('.studio-name').blur();
   await expect
     .poll(() => app.evaluate(() => window.__kp.store.design.customParts[0].name))
     .toBe('Renamed part');

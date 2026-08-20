@@ -134,13 +134,19 @@ describe('key bindings', () => {
       '9',
       '.',
     ]);
-    // they are typed characters, so an open modal (a part name field) must not
-    // see them, and Ctrl+digit stays the browser's tab switch
-    for (const b of draw) {
-      expect(b.allowInModal).toBeUndefined();
-      expect(b.allowWhileTyping).toBeUndefined();
-    }
+    // they are typed characters, so a part name field must not see them, and
+    // Ctrl+digit stays the browser's tab switch
+    for (const b of draw) expect(b.allowWhileTyping).toBeUndefined();
     expect(hits('5', true)).toEqual([]);
+  });
+
+  it('typing is the table’s ONLY opt-out — the Part Studio gate is gone', () => {
+    // WS-SPEC WP 3.1 / decision D2: the studio holds no draft any more, so
+    // suppressing the keyboard while it is open would only cost the user
+    // Ctrl+Z. What the suppression really protected — editing a selection the
+    // Workshop pane is covering — is `onCanvas` in appCommands.ts, per command.
+    const fields = new Set(KEY_BINDINGS.flatMap((b) => Object.keys(b)));
+    expect(fields.has('allowInModal')).toBe(false);
   });
 
   it('? opens the shortcut sheet, and Cmd+? is left to the browser', () => {
@@ -149,15 +155,6 @@ describe('key bindings', () => {
     expect(hit('?', false, true)).toBe('help.shortcuts');
     expect(hit('?')).toBe('help.shortcuts');
     expect(hit('?', true, true)).toBe(null);
-  });
-
-  it('the workspace keys and ? are the ones that survive an open modal', () => {
-    const inModal = KEY_BINDINGS.filter((b) => b.allowInModal);
-    // help has to be reachable from the Workshop, where the Part Studio is open
-    // for as long as that workspace is showing
-    expect(inModal.map((b) => b.key)).toEqual(['1', '2', '3', '4', '?']);
-    // allowInModal is about the MODAL only: typing still wins
-    for (const b of inModal) expect(b.allowWhileTyping).toBeUndefined();
   });
 
   it('an unbound key matches nothing', () => {
@@ -179,10 +176,10 @@ describe('key bindings', () => {
   });
 });
 
-/* ---------------- the two gates around the table: typing and the modal ------ */
+/* ---------------- the one gate around the table: typing --------------------- */
 
-// KeyboardController is the DOM adapter, and everything it decides on its own
-// is those two gates. Node has Event/EventTarget but none of the DOM classes
+// KeyboardController is the DOM adapter, and that gate is everything it decides
+// on its own. Node has Event/EventTarget but none of the DOM classes
 // `isTyping` does `instanceof` against, and this suite runs without jsdom (see
 // test/unit/workspaceState.test.ts) — so stub the three constructors and
 // dispatch a plain Event carrying the four fields the controller reads.
@@ -221,7 +218,6 @@ function press(
 function setup(): {
   kb: KeyboardController;
   ran: string[];
-  modal: { open: boolean };
   blocked: Set<string>;
 } {
   const ran: string[] = [];
@@ -238,14 +234,13 @@ function setup(): {
       },
     }))
   );
-  const modal = { open: false };
   // the wall tool is NOT drawing in these gate tests, so its dimension
   // bindings decline the key exactly as `draw.*`'s canExecute does in the app
   for (const id of ids) if (id.startsWith('draw.')) blocked.add(id);
-  return { kb: new KeyboardController(reg, { modalOpen: () => modal.open }), ran, modal, blocked };
+  return { kb: new KeyboardController(reg), ran, blocked };
 }
 
-describe('KeyboardController gates', () => {
+describe('KeyboardController gate', () => {
   beforeEach(() => {
     const g = globalThis as unknown as DomCtors;
     g.HTMLInputElement = FakeInput;
@@ -288,55 +283,29 @@ describe('KeyboardController gates', () => {
     kb.dispose();
   });
 
-  it('a blocked draw binding does not hide the allowInModal one below it', () => {
-    const { kb, ran, modal } = setup();
+  it('an ordinary binding runs with the Part Studio open — the gate is gone', () => {
+    // WP 3.1: the studio is a workspace pane holding no draft, so undo, rotate
+    // and the rest reach the app from inside it. Nothing here even knows the
+    // studio exists any more, which is the assertion: the controller takes no
+    // modal option at all.
+    const { kb, ran } = setup();
     const target = new EventTarget();
     kb.attach(target);
-    modal.open = true;
 
-    // draw.digit2 has no allowInModal, so the modal gate skips it — and the
-    // gate is per candidate, so workspace.furnish below it still runs
-    press(target, '2');
-    expect(ran).toEqual(['workspace.furnish']);
+    expect(press(target, 'r').defaultPrevented).toBe(true);
+    expect(press(target, 'z', { mod: true }).defaultPrevented).toBe(true);
+    expect(ran).toEqual(['transform.rotate90', 'history.undo']);
     kb.dispose();
   });
 
-  it('allowInModal: the workspace keys still run while the Part Studio is open', () => {
-    const { kb, ran, modal } = setup();
-    const target = new EventTarget();
-    kb.attach(target);
-    modal.open = true;
-
-    press(target, '3');
-    expect(ran).toEqual(['workspace.workshop']);
-    kb.dispose();
-  });
-
-  it('an ordinary binding is still blocked by an open modal — the gate only moved', () => {
-    const { kb, ran, modal } = setup();
-    const target = new EventTarget();
-    kb.attach(target);
-    modal.open = true;
-
-    const ev = press(target, 'r');
-    expect(ran).toEqual([]);
-    expect(ev.defaultPrevented).toBe(false);
-    kb.dispose();
-  });
-
-  it('typing beats allowInModal: a digit in a text field types, modal or not', () => {
-    const { kb, ran, modal } = setup();
+  it('a digit typed into a text field types — the typing gate is untouched', () => {
+    const { kb, ran } = setup();
     const input = new FakeInput();
     kb.attach(input);
-    modal.open = true;
 
     const ev = press(input, '1');
     expect(ran).toEqual([]);
     expect(ev.defaultPrevented).toBe(false);
-
-    modal.open = false;
-    press(input, '1');
-    expect(ran).toEqual([]);
     kb.dispose();
   });
 
@@ -351,11 +320,10 @@ describe('KeyboardController gates', () => {
     kb.dispose();
   });
 
-  it('Escape is exempt from both gates and never preventDefaults', () => {
-    const { kb, ran, modal } = setup();
+  it('Escape is exempt from the typing gate and never preventDefaults', () => {
+    const { kb, ran } = setup();
     const input = new FakeInput();
     kb.attach(input);
-    modal.open = true;
 
     const ev = press(input, 'escape');
     expect(ran).toEqual(['tool.cancel']);

@@ -6,7 +6,9 @@ import type { CommandId } from '../commands/types';
  * without a browser (test/unit/editor/keyboard.test.ts).
  *
  * The table reproduces the old `keydown` listener's cascade EXACTLY, including
- * three details that are easy to lose in a port:
+ * three details that are easy to lose in a port (the fourth, an `allowInModal`
+ * opt-out of a Part-Studio suppression, went with the studio's drafts in
+ * WS-SPEC WP 3.1 — see KeyboardController):
  *
  * 1. **Escape runs even while typing.** In the listener its branch sat above
  *    the `typing || studio.isOpen()` early return — cancelling the live tool
@@ -33,13 +35,8 @@ export interface KeyBinding {
   /** shift: true = required, false = forbidden, undefined = don't care */
   shift?: boolean;
   commandId: CommandId;
-  /** survives focus in an input/textarea/contentEditable and an open modal */
+  /** survives focus in an input/textarea/contentEditable */
   allowWhileTyping?: boolean;
-  /**
-   * Runs even while the modal (Part Studio) is open — the switch helper owns
-   * the dirty guard. Still blocked while typing.
-   */
-  allowInModal?: boolean;
   /** default true — suppressed only when the command ran; see the note above */
   preventDefault?: boolean;
 }
@@ -120,22 +117,18 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   { key: 'arrowdown', shift: true, commandId: 'transform.nudgeDownCoarse' },
 
   // Workspace tabs. `mod: false` is REQUIRED, not don't-care: Ctrl/Cmd+digit is
-  // the browser's own tab switch and must never be swallowed. `allowInModal`
-  // because leaving the Workshop while the Part Studio is open is a legitimate
-  // move — the switch helper asks about unsaved edits before it happens.
-  { key: '1', mod: false, commandId: 'workspace.plan', allowInModal: true },
-  { key: '2', mod: false, commandId: 'workspace.furnish', allowInModal: true },
-  { key: '3', mod: false, commandId: 'workspace.workshop', allowInModal: true },
-  { key: '4', mod: false, commandId: 'workspace.output', allowInModal: true },
+  // the browser's own tab switch and must never be swallowed.
+  { key: '1', mod: false, commandId: 'workspace.plan' },
+  { key: '2', mod: false, commandId: 'workspace.furnish' },
+  { key: '3', mod: false, commandId: 'workspace.workshop' },
+  { key: '4', mod: false, commandId: 'workspace.output' },
 
   // The shortcut sheet. `?` is Shift+/ on most layouts, so `shift` stays
   // don't-care — `e.key` is the produced CHARACTER, and it is already '?'.
   // `mod: false` because Cmd+? opens the Help menu on macOS, and a help sheet
-  // has no business swallowing that. `allowInModal` for the same reason the
-  // workspace keys have it: help must be reachable from the Workshop, where
-  // the Part Studio is open the whole time it is showing. Still blocked while
-  // typing — a '?' typed into a part name is a '?'.
-  { key: '?', mod: false, commandId: 'help.shortcuts', allowInModal: true },
+  // has no business swallowing that. Still blocked while typing — a '?' typed
+  // into a part name is a '?'.
+  { key: '?', mod: false, commandId: 'help.shortcuts' },
 ];
 
 /**

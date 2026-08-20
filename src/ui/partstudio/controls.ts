@@ -34,12 +34,19 @@ export function section(parent: HTMLElement, title: string): HTMLElement {
   return s;
 }
 
-/** Slider + number pair editing a length in the display unit (model in meters). */
+/**
+ * Slider + number pair editing a length in the display unit (model in meters).
+ *
+ * `set` is told whether this is a mid-drag tick: the RANGE fires per pointer
+ * move, so under live-apply (WS-SPEC WP 3.1) those ticks must notify without
+ * committing, or one slider drag would bury the undo stack. The number box
+ * fires on `change` and is always the end of a gesture.
+ */
 export function dimRow(
   parent: HTMLElement,
   label: string,
   get: () => number,
-  set: (m: number) => void,
+  set: (m: number, transient?: boolean) => void,
   min: number,
   max: number
 ): () => void {
@@ -53,12 +60,14 @@ export function dimRow(
   const sync = () => {
     range.value = num.value = String(disp(get()));
   };
-  const apply = (v: number) => {
+  const apply = (v: number, transient?: boolean) => {
     const m = model(v);
-    if (m !== null) set(Math.min(max, Math.max(min, m)));
+    if (m !== null) set(Math.min(max, Math.max(min, m)), transient);
     sync();
   };
-  range.addEventListener('input', () => apply(Number(range.value)));
+  range.addEventListener('input', () => apply(Number(range.value), true));
+  // …and the drag's own end: `change` fires once, after the pointer is up
+  range.addEventListener('change', () => apply(Number(range.value)));
   num.addEventListener('change', () => apply(Number(num.value)));
   parent.appendChild(row);
   return sync;

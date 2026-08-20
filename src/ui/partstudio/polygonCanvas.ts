@@ -30,12 +30,12 @@ export class PolygonCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private ro: ResizeObserver;
-  private onChange: () => void;
+  private onChange: (transient?: boolean) => void;
   private drag: PolyDrag = { kind: 'none' };
   selection: PolySelection = { kind: 'none' };
   onSelect: (() => void) | null = null;
 
-  constructor(container: HTMLElement, part: BoardPartDef, onChange: () => void) {
+  constructor(container: HTMLElement, part: BoardPartDef, onChange: (transient?: boolean) => void) {
     this.part = part;
     this.onChange = onChange;
     this.canvas = document.createElement('canvas');
@@ -231,7 +231,8 @@ export class PolygonCanvas {
       h.w = Math.max(0.05, this.snap((w.x - h.x) * 2));
       h.d = Math.max(0.05, this.snap((w.y - h.y) * 2));
     }
-    this.onChange();
+    // mid-drag tick: notify without an undo step, onUp's changed() commits
+    this.onChange(true);
     this.draw();
   }
 

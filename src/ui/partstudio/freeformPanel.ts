@@ -12,13 +12,13 @@ import { choiceRow, numRow, section, swatchRow, unitSuffix } from './controls';
 export class FreeformPanel {
   private part: FreeformPartDef;
   private rail: HTMLElement;
-  private onChange: () => void;
+  private onChange: (transient?: boolean) => void;
   private listEl: HTMLElement | null = null;
   private inspectorEl: HTMLElement | null = null;
   private captionEl: HTMLElement | null = null;
   selectedId: string | null = null;
 
-  constructor(rail: HTMLElement, part: FreeformPartDef, onChange: () => void) {
+  constructor(rail: HTMLElement, part: FreeformPartDef, onChange: (transient?: boolean) => void) {
     this.part = part;
     this.rail = rail;
     this.onChange = onChange;

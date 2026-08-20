@@ -53,9 +53,11 @@ export interface AppServices {
   bridge: StoreBridge;
 
   /**
-   * The ONE guarded workspace switch — the Topbar tabs, the panes and the
-   * `workspace.*` commands all route through it. Returns false when the switch
-   * was refused (unsaved Part Studio edits the user chose to keep).
+   * The ONE workspace switch — the Topbar tabs, the panes and the `workspace.*`
+   * commands all route through it, so the resets are written once. It returns a
+   * boolean because `WorkspacePort` does; nothing can refuse a switch since the
+   * Part Studio stopped holding drafts (WS-SPEC WP 3.1), so the answer is now
+   * always true.
    */
   switchWorkspace: (w: WorkspaceId) => boolean;
 
@@ -140,23 +142,23 @@ export function createServices(): AppServices {
    * what actually hands it a host to build into. Its constructor is DOM-free
    * (only `open()` touches the document), so it belongs with the singletons.
    *
-   * Its close callback is a no-op: the only paths that change the parts library
-   * (save / delete part) both `store.commit()`, so the 'history' channel already
-   * wakes <CatalogPanel/>. Cancelling changes nothing, so there is nothing to
-   * refresh.
+   * Its close callback is a no-op: every path that changes the parts library
+   * commits (live-apply writes through on each field change, and so do create /
+   * duplicate / delete), so the 'history' channel already wakes <CatalogPanel/>.
    */
   const studio = new PartStudio(store, () => {});
 
   /**
-   * The one guarded workspace switch. Everything that changes workspace — the
-   * topbar tabs, the panes, the `workspace.*` commands behind keys 1-4 — comes
-   * through here, so the guard and the resets are written once.
+   * The one workspace switch. Everything that changes workspace — the topbar
+   * tabs, the panes, the `workspace.*` commands behind keys 1-4 — comes through
+   * here, so the resets are written once.
    *
-   * The guard is the Part Studio's own dirty-confirm. The studio lives INSIDE
-   * the Workshop pane (WS-SPEC WP 1.6) and has no exit of its own any more, so
-   * this is the only place that asks: leaving the Workshop with unsaved edits
-   * has to confirm, and a refused close aborts the switch rather than tearing
-   * the editor out from under the user.
+   * There is nothing left to GUARD. Until WS-SPEC WP 3.1 this asked the Part
+   * Studio whether it held unsaved edits and aborted the switch on a refusal;
+   * live-apply means the studio holds no edits at all — every change is already
+   * in the design and undoable — so the abort path, and with it the app's last
+   * native `confirm()`, is gone. Tearing the studio down is <WorkshopPane/>'s
+   * cleanup effect, which fires off the workspace change this makes.
    *
    * The two resets exist because a workspace is a different TASK, not a
    * different view of the same one: an armed catalog def or a live measure
@@ -165,7 +167,6 @@ export function createServices(): AppServices {
    */
   const switchWorkspace = (w: WorkspaceId): boolean => {
     if (w === workspace()) return true;
-    if (workspace() === 'workshop' && studio.isOpen() && !studio.close()) return false;
     editor.setTool('select');
     setCatalogOpen(false);
     setWorkspace(w);
@@ -189,7 +190,10 @@ export function createServices(): AppServices {
   });
   commands.registerAll(APP_COMMANDS);
 
-  const keyboard = new KeyboardController(commands, { modalOpen: () => studio.isOpen() });
+  // No modal gate any more (WS-SPEC WP 3.1 / D2): the hosted studio holds no
+  // draft, so Ctrl+Z in the Workshop is the feature. The commands that would
+  // edit an invisible selection carry their own `onCanvas` precondition.
+  const keyboard = new KeyboardController(commands);
 
   const bridge = new StoreBridge(store, editor);
 

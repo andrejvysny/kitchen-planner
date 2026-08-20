@@ -1242,6 +1242,88 @@ export class Store {
   }
 
   /**
+   * Edit a RESIDENT custom part IN PLACE — the Part Studio's live-apply write
+   * path (WS-SPEC WP 3.1). `mutate` receives the object that is actually in
+   * `design.customParts`, so every placed instance shows the edit on the very
+   * next notify. There is no draft copy of a part anywhere any more.
+   *
+   * Returns false when `id` names no design-local part — a preset id is exactly
+   * that case, and `materializePart` below is how a caller that means "make
+   * this editable" gets one.
+   *
+   * `sanitizePart` runs afterwards because a mid-edit def is no longer private
+   * to an editor: View3D builds meshes from it and `buildBom` exports it. The
+   * zone caps and the dimension clamps therefore have to hold on every
+   * COMMITTED state, not only on the way in from storage.
+   *
+   * It is skipped on a `transient` tick, and that is not a shortcut. Sanitizing
+   * REBUILDS things: `sanitizeZone` mints a new object for every leaf and
+   * `normalizeBoardOutline` re-winds a clockwise ring, renumbering the very
+   * array a corner drag is indexing into. Doing that at pointer rate would pull
+   * the editor's own live references out from under it, and the tick is a
+   * preview anyway — every gesture in the studio ends with a non-transient call,
+   * so nothing escapes the repair.
+   *
+   * Commit is the CALLER's, like every other mutation here — a slider drag
+   * notifies `transient` per tick and takes ONE undo step at gesture end.
+   */
+  updateCustomPart(id: string, mutate: (part: CustomPartDef) => void, transient = false): boolean {
+    const part = this.customPartById(id);
+    if (!part) return false;
+    mutate(part);
+    // sanitizePart repairs in place and hands the SAME object back; null only
+    // for something that is no longer a part at all, which a mutate should
+    // never produce — bail rather than write the wreckage.
+    const clean = transient ? part : sanitizePart(part);
+    if (!clean) return false;
+    this.applyCustomPart(clean);
+    this.notify({ structural: true, transient });
+    return true;
+  }
+
+  /**
+   * Make `def` design-local so it can be EDITED, and hand back the resident
+   * object. Already resident: returned untouched. Anything else — a built-in
+   * preset, a part carried in from the shared library — is deep-cloned in under
+   * its OWN id, which shadows the preset design-wide (WS-SPEC decision D4), so
+   * the instances already placed from it FOLLOW the edits instead of forking
+   * away from them.
+   *
+   * No commit, on purpose: merely opening a preset in the Workshop must not
+   * cost an undo step, and `discardPristineShadow` can then take an untouched
+   * shadow back out without leaving one behind either.
+   */
+  materializePart(def: CustomPartDef): CustomPartDef {
+    const resident = this.customPartById(def.id);
+    if (resident) return resident;
+    const copy = JSON.parse(JSON.stringify(def)) as CustomPartDef;
+    this.applyCustomPart(copy);
+    this.notify({ structural: true });
+    return copy;
+  }
+
+  /**
+   * Remove a design-local part that is still byte-identical to the built-in
+   * preset it shadows — the Workshop's discard-if-pristine, run whenever the
+   * studio stops editing a part (WS-SPEC WP 3.1). Looking at a preset must not
+   * leave a copy of it sitting in "My parts".
+   *
+   * Deliberately NOT `deleteCustomPart`: that one takes every placed instance
+   * with it. Nothing placed changes here, because `partOf` resolves the very
+   * same preset the moment the identical shadow is gone.
+   */
+  discardPristineShadow(id: string): boolean {
+    const shadow = this.customPartById(id);
+    const preset = presetPart(id);
+    if (!shadow || !preset) return false;
+    if (JSON.stringify(shadow) !== JSON.stringify(preset)) return false;
+    this.design.customParts = this.design.customParts.filter((p) => p.id !== id);
+    this.saveSharedLibrary();
+    this.notify({ structural: true });
+    return true;
+  }
+
+  /**
    * Clone the item's resolved part (preset or shared custom part) into
    * design.customParts and repoint just this instance at the copy — the
    * "Customize in Workshop…" flow. Caller commits.
