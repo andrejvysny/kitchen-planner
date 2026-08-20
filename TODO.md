@@ -47,20 +47,28 @@ disclosure), full scope, empty first run.
 
 ## Phase 1 — quick wins
 
-- [ ] 1.1 empty first run (`emptyDesign()` boot, "Load sample design" on
-      starter card, FurnishNudge persistence) — audit interact/screenshot
-      demo-at-boot assumptions first
-- [ ] 1.2 one export manifest (labels+order defined once in exportActions.ts)
-- [ ] 1.3 terminology (wall Thickness everywhere; Workshop verbs; Floor
-      plan/Elevation labels)
-- [ ] 1.4 app-modal confirms (<ConfirmDialog/>; calibrate prompt() → dialog
-      with parseLength)
-- [ ] 1.5 hint severity (info|success|error), persistent underlay-storage
-      warning, exportActions error logging
-- [ ] 1.6 draw-tool discoverability (HintChip Shift/Alt, DrawHud angle-lock
-      state, 4th coach mark → ?, guide legend in cheatsheet)
-- [ ] 1.7 cosmetics (#wsp-back stretch, zone-canvas footer clip, "Room wall
-      colour…" rename)
+- [x] 1.1 empty first run — boot `emptyDesign()`, `store.loadDemo()` behind
+      the starter card's "Load sample design", FurnishNudge persists per tab
+      (NUDGE_KEY, sessionStorage). interact checks 31-35 re-seed the demo via
+      loadDemo(); recovery fallback is empty too.
+- [x] 1.2 one export manifest — `EXPORT_DOCS` in exportActions.ts; Topbar menu
+      + Output cards render from it; label-parity e2e test added.
+- [x] 1.3 terminology — wall "Thickness" everywhere user-facing;
+      "Edit/Customize in Workshop…"; Mode2dToggle says "Floor plan".
+- [ ] 1.4 app-modal confirms (<ConfirmHost/> + confirmDialog/promptLength;
+      calibrate prompt() → dialog with parseLength). Part Studio close-dirty
+      guard STAYS native confirm() — sync switchWorkspace contract; WP 3.1
+      deletes that guard anyway.
+- [x] 1.5 hint severity (info|success|error) + persistent "Reference photo is
+      NOT saved" warning + export failures console.error the real error.
+- [x] 1.6 draw-tool discoverability — chip names Shift/Alt, DrawHud ⟂ lock
+      glyph, 4th coach mark points at ?, guide grammar rows in cheatsheet.
+- [x] 1.7 cosmetics — zone-canvas footer ellipsizes (canvas.title fallback),
+      "Room wall colour…"; #wsp-back was already fixed in ws1.9 (stale note).
+
+Bugs fixed along the way (found by the revived suite): PropsBody subscribes
+'workspace' (stale room panel on tab switch); 'Room wall colour…' omitted in
+Plan (dead row).
 
 ## Phase 2 — core flow
 
