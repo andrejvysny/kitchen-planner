@@ -153,8 +153,12 @@ export class Plan2D {
    * the real-world length and rescales.
    */
   calibrateOn = false;
-  /** the two clicks were `dWorld` metres apart at the current scale */
-  onCalibrateDone: ((dWorld: number) => void) | null = null;
+  /**
+   * The two clicks were `dWorld` metres apart at the current scale. An owner
+   * that answers asynchronously returns the promise, and the span stays drawn
+   * until it settles (see `calibrateClick`).
+   */
+  onCalibrateDone: ((dWorld: number) => void | Promise<void>) | null = null;
   private calibrate: Measure = { a: null, b: null, hover: null, snapped: false, measuring: false };
 
   /**
@@ -612,11 +616,17 @@ export class Plan2D {
     const a = this.calibrate.a!;
     this.calibrate.b = w;
     this.calibrate.measuring = false;
-    // paint the finished span NOW: the owner answers with a blocking prompt,
-    // and a requestAnimationFrame draw would not land until after it closes
+    // paint the finished span NOW: the owner puts a dialog over the plan, and a
+    // requestAnimationFrame draw would not land until after it closes
     this.draw();
     const d = Math.hypot(w.x - a.x, w.y - a.y);
-    if (d > 1e-6) this.onCalibrateDone?.(d);
+    const answer: unknown = d > 1e-6 ? this.onCalibrateDone?.(d) : undefined;
+    // clearing the span is what the ANSWER ends, not the click: the user is
+    // looking at the distance they marked while they type what it really is
+    if (answer instanceof Promise) {
+      void answer.finally(() => this.setCalibrate(false));
+      return;
+    }
     this.setCalibrate(false);
   }
 

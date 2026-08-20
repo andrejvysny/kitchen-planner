@@ -2,6 +2,7 @@ import { useEffect, type ReactElement } from 'react';
 import { services } from '../../app/bootstrap';
 import { Cheatsheet } from './Cheatsheet';
 import { CoachMarks } from './CoachMarks';
+import { ConfirmHost } from './ConfirmHost';
 import { PdfPagePicker } from './PdfPagePicker';
 import { RecoveryBanner } from './RecoveryBanner';
 import { AppServicesProvider } from './services';
@@ -50,6 +51,9 @@ export function App(): ReactElement {
         {/* self-gating like <Cheatsheet/>: renders null unless a PDF is waiting
             for a page to be chosen (shellState.pdfImport) */}
         <PdfPagePicker />
+        {/* self-gating too: the in-app confirm/prompt, up only while
+            shellState.appDialog() holds a question */}
+        <ConfirmHost />
         {services.firstRun && <CoachMarks />}
       </div>
     </AppServicesProvider>

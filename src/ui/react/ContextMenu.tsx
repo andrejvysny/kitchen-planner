@@ -12,6 +12,7 @@ import { hasPreset } from '../../model/presets';
 import { contextMenu, type ContextHit, type MenuEntry } from '../contextMenuModel';
 import { openInWorkshop, workspace } from '../workspaceState';
 import { useMenuDismiss } from './hooks/useMenuDismiss';
+import { confirmDeleteRoom } from './roomActions';
 import { useAppServices } from './services';
 
 /**
@@ -204,9 +205,8 @@ export function ContextMenu(): ReactElement | null {
         if (hit.kind !== 'room') return;
         const room = store.roomById(hit.roomId);
         if (!room) return;
-        if (!confirm(`Delete "${room.name}" and everything in it?`)) return;
-        store.deleteRoom(hit.roomId);
-        store.commit();
+        // the menu closes on the click; the answer arrives after it is gone
+        void confirmDeleteRoom(store, room.id, room.name);
         return;
       }
 

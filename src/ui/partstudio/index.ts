@@ -8,6 +8,7 @@ import {
 } from '../../model/parts';
 import { presetPart } from '../../model/presets';
 import type { Store } from '../../model/store';
+import { confirmDialog } from '../dialogService';
 import type { CustomPartDef } from '../../model/types';
 import { uid } from '../../model/types';
 import { clearWorkshopTarget } from '../workspaceState';
@@ -104,8 +105,9 @@ export class PartStudio {
     host.appendChild(overlay);
     this.overlay = overlay;
 
-    (overlay.querySelector('.studio-cancel') as HTMLElement).addEventListener('click', () =>
-      this.revert()
+    (overlay.querySelector('.studio-cancel') as HTMLElement).addEventListener(
+      'click',
+      () => void this.revert()
     );
     this.keyHandler = (e) => this.onKeyDown(e);
     document.addEventListener('keydown', this.keyHandler);
@@ -132,6 +134,11 @@ export class PartStudio {
   /** Tear the studio out of its host. Unsaved edits ask for confirmation unless `force`. Returns false if kept open. */
   close(force = false): boolean {
     if (this.overlay && this.part && !force && JSON.stringify(this.part) !== this.originalJson) {
+      // DELIBERATELY NATIVE, unlike the studio's other two confirms: this one
+      // runs inside services.switchWorkspace, whose refusal contract is
+      // SYNCHRONOUS (a false return aborts the switch on the spot). The in-app
+      // dialog resolves a promise, which cannot answer a boolean this call
+      // frame. WP 3.1 removes this guard outright.
       if (!confirm('Discard your changes to this part?')) return false;
     }
     if (this.keyHandler) document.removeEventListener('keydown', this.keyHandler);
@@ -207,7 +214,7 @@ export class PartStudio {
 
     const del = overlay.querySelector('.studio-delete') as HTMLButtonElement;
     const dup = overlay.querySelector('.studio-duplicate') as HTMLButtonElement;
-    del.addEventListener('click', () => this.deletePart());
+    del.addEventListener('click', () => void this.deletePart());
     dup.addEventListener('click', () => this.duplicatePart());
     this.syncFooter();
 
@@ -345,27 +352,41 @@ export class PartStudio {
    * the built-in preset this id shadows if not, and the type picker for a part
    * that was never saved at all.
    */
-  private revert(): void {
+  private async revert(): Promise<void> {
     const host = this.host;
-    if (!host || !this.part) return;
-    if (JSON.stringify(this.part) !== this.originalJson) {
-      if (!confirm('Discard your changes to this part?')) return;
+    const part = this.part;
+    if (!host || !part) return;
+    if (JSON.stringify(part) !== this.originalJson) {
+      const ok = await confirmDialog({
+        title: 'Discard your changes?',
+        body: 'This part goes back to how it was last saved.',
+        confirmLabel: 'Discard',
+        danger: true,
+      });
+      // the studio can have moved on while the dialog was up
+      if (!ok || this.part !== part || this.host !== host) return;
     }
-    const id = this.part.id;
+    const id = part.id;
     const saved = this.store.customPartById(id) ?? presetPart(id);
     this.close(true);
     this.open(saved, host);
   }
 
-  private deletePart(): void {
-    if (!this.part) return;
-    const used = this.store.design.items.filter((i) => i.defId === this.part!.id).length;
-    const msg = used
-      ? `Delete this part and its ${used} placed ${used === 1 ? 'copy' : 'copies'}?`
-      : 'Delete this part?';
-    if (!confirm(msg)) return;
-    const host = this.host!;
-    this.store.deleteCustomPart(this.part.id);
+  private async deletePart(): Promise<void> {
+    const part = this.part;
+    if (!part) return;
+    const used = this.store.design.items.filter((i) => i.defId === part.id).length;
+    const ok = await confirmDialog({
+      title: 'Delete part?',
+      body: used
+        ? `${used} placed ${used === 1 ? 'copy goes' : 'copies go'} with it.`
+        : 'This part is not placed anywhere.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok || this.part !== part || !this.host) return;
+    const host = this.host;
+    this.store.deleteCustomPart(part.id);
     this.store.commit();
     // the target names a part that no longer exists; drop it and land on the
     // picker, which is the Workshop's empty state

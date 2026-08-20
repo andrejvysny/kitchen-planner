@@ -312,6 +312,20 @@ const CONTEXT_MENU: readonly ContractEntry[] = [
   vis('#context-menu .ctx-hint'),
 ];
 
+/**
+ * src/ui/react/ConfirmHost.tsx — the in-app confirm/prompt that replaced
+ * `confirm()`/`prompt()`. Conditional like CONTEXT_MENU above: asserted inside a
+ * step that raises it (File ▸ New) and cancelled again right after, so nothing
+ * downstream sees a changed design. `#dialog-input` is prompt-only and belongs
+ * to the calibrate flow, so it is not pinned here.
+ */
+const APP_DIALOG: readonly ContractEntry[] = [
+  vis('#app-dialog'),
+  vis('#app-dialog .modal-card'),
+  vis('#dialog-cancel'),
+  vis('#dialog-accept'),
+];
+
 /** Runs every entry in a group; a failure names the exact missing selector. */
 async function assertContract(page: Page, group: readonly ContractEntry[]): Promise<void> {
   for (const { sel, mode } of group) {
@@ -551,6 +565,17 @@ test('DOM contract: selector table stays present across every pinned app state',
   await test.step('close settings menu', async () => {
     await app.click('#btn-settings');
     await expect(app.locator('#settings-menu.open')).toHaveCount(0);
+  });
+
+  // ---- app dialog (raise over File ▸ New, then cancel it) ----
+  await test.step('app dialog', async () => {
+    await app.click('#btn-new');
+    await assertContract(app, APP_DIALOG);
+    await app.click('#dialog-cancel');
+    await expect(app.locator('#app-dialog')).toHaveCount(0);
+    // Cancel is the whole point: the design (and the selection asserted below)
+    // has to be exactly what it was before the dialog went up
+    await expect.poll(() => app.evaluate(() => window.__kp.store.design.rooms.length)).toBe(1);
   });
 
   // itemSelected/wallSelected/openingSelected/cornerSelected all target the

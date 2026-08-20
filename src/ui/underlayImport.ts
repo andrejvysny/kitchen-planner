@@ -8,6 +8,7 @@ import {
   UNDERLAY_MAX_PX,
   underlayScaleFrom,
 } from '../model/underlay';
+import { promptValue } from './dialogService';
 import { setHint, setUnderlayStoreFailed } from './shellState';
 
 /**
@@ -15,7 +16,7 @@ import { setHint, setUnderlayStoreFailed } from './shellState';
  * asking the user what a calibration span really measures — lifted out of
  * src/ui/ui.ts so the Reference-photo section can be a plain component.
  *
- * Not pure (a canvas decodes the image, `prompt()` asks the question, the
+ * Not pure (a canvas decodes the image, a dialog asks the question, the
  * outcome goes to the Store and the status hint), but the Store arrives as an
  * argument rather than through the app bootstrap: nothing here needs the
  * singleton, and keeping the edge explicit means a test can drive these with a
@@ -121,17 +122,35 @@ export function placeUnderlay(
  * suffixes every inspector field does, in the same preferred unit. A photo
  * pixel is a fraction of that unit, so the readouts below borrow the prefs
  * with two decimals rather than the usual none.
+ *
+ * A rejected answer keeps the dialog OPEN (that is what `input.parse` is for):
+ * a mistyped length used to close the prompt and cancel the calibration, and
+ * the whole two-click gesture had to be redone.
  */
-export function applyCalibration(store: Store, dWorld: number): void {
-  const u = store.design.underlay;
-  if (!u) return;
+export async function applyCalibration(store: Store, dWorld: number): Promise<void> {
+  if (!store.design.underlay) return;
   const prefs = unitPrefs();
-  const answer = prompt(`How long is that distance in reality? (${prefs.unit})`);
-  const real = answer === null ? null : parseLength(answer, prefs);
-  if (real === null || real <= 0) {
+  const real = await promptValue({
+    title: 'Set the real-world length',
+    body: 'The distance you just marked on the photo',
+    confirmLabel: 'Set scale',
+    input: {
+      placeholder: `e.g. 2400 or 2.4m (${prefs.unit})`,
+      parse: (raw) => {
+        const v = parseLength(raw, prefs);
+        if (v === null) return { ok: false, error: 'Not a length — try 2400, 2.4m or 240cm' };
+        if (v <= 0) return { ok: false, error: 'A distance has to be more than zero' };
+        return { ok: true, value: v };
+      },
+    },
+  });
+  if (real === null) {
     setHint('Scale calibration cancelled');
     return;
   }
+  // re-read: the design can have been replaced while the dialog was up
+  const u = store.design.underlay;
+  if (!u) return;
   const scale = underlayScaleFrom(dWorld, u.scale, real);
   store.updateUnderlay({ scale });
   store.commit();

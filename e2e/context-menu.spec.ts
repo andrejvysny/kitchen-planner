@@ -254,9 +254,11 @@ test.describe('plan canvas', () => {
     const roomId = await app.evaluate(() => window.__kp.store.design.rooms[0].id);
     await expect.poll(() => app.evaluate(() => window.__kp.store.activeRoomId)).toBe(roomId);
 
-    // and the danger entry does what it says (the app fixture accepts dialogs)
+    // and the danger entry does what it says, once its confirm is accepted
     await rightClickPlan(app, 2, 1.5);
     await entry(app, 'delete-room').click();
+    await expect(app.locator('#app-dialog')).toBeVisible();
+    await app.click('#dialog-accept');
     await expect.poll(() => app.evaluate(() => window.__kp.store.design.rooms.length)).toBe(1);
   });
 

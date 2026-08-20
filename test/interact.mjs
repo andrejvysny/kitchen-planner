@@ -129,12 +129,20 @@ const waitForPose = (itemId, open) =>
     { itemId, open }
   );
 
-/** After #btn-new: the click goes through a confirm() dialog round-trip
- * (auto-accepted, see the page.on('dialog') handler above) before
- * replaceDesign() lands a genuinely empty (0-room) design — the WS
- * starter-card flow this suite doesn't drive directly. Every step below
- * still wants the old deterministic single 4x3 room at the origin, so wait
- * for the 0-room transition (proof New actually landed) and re-add it
+/** File ▸ New, through its confirm. The question is the app's OWN dialog now
+ * (src/ui/react/ConfirmHost.tsx), so the page.on('dialog') handler above no
+ * longer sees it — that handler is left for the one native confirm still in
+ * the app, the Part Studio's dirty-close guard. Unconditional: New asks even
+ * on a pristine design. */
+const clickNew = async () => {
+  await page.click('#btn-new');
+  await page.click('#dialog-accept');
+};
+
+/** After clickNew(): replaceDesign() lands a genuinely empty (0-room) design
+ * — the WS starter-card flow this suite doesn't drive directly. Every step
+ * below still wants the old deterministic single 4x3 room at the origin, so
+ * wait for the 0-room transition (proof New actually landed) and re-add it
  * through the same addRoom() a real "Add a room" click would use, then poll
  * for the settled 1-room state as before. */
 const resetReady = () =>
@@ -214,7 +222,7 @@ const waitForCameraSettled = () =>
 await bootReady();
 // deterministic state: empty 4x3 room, no items
 await page.evaluate(() => localStorage.clear());
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 
 const n0 = await count();
@@ -1431,7 +1439,7 @@ await page.evaluate(() => window.__kp.store.setCeilingVisibility('auto'));
 
 // 24. wall elevation view: front view of one wall shows only wall-attached items
 await page.keyboard.press('Escape');
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 const elevIds = await page.evaluate(() => {
   const st = window.__kp.store;
@@ -1817,7 +1825,7 @@ results.push(['oven slots into an appliance niche and rides the tower', zoneAppl
 // 30. multi-room UI (N1-N3, N12): the wall tool's drag gesture, click-to-activate,
 // the Rooms group in the outline, and the elevation following the active room.
 await page.keyboard.press('Escape');
-await page.click('#btn-new'); // deterministic single 4x3 room, no items
+await clickNew(); // deterministic single 4x3 room, no items
 await resetReady();
 // pin the viewport so both rooms are on-canvas whatever the pane size is
 await page.evaluate(() => {
@@ -2003,7 +2011,7 @@ await page.click('#mode2d-toggle button[data-2dmode="plan"]');
 
 // N4 — per-room style isolation: styling one room must not bleed into the
 // other, and the two Floor meshes must carry distinct material colours.
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 const n4 = await page.evaluate(() => {
   const st = window.__kp.store;
@@ -2036,7 +2044,7 @@ results.push([
 ]);
 
 // N5 — a shared partition is built exactly once, under its owner.
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 await page.evaluate(() => {
   const st = window.__kp.store;
@@ -2063,7 +2071,7 @@ results.push([
 
 // N6 — placing a catalog item near the far wall of the second room snaps it
 // flush to that wall, facing into room 2, and stamps room 2 as its roomId.
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 const n6fixture = await page.evaluate(() => {
   const st = window.__kp.store;
@@ -2117,7 +2125,7 @@ results.push([
 ]);
 
 // N7 — each room's ceiling sits at that room's own wallHeight.
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 await page.evaluate(() => {
   const st = window.__kp.store;
@@ -2143,7 +2151,7 @@ results.push([
 ]);
 
 // N8 — wall-visibility overrides are scoped to the room they were set on.
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 const n8 = await page.evaluate(() => {
   const st = window.__kp.store;
@@ -2187,7 +2195,7 @@ results.push([
 // onto the surviving twin instead of dropping it. A door on a wall the
 // deleted room does NOT own would instead survive untouched on the owner —
 // this fixture exercises the re-home branch by deleting the owning room.
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 const n9setup = await page.evaluate(() => {
   const st = window.__kp.store;
@@ -2341,7 +2349,7 @@ results.push(['wall-snap placement on a migrated design', placed10 < 0.05]);
 
 // N11 — measuring between a corner of room 1 and a corner of room 2 reports
 // the true cross-room distance and never touches the model.
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 const n11fixture = await page.evaluate(() => {
   const st = window.__kp.store;
@@ -2378,7 +2386,7 @@ await page.keyboard.press('Escape');
 
 // N12 — bedroom set: a bed backs onto a wall like any wall-placed unit, and
 // the wardrobe preset carries its hanging rail all the way into the 3D scene.
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 await page.evaluate(() => window.__kp.plan.zoomFit());
 await page.click('.cat-item[data-def-id="bed-double"]');
@@ -2421,7 +2429,7 @@ results.push([
 
 // N13 — living-room set: a rug ignores wall snapping entirely, a TV refuses to
 // place away from a wall, and the sofa's seats stepper drives its width.
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 await page.evaluate(() => window.__kp.plan.zoomFit());
 const bb13 = await paneOffset();
@@ -2687,7 +2695,7 @@ results.push([
 // 36. draw-room tool (F2): click an L-shaped ring corner by corner, cancel one
 // with Esc, and close a real one on its first vertex.
 await page.keyboard.press('Escape');
-await page.click('#btn-new'); // deterministic single 4x3 room, no items
+await clickNew(); // deterministic single 4x3 room, no items
 await resetReady();
 await page.evaluate(() => {
   window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 });
@@ -2807,7 +2815,7 @@ results.push([
 // 37. auto-share (F1): a room DRAWN along an existing wall's centreline becomes
 // a partition — no "attach to wall" step, no stub segments, and the host room
 // keeps every millimetre of its interior (alignWallToCentreline).
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 await page.evaluate(() => {
   window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 });
@@ -2880,7 +2888,7 @@ results.push([
 ]);
 await page.keyboard.press('Escape');
 // 38. angle snap: on by default, Shift inverts it, and the toggle turns it off
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 await page.evaluate(() => {
   window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 });
@@ -2929,7 +2937,7 @@ await page.keyboard.press('Escape');
 // is the half of "redraw a plan wall by wall" that used to commit as
 // free-standing walls, forcing the fourth wall to be drawn over one that
 // already existed.
-await page.click('#btn-new');
+await clickNew();
 await resetReady();
 await page.evaluate(() => window.__kp.plan.setViewport({ zoom: 30, panX: 20, panY: 40 }));
 await page.click('#btn-draw-room');

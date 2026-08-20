@@ -1,7 +1,8 @@
 /**
  * ShellState — the chrome's own ephemeral state: the status-bar hint text,
  * whether the catalog drawer is open, the elevation view's wall label, whether
- * the shortcut sheet is up, and the PDF waiting for a page to be chosen.
+ * the shortcut sheet is up, the PDF waiting for a page to be chosen, and the
+ * confirm/prompt dialog waiting for an answer.
  *
  * None of them belongs to the Design (never serialized, never in an undo step)
  * nor to EditorState (they are not tools — a hint is a message, the drawer is a
@@ -24,6 +25,7 @@ let wallLabelText = 'Wall';
 let sheetOpen = false;
 let pdfFile: File | null = null;
 let underlayFailed = false;
+let dialogReq: DialogRequest | null = null;
 
 const listeners = new Set<() => void>();
 
@@ -117,6 +119,42 @@ export function underlayStoreFailed(): boolean {
 export function setUnderlayStoreFailed(failed: boolean): void {
   if (underlayFailed === failed) return;
   underlayFailed = failed;
+  emit();
+}
+
+/**
+ * A question the app is asking — the in-app replacement for `confirm()` and
+ * `prompt()`. An `input` makes it a prompt: its `parse` both validates the raw
+ * string and maps it to the number the caller wanted, so the dialog can hold
+ * itself open on a bad answer instead of resolving with a wrong one.
+ */
+export interface DialogRequest {
+  title: string;
+  body?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+  input?: {
+    placeholder?: string;
+    initial?: string;
+    /** validate+map; return {ok:true,value}|{ok:false,error} */
+    parse: (raw: string) => { ok: true; value: number } | { ok: false; error: string };
+  };
+}
+
+export function appDialog(): DialogRequest | null {
+  return dialogReq;
+}
+
+/**
+ * Chrome like the cheatsheet — never Design data, never undone. Set it through
+ * src/ui/dialogService.ts rather than directly: the service owns the promise
+ * the opener is waiting on, and a request raised behind its back would never be
+ * answered.
+ */
+export function setDialog(req: DialogRequest | null): void {
+  if (dialogReq === req) return;
+  dialogReq = req;
   emit();
 }
 

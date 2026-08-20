@@ -26,10 +26,21 @@ export async function bootReady(page: Page): Promise<void> {
   );
 }
 
+/**
+ * File ▸ New, through its confirm. The question is the app's own dialog now
+ * (src/ui/react/ConfirmHost.tsx), not a native `confirm()` the `page.on('dialog')`
+ * handler below could accept, and it is unconditional — a pristine design asks
+ * too — so every route to New goes through this.
+ */
+export async function clickNew(page: Page): Promise<void> {
+  await page.click('#btn-new');
+  await page.click('#dialog-accept');
+}
+
 /** Reset to the deterministic single empty 4x3 room, no items. */
 export async function resetDesign(page: Page): Promise<void> {
   await page.evaluate(() => localStorage.clear());
-  await page.click('#btn-new');
+  await clickNew(page);
   await bootReady(page);
   // New is zero-room by design; seed the deterministic 4x3 room the specs
   // assume, through the same addRoom() a real "Add a room" click would use.
@@ -55,7 +66,7 @@ export async function resetDesign(page: Page): Promise<void> {
  */
 export async function resetEmpty(page: Page): Promise<void> {
   await page.evaluate(() => localStorage.clear());
-  await page.click('#btn-new');
+  await clickNew(page);
   await bootReady(page);
   await expect.poll(() => page.evaluate(() => window.__kp.store.design.rooms.length)).toBe(0);
   await expect.poll(() => page.evaluate(() => window.__kp.store.design.items.length)).toBe(0);
@@ -107,6 +118,8 @@ export const test = base.extend<{ app: Page }>({
     await page.addInitScript((k) => localStorage.setItem(k, '1'), ONBOARDED_KEY);
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+    // one native dialog is left in the app: the Part Studio's dirty-close guard
+    // (src/ui/partstudio/index.ts), which must answer synchronously
     page.on('dialog', (d) => void d.accept());
 
     await page.goto('/', { waitUntil: 'networkidle' });

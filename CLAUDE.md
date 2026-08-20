@@ -752,6 +752,20 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   write `#status-hint` calls `setHint()`; `<StatusHint/>` renders it, and
   `<WallNav/>` renders `wallLabel()` the same way. StoreBridge carries all
   three upstreams as channels: Store, `'editor'` and `'shell'`.
+- **`confirm()`/`prompt()` are gone; the app asks its own questions.** The
+  pending `DialogRequest` is one more shellState field (`appDialog()`),
+  src/ui/dialogService.ts owns the promise (`confirmDialog` → boolean,
+  `promptValue` → number|null, `resolveDialog(accepted, value?)` from the host)
+  and <ConfirmHost/> draws it in PdfPagePicker's `.modal-card`, Escape/Enter in
+  the CAPTURE phase like <Cheatsheet/>. ONE dialog at a time: a second opener
+  resolves the first as cancelled. An `input`'s `parse` both validates and maps,
+  so a bad answer holds the dialog OPEN — that is how the calibrate prompt takes
+  `parseLength` expressions ('2400', '2.4m', '600*4') without losing the
+  two-click gesture to a typo. The ONE deliberate survivor is the Part Studio's
+  dirty-close `confirm()`: it answers inside `switchWorkspace`'s SYNCHRONOUS
+  refusal contract, which a promise cannot. Every caller is async now, which is
+  why `Plan2D.onCalibrateDone` may return a promise — the calibration span stays
+  drawn until it settles.
 - **Onboarding is decided at construction, never in a component** (WS-SPEC
   §5.5). `createServices()` computes `firstRun = !loadedDesign &&
   !needsRecoveryBanner && !onboarded()` from the reads it already does plus

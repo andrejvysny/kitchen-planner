@@ -2255,6 +2255,37 @@ body {
   color: var(--danger, #c0392b);
 }
 
+/* ---------- app dialog (confirm / prompt) ---------- */
+
+/* Same card as the page picker, sized for one question instead of a grid. */
+.dialog-card {
+  max-width: 420px;
+}
+
+#dialog-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.dialog-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 /* ---- wall tool: live length / angle readout ---------------------------- */
 /* Positioned in #pane2d's own space — Plan2D.toScreen is canvas-relative, and
    the canvas fills the pane. `pointer-events: none` is essential: the readout

@@ -17,6 +17,7 @@ import {
   setHint,
   setPdfImport,
 } from '../shellState';
+import { confirmDialog } from '../dialogService';
 import { isPdf } from '../pdfImport';
 import { applyCalibration, importUnderlay } from '../underlayImport';
 import { workspace, type WorkspaceId } from '../workspaceState';
@@ -182,14 +183,16 @@ function WorkspaceTabs(): ReactElement {
  * calibration callback below has to outlive it.
  *
  * Plan2D reports a finished calibration through `onCalibrateDone`, not through
- * the editor state, because answering it needs a blocking prompt no view
- * should own. Both halves are in src/ui/underlayImport.ts.
+ * the editor state, because answering it needs a dialog no view should own.
+ * Both halves are in src/ui/underlayImport.ts.
  */
 function UnderlayInput(): ReactElement {
   const { store, plan } = useAppServices();
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    // the promise is returned, not dropped: Plan2D keeps the finished span on
+    // screen until the dialog behind it resolves
     plan.onCalibrateDone = (d) => applyCalibration(store, d);
     return () => {
       plan.onCalibrateDone = null;
@@ -343,9 +346,13 @@ function FileGroup(): ReactElement {
   const { store, plan } = useAppServices();
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const onNew = (): void => {
-    if (!confirm('Start a new design? Your current design will be replaced (Undo can restore it).'))
-      return;
+  const onNew = async (): Promise<void> => {
+    const ok = await confirmDialog({
+      title: 'Start a new design?',
+      body: 'This replaces the current design. Export it first if you want to keep it.',
+      confirmLabel: 'Start new',
+    });
+    if (!ok) return;
     plan.setArmed(null);
     store.replaceDesign(emptyDesign());
     plan.zoomFit();
@@ -387,7 +394,7 @@ function FileGroup(): ReactElement {
 
   return (
     <div className="topbar-group">
-      <button id="btn-new" title="Start a new empty design" onClick={onNew}>
+      <button id="btn-new" title="Start a new empty design" onClick={() => void onNew()}>
         New
       </button>
       <button id="btn-save" title="Download design as JSON" onClick={onSave}>

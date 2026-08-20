@@ -19,6 +19,7 @@ import { useSyncedValue } from '../fields/useLiveValue';
 import { useNativeChange } from '../fields/useNativeChange';
 import { VarChips } from '../fields/VarChips';
 import { useChannel } from '../hooks/useStore';
+import { confirmDeleteRoom } from '../roomActions';
 import { WORKSPACE_ROOM_SECTIONS, type RoomSectionId } from './roomSections';
 import { ChecksSection } from './ChecksSection';
 import { LightingProps } from './LightingProps';
@@ -221,11 +222,7 @@ function DeleteRoomSection({ room }: { room: Room }): ReactElement {
           className="btn danger"
           disabled={rooms.length === 1}
           title={rooms.length === 1 ? 'A design always has at least one room' : undefined}
-          onClick={() => {
-            if (!confirm(`Delete "${room.name}" and everything in it?`)) return;
-            store.deleteRoom(room.id);
-            store.commit();
-          }}
+          onClick={() => void confirmDeleteRoom(store, room.id, room.name)}
         >
           Delete room
         </button>
