@@ -150,13 +150,14 @@ export function ItemProps({ item }: { item: Item }): ReactElement {
                 if (store.customPartById(item.defId)) openInWorkshop(item.defId, item.id);
               }}
             >
-              Edit part template…
+              Edit in Workshop…
             </button>
           </div>
         ) : hasPreset(item.defId) ? (
           <div className="btn-row">
             <button
               className="btn"
+              title="Makes an editable copy of this built-in part for this design"
               onClick={() => {
                 // fork the preset into "My parts" so just this instance becomes editable
                 const fork = store.forkPartForItem(item.id);
@@ -165,7 +166,7 @@ export function ItemProps({ item }: { item: Item }): ReactElement {
                 openInWorkshop(fork.id, item.id);
               }}
             >
-              Customize part…
+              Customize in Workshop…
             </button>
           </div>
         ) : null}

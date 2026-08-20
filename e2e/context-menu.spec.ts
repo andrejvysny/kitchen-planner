@@ -222,7 +222,7 @@ test.describe('plan canvas', () => {
     await entry(app, 'edit-workshop').click();
 
     await expect.poll(() => app.evaluate(() => window.__kp.workspace())).toBe('workshop');
-    // same guard as the props panel's "Customize part…": a preset forks first,
+    // same guard as the props panel's "Customize in Workshop…": a preset forks first,
     // so only this instance becomes editable
     expect(await app.evaluate(() => window.__kp.store.design.customParts.length)).toBe(
       partsBefore + 1

@@ -12,7 +12,7 @@ import type {
  * Built-in cabinet presets: readonly part defs that replace the retired
  * hardcoded catalog kinds. They resolve through Store.partOf like user parts
  * (design-local custom parts deliberately shadow same-id presets) but are
- * never copied into a design or persisted — "Customize part…" forks a copy
+ * never copied into a design or persisted — "Customize in Workshop…" forks a copy
  * into design.customParts when an instance needs its own layout.
  */
 

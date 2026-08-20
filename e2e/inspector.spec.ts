@@ -175,7 +175,9 @@ test('a cabinet shows dimensions, position, both colour slots and its worktop', 
   await expect(worktop.locator('.toggle-row input')).toHaveCount(0); // no pattern yet, no rotate row
 
   // a preset is forkable, so the actions offer the customize path
-  await expect(app.locator('#props-inner button', { hasText: 'Customize part…' })).toHaveCount(1);
+  await expect(
+    app.locator('#props-inner button', { hasText: 'Customize in Workshop…' })
+  ).toHaveCount(1);
 });
 
 test('a parametric item shows its stepper, and a clashing one leads with Checks', async ({

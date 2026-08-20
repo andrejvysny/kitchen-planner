@@ -21,7 +21,7 @@ const TYPE_LABELS: Record<CustomPartDef['type'], string> = {
  * The Workshop workspace's sidebar: a flat list of editable parts instead of
  * the plan/furnish tab strip. "My parts" opens the user's own custom parts;
  * "Built-in presets" opens a preset (which forks into a custom part on save,
- * same as "Customize part…" in the props panel). Every row hands off through
+ * same as "Customize in Workshop…" in the props panel). Every row hands off through
  * `openInWorkshop` — the Workshop canvas pane itself lands in WP 1.6, so
  * clicking a row today only switches workspace + sets the target.
  */

@@ -250,7 +250,7 @@ function collect<T extends { key: string; qty: number; itemIds: string[] }>(
  *
  * The key is `roomId | part NAME | panelId | LxWxT | colour | material |
  * finish | notes`. It carries the part NAME rather than its defId on purpose:
- * `Store.forkPartForItem` ("Customize part…") mints a FRESH defId for a copy of
+ * `Store.forkPartForItem` ("Customize in Workshop…") mints a FRESH defId for a copy of
  * a preset, so keying on defId would split two physically identical cabinets
  * into two rows. Name-keying merges them; `itemIds` keeps the traceability, and
  * two genuinely different parts sharing a name still differ in panel ids or

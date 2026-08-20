@@ -142,7 +142,7 @@ describe('defaultInterior / sanitizeInterior', () => {
       ],
     });
     // rails must survive a save/load round-trip — a missing branch here would
-    // silently drop every wardrobe rail on reload or on "Customize part…"
+    // silently drop every wardrobe rail on reload or on "Customize in Workshop…"
     expect(
       sanitizeInterior({
         mode: 'custom',

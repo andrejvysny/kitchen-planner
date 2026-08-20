@@ -146,7 +146,7 @@ function Mode2dToggle(): ReactElement {
         title="Top-down floor plan"
         onClick={() => pick('plan')}
       >
-        Plan
+        Floor plan
       </button>
       <button
         data-2dmode="elev"
@@ -256,7 +256,7 @@ function WallWidthField(): ReactElement {
   });
 
   return (
-    <label id="wall-width" title="Width of the walls being drawn">
+    <label id="wall-width" title="Thickness of the walls being drawn">
       <input
         type="text"
         inputMode="decimal"
