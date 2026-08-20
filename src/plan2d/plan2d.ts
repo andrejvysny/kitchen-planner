@@ -1394,6 +1394,49 @@ export class Plan2D {
 
   /* ---------------- hints ---------------- */
 
+  /**
+   * Cheap "is there another item to cycle to" check for the item hint —
+   * world-space bbox intersection only (no polygon boolean), mirroring the
+   * approximation the design calls for. Exact stacking is what `hitItems`
+   * decides at click time; this only needs to be right often enough to teach
+   * the gesture.
+   */
+  private hasItemBeneath(it: Item): boolean {
+    const bbox = (pts: Point[]) => {
+      let minX = Infinity,
+        maxX = -Infinity,
+        minY = Infinity,
+        maxY = -Infinity;
+      for (const p of pts) {
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+      }
+      return { minX, maxX, minY, maxY };
+    };
+    const a = bbox(itemOutlineWorld(this.store, it));
+    return this.store.design.items.some((other) => {
+      if (other.id === it.id) return false;
+      const b = bbox(itemOutlineWorld(this.store, other));
+      return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
+    });
+  }
+
+  /**
+   * One-shot hint for the drag a fresh placement is already in — `placeArmed`
+   * hands the item straight into a live drag, which is otherwise invisible.
+   * Pushed directly (not through `updateHint`); the next natural hint update
+   * overwrites it, which is fine — hints are transient by design.
+   */
+  private postPlaceHint(keep: boolean): void {
+    this.onHint(
+      keep
+        ? 'Keep dragging to fine-place · release to drop · Shift kept placing'
+        : 'Keep dragging to fine-place · release to drop'
+    );
+  }
+
   private updateHint(): void {
     if (this.calibrateOn) {
       this.onHint(
@@ -1451,11 +1494,21 @@ export class Plan2D {
     }
     const sel = this.store.selection;
     switch (sel.kind) {
-      case 'item':
-        this.onHint(
-          'Drag to move · click again for the item underneath · R rotates · arrows nudge · Ctrl+D duplicates · Delete removes'
-        );
+      case 'item': {
+        const it = this.store.itemById(sel.id);
+        let hint: string;
+        if (it?.attach) {
+          const host = this.store.itemById(it.attach.hostId);
+          const hostLabel = host ? this.store.defOf(host.defId).label : '?';
+          hint = `Mounted on ${hostLabel} — position follows it · Detach in the inspector`;
+        } else {
+          hint = 'Drag to move';
+        }
+        if (it && this.hasItemBeneath(it)) hint += ' · click again: select the item beneath';
+        hint += ' · R rotates · arrows nudge · Ctrl+D duplicates · Delete removes';
+        this.onHint(hint);
         break;
+      }
       case 'corner':
         this.onHint('Drag the corner to reshape the room · Delete removes it');
         break;
@@ -1872,6 +1925,7 @@ export class Plan2D {
       this.store.commit();
       if (!keep) this.setArmed(null);
       this.drag = { type: 'item', id: item.id, ox: 0, oy: 0, moved: false };
+      this.postPlaceHint(keep);
       return;
     }
     const snapped = snapItem(this.store, def, null, w.x, w.y, 0);
@@ -1883,6 +1937,7 @@ export class Plan2D {
     if (!keep) this.setArmed(null);
     // continue dragging the fresh item for fine placement
     this.drag = { type: 'item', id: item.id, ox: 0, oy: 0, moved: false };
+    this.postPlaceHint(keep);
   }
 
   private onPointerMove(e: PointerEvent): void {

@@ -160,6 +160,47 @@ describe('Plan2D ↔ EditorState', () => {
     expect(plan.toolState().measure).toBe(false);
   });
 
+  // The 'selection' store subscription that normally drives updateHint() is
+  // only taken in attach() (no canvas here), but every setX() delegate calls
+  // updateHint() itself — toggling a tool on/off is enough to force a fresh
+  // read of the current (headless-set) store.selection.
+  it('the item hint calls out click-to-cycle only when another item actually overlaps', () => {
+    const { store, plan, hints } = setup();
+    const def = store.defOf('base-cabinet');
+    // far outside the demo room/layout so nothing else is nearby to begin with
+    const a = store.addItem(def, 50, 50, 0);
+    store.select({ kind: 'item', id: a.id });
+
+    hints.length = 0;
+    plan.setMeasure(true);
+    plan.setMeasure(false);
+    expect(last(hints)).not.toContain('click again: select the item beneath');
+
+    store.addItem(def, 50, 50, 0); // same spot: footprints overlap
+    hints.length = 0;
+    plan.setMeasure(true);
+    plan.setMeasure(false);
+    expect(last(hints)).toContain('click again: select the item beneath');
+  });
+
+  it('an attached item is told it is mounted, not that it drags freely', () => {
+    const { store, plan, hints } = setup();
+    const hostDef = store.defOf('base-cabinet');
+    const host = store.addItem(hostDef, 50, 50, 0);
+    const sinkDef = store.defOf('appl-sink');
+    const sink = store.addItem(sinkDef, 50, 50, 0);
+    store.setAttachment(sink.id, { kind: 'counter', hostId: host.id, u: 0, v: 0 });
+    store.select({ kind: 'item', id: sink.id });
+
+    hints.length = 0;
+    plan.setMeasure(true);
+    plan.setMeasure(false);
+    const hint = last(hints)!;
+    expect(hint).toContain(`Mounted on ${hostDef.label}`);
+    expect(hint).toContain('Detach in the inspector');
+    expect(hint).not.toContain('Drag to move');
+  });
+
   it('dispose() drops the editor subscription it took in the constructor', () => {
     const { editor, plan, hints } = setup();
     editor.setTool('measure');
