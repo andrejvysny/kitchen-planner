@@ -1,6 +1,12 @@
-import { useEffect, useRef, type ReactElement } from 'react';
-import { useStore } from '../services';
+import { Fragment, useEffect, useRef, type ReactElement } from 'react';
+import {
+  GROUP_LABELS,
+  materialInfo,
+  titleFor,
+  type MaterialGroup,
+} from '../../../model/materialInfo';
 import type { MaterialDef } from '../../../model/materials';
+import { useStore } from '../services';
 import { materialSwatch } from '../../../view3d/textures';
 
 /** The "no texture" chip: a diagonal split, as ui.ts's materialRow drew it. */
@@ -13,30 +19,56 @@ export interface MaterialRowProps {
   current?: string;
   onPick: (id?: string) => void;
   plainTitle?: string;
+  /**
+   * Insert a family header (Wood / Stone / Tile / …) whenever `mats`' group
+   * changes. Only sensible where the array's groups run contiguously (the
+   * curated lists mostly do); leave off a row where they don't, else a
+   * family header would repeat further down the row.
+   */
+  groupHeaders?: boolean;
 }
 
 /**
  * Built-in PBR material chips + a "plain colour" chip — src/ui/ui.ts's
- * materialRow, same `.swatches` > `.swatch[title]` markup.
+ * materialRow, same `.swatches` > `.swatch[title]` markup, now with named
+ * chips (WS-SPEC Phase 4) and optional family headers for rows that mix wood/
+ * stone/tile/glass/plastic.
  */
 export function MaterialRow({
   mats,
   current,
   onPick,
   plainTitle = 'Plain colour',
+  groupHeaders = false,
 }: MaterialRowProps): ReactElement {
+  let prevGroup: MaterialGroup | undefined;
   return (
     <div className="swatches">
-      <Chip active={current === undefined} title={plainTitle} onPick={() => onPick(undefined)} />
-      {mats.map((m) => (
-        <Chip
-          key={m.id}
-          mat={m}
-          active={current === m.id}
-          title={m.label}
-          onPick={() => onPick(m.id)}
-        />
-      ))}
+      <Chip
+        active={current === undefined}
+        title={plainTitle}
+        ariaLabel={plainTitle}
+        onPick={() => onPick(undefined)}
+      />
+      {mats.map((m) => {
+        const info = materialInfo(m.id);
+        const showHeader = groupHeaders && !!info.group && info.group !== prevGroup;
+        prevGroup = info.group;
+        return (
+          <Fragment key={m.id}>
+            {showHeader && (
+              <div className="swatch-group-label">{GROUP_LABELS[info.group as MaterialGroup]}</div>
+            )}
+            <Chip
+              mat={m}
+              active={current === m.id}
+              title={titleFor(info)}
+              ariaLabel={info.name}
+              onPick={() => onPick(m.id)}
+            />
+          </Fragment>
+        );
+      })}
     </div>
   );
 }
@@ -51,11 +83,13 @@ function Chip({
   mat,
   active,
   title,
+  ariaLabel,
   onPick,
 }: {
   mat?: MaterialDef;
   active: boolean;
   title: string;
+  ariaLabel: string;
   onPick: () => void;
 }): ReactElement {
   const store = useStore();
@@ -73,6 +107,8 @@ function Chip({
     <button
       className={active ? 'swatch active' : 'swatch'}
       title={title}
+      aria-label={ariaLabel}
+      data-mat={mat?.id}
       ref={ref}
       onClick={() => {
         onPick();

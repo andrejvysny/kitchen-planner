@@ -171,7 +171,9 @@ test('a cabinet shows dimensions, position, both colour slots and its worktop', 
   const worktop = app
     .locator('#props-inner .prop-section')
     .filter({ has: app.locator('.prop-section-title', { hasText: /^Worktop$/ }) });
-  await expect(worktop.locator('.swatch[title="Dark marble"]')).toHaveCount(1);
+  // data-mat is name-independent, unlike title, which now carries the
+  // material's human name + caption (materialInfo.ts)
+  await expect(worktop.locator('.swatch[data-mat="marble-dark"]')).toHaveCount(1);
   await expect(worktop.locator('.toggle-row input')).toHaveCount(0); // no pattern yet, no rotate row
 
   // a preset is forkable, so the actions offer the customize path

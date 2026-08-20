@@ -12,13 +12,16 @@ import { useNativeChange } from './fields/useNativeChange';
 import { useChannel } from './hooks/useStore';
 
 /**
- * The Variables tab: create / edit / delete the design's finish tokens, and
- * pick the one new items are born bound to.
+ * The Materials tab (WS-SPEC Phase 4 — "Variables" everywhere a user reads
+ * it): create / edit / delete the design's shared swatches, and pick the one
+ * new parts are born bound to. The model type stays `DesignVar` and every
+ * store method stays `*Variable*`/`applyVarToItems` — this is a copy-only
+ * rename, not a data-shape change.
  *
- * Ported from src/ui/ui.ts renderVariablesSection node for node — same section,
- * same `.var-item` cards, same labels and hint text. What changes is only HOW
- * it stays current: ui.ts rebuilt the panel's DOM on every 'history' and needed
- * an isEditingVariableName guard so a rebuild would not yank the name field out
+ * Ported from src/ui/ui.ts renderVariablesSection node for node — same
+ * section, same `.var-item` cards. What changes is only HOW it stays current:
+ * ui.ts rebuilt the panel's DOM on every 'history' and needed an
+ * isEditingVariableName guard so a rebuild would not yank the name field out
  * from under the caret. Here React reconciles instead, the name input is
  * uncontrolled, and useSyncedValue refuses to write into a focused field — so
  * the guard has nothing left to protect and is gone.
@@ -34,10 +37,11 @@ export function VariablesPanel(): ReactElement {
   return (
     <div id="variables-panel">
       <div className="prop-section">
-        <div className="prop-section-title">Variables</div>
+        <div className="prop-section-title">Materials</div>
         <p className="props-sub">
-          Named colours &amp; textures — bind cabinets, walls, floor or worktops to one so a single
-          edit re-themes them all.
+          A material here is a shared swatch: bind any front, wall, floor or worktop to one and they
+          all change together when you edit it — a single colour or texture edit re-themes
+          everything bound to it.
         </p>
         {design.variables.map((v) => (
           <VarCard key={v.id} v={v} />
@@ -50,7 +54,7 @@ export function VariablesPanel(): ReactElement {
               store.commit();
             }}
           >
-            ＋ Add variable
+            ＋ Add material
           </button>
         </div>
         {design.variables.length > 0 ? <DefaultVarRow /> : null}
@@ -70,7 +74,10 @@ function VarCard({ v }: { v: DesignVar }): ReactElement {
     store.commit();
   });
 
-  const applyToFronts = (): void => {
+  // Rebinds every item's front colour slot to THIS variable (store.ts
+  // applyVarToItems: `it.color = toVarRef(v.id)`) — a live link, not a
+  // one-time paint, so the button says "Bind" and the hint already did.
+  const bindAllFronts = (): void => {
     const n = store.applyVarToItems(v.id, 'front');
     store.commit();
     setHint(`Bound ${n} item${n === 1 ? '' : 's'} to "${v.name}"`);
@@ -96,6 +103,7 @@ function VarCard({ v }: { v: DesignVar }): ReactElement {
         mats={ITEM_MATERIALS}
         current={v.material}
         onPick={(id) => store.updateVariable(v.id, { material: id })}
+        groupHeaders
       />
       <RotToggle
         matId={v.material}
@@ -103,8 +111,8 @@ function VarCard({ v }: { v: DesignVar }): ReactElement {
         onChange={(r) => store.updateVariable(v.id, { materialRot: r || undefined })}
       />
       <div className="btn-row">
-        <button className="btn" onClick={applyToFronts}>
-          Apply to all fronts
+        <button className="btn" onClick={bindAllFronts}>
+          Bind all fronts
         </button>
         <button
           className="btn danger"
@@ -135,7 +143,7 @@ function DefaultVarRow(): ReactElement {
 
   return (
     <div className="prop-row">
-      <label>New items use</label>
+      <label>Default for new parts</label>
       <select defaultValue={current} ref={select}>
         <option value="">None</option>
         {design.variables.map((v) => (

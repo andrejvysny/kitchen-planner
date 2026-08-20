@@ -9,7 +9,7 @@ import {
   WALL_MATERIALS,
 } from '../../../model/materials';
 import type { Room, RoomStyle, WallVisMode } from '../../../model/types';
-import { resolveColor } from '../../../model/variables';
+import { isVarRef, refId, resolveColor } from '../../../model/variables';
 import { ChoiceRow } from '../fields/ChoiceRow';
 import { LengthField } from '../fields/LengthField';
 import { MaterialRow } from '../fields/MaterialRow';
@@ -337,6 +337,9 @@ function ShapeSection({ room }: { room: Room }): ReactElement {
 
 function WallsSection({ style }: { style: RoomStyle }): ReactElement {
   const store = useStore();
+  const boundVar = isVarRef(style.wallColor)
+    ? store.variableById(refId(style.wallColor))
+    : undefined;
   return (
     // #section-walls is the context menu's "Wall colour…" destination: wall
     // finishes are a room-level style here, so that entry scrolls to this
@@ -350,6 +353,7 @@ function WallsSection({ style }: { style: RoomStyle }): ReactElement {
       <SwatchRow
         colors={WALL_COLORS}
         current={resolveColor(store.design, style.wallColor)}
+        boundTo={boundVar?.name}
         onPick={(c) =>
           // picking a plain colour drops a colour-hiding texture so the colour shows
           store.setRoomStyle(
@@ -393,6 +397,9 @@ function WallsSection({ style }: { style: RoomStyle }): ReactElement {
 
 function FloorSection({ style }: { style: RoomStyle }): ReactElement {
   const store = useStore();
+  const boundVar = isVarRef(style.floorColor)
+    ? store.variableById(refId(style.floorColor))
+    : undefined;
   return (
     <div className="prop-section">
       <div className="prop-section-title">Floor</div>
@@ -403,6 +410,7 @@ function FloorSection({ style }: { style: RoomStyle }): ReactElement {
       <SwatchRow
         colors={FLOOR_COLORS}
         current={resolveColor(store.design, style.floorColor)}
+        boundTo={boundVar?.name}
         onPick={(c) =>
           store.setRoomStyle(
             overridesColor(style.floorMaterial)
@@ -415,6 +423,7 @@ function FloorSection({ style }: { style: RoomStyle }): ReactElement {
         mats={FLOOR_MATERIALS}
         current={style.floorMaterial}
         onPick={(id) => store.setRoomStyle({ floorMaterial: id })}
+        groupHeaders
       />
       <RotToggle
         matId={style.floorMaterial}
@@ -427,6 +436,9 @@ function FloorSection({ style }: { style: RoomStyle }): ReactElement {
 
 function WorktopsSection({ style }: { style: RoomStyle }): ReactElement {
   const store = useStore();
+  const boundVar = isVarRef(style.counterColor)
+    ? store.variableById(refId(style.counterColor))
+    : undefined;
   return (
     <div className="prop-section">
       <div className="prop-section-title">Worktops</div>
@@ -437,6 +449,7 @@ function WorktopsSection({ style }: { style: RoomStyle }): ReactElement {
       <SwatchRow
         colors={COUNTER_COLORS}
         current={resolveColor(store.design, style.counterColor)}
+        boundTo={boundVar?.name}
         onPick={(c) =>
           store.setRoomStyle(
             overridesColor(style.counterMaterial)
@@ -449,6 +462,7 @@ function WorktopsSection({ style }: { style: RoomStyle }): ReactElement {
         mats={COUNTER_MATERIALS}
         current={style.counterMaterial}
         onPick={(id) => store.setRoomStyle({ counterMaterial: id })}
+        groupHeaders
       />
       <RotToggle
         matId={style.counterMaterial}

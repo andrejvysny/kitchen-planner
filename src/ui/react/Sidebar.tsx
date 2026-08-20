@@ -14,7 +14,10 @@ type Tab = (typeof TABS)[number];
 const LABELS: Record<Tab, string> = {
   library: 'Library',
   components: 'Components',
-  variables: 'Variables',
+  // WS-SPEC Phase 4: the panel behind this tab is named swatches now, not
+  // abstract "variables" — the ids (`tab-variables`, `tab-btn-variables`) and
+  // the TABS/Tab union stay exactly as they are; only the label reads.
+  variables: 'Materials',
 };
 
 /**

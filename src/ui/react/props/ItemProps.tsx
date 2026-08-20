@@ -4,7 +4,7 @@ import { COUNTER_COLORS, FRONT_COLORS, LIGHT_COLORS } from '../../../model/catal
 import { ITEM_MATERIALS, COUNTER_MATERIALS, overridesColor } from '../../../model/materials';
 import { hasPreset } from '../../../model/presets';
 import type { Item } from '../../../model/types';
-import { isVarRef, resolveColor } from '../../../model/variables';
+import { isVarRef, refId, resolveColor } from '../../../model/variables';
 import { openInWorkshop } from '../../workspaceState';
 import { AngleField } from '../fields/AngleField';
 import { LengthField } from '../fields/LengthField';
@@ -255,6 +255,7 @@ function PositionSection({ item }: { item: Item }): ReactElement {
 function ColourSection({ item }: { item: Item }): ReactElement {
   const store = useStore();
   const bound = isVarRef(item.color);
+  const boundVar = bound ? store.variableById(refId(item.color)) : undefined;
 
   return (
     <div className="prop-section">
@@ -264,6 +265,7 @@ function ColourSection({ item }: { item: Item }): ReactElement {
       <SwatchRow
         colors={FRONT_COLORS}
         current={resolveColor(store.design, item.color)}
+        boundTo={boundVar?.name}
         onPick={(c) =>
           // picking a plain colour drops a colour-hiding texture so the colour shows
           store.updateItem(
@@ -284,6 +286,7 @@ function ColourSection({ item }: { item: Item }): ReactElement {
             mats={ITEM_MATERIALS}
             current={item.material}
             onPick={(id) => store.updateItem(item.id, { material: id })}
+            groupHeaders
           />
           <RotToggle
             matId={item.material}
@@ -305,16 +308,16 @@ function AccentSection({
   accentDefault: string;
 }): ReactElement {
   const store = useStore();
+  const raw = item.accentColor ?? '';
+  const boundVar = isVarRef(raw) ? store.variableById(refId(raw)) : undefined;
   return (
     <div className="prop-section">
       <div className="prop-section-title">Accent</div>
-      <VarChips
-        current={item.accentColor ?? ''}
-        onBind={(ref) => store.updateItem(item.id, { accentColor: ref })}
-      />
+      <VarChips current={raw} onBind={(ref) => store.updateItem(item.id, { accentColor: ref })} />
       <SwatchRow
         colors={COUNTER_COLORS}
         current={resolveColor(store.design, item.accentColor ?? accentDefault)}
+        boundTo={boundVar?.name}
         onPick={(c) => store.updateItem(item.id, { accentColor: c })}
       />
     </div>
@@ -332,6 +335,7 @@ function WorktopSection({ item }: { item: Item }): ReactElement {
         current={item.counterMaterial}
         onPick={(id) => store.updateItem(item.id, { counterMaterial: id })}
         plainTitle="Room default"
+        groupHeaders
       />
       <RotToggle
         matId={item.counterMaterial}

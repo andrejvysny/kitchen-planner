@@ -1064,7 +1064,7 @@ const worktopChip = await page.evaluate(() => {
   const sec = [...document.querySelectorAll('.prop-section')].find(
     (s) => s.querySelector('.prop-section-title')?.textContent === 'Worktop'
   );
-  const chip = sec?.querySelector('.swatch[title="Dark marble"]');
+  const chip = sec?.querySelector('.swatch[data-mat="marble-dark"]');
   if (!chip) return false;
   chip.click();
   return true;
@@ -1166,13 +1166,15 @@ const clickInColourSection = (sel) =>
     { i: secIdx, sel }
   );
 // apply Oak texture, then pick a plain colour swatch in the same section
-const appliedTex = await clickInColourSection('.swatch[title="Oak"]');
+const appliedTex = await clickInColourSection('.swatch[data-mat="oak"]');
 await waitUntil((id) => window.__kp.store.itemById(id)?.material === 'oak', stackIds.baseId);
 const texturedBefore = await page.evaluate(
   (id) => window.__kp.store.itemById(id).material,
   stackIds.baseId
 );
-const pickedColour = await clickInColourSection('.swatch[title^="#"]');
+// data-hex is name-independent, unlike title, which now carries the
+// swatch's human name (materialInfo.ts) instead of the raw hex
+const pickedColour = await clickInColourSection('.swatch[data-hex]');
 await waitUntil((id) => window.__kp.store.itemById(id)?.material === undefined, stackIds.baseId);
 const revert = await page.evaluate((id) => {
   const it = window.__kp.store.itemById(id);
@@ -1197,12 +1199,12 @@ results.push([
 results.push(['reverted front renders untextured', revert.mappedFronts === 0]);
 
 // 17f. tintable plastic keeps tinting on a colour pick (must NOT be dropped)
-await clickInColourSection('.swatch[title="Matte plastic"]');
+await clickInColourSection('.swatch[data-mat="plastic-matte"]');
 await waitUntil(
   (id) => window.__kp.store.itemById(id)?.material === 'plastic-matte',
   stackIds.baseId
 );
-await clickInColourSection('.swatch[title^="#"]');
+await clickInColourSection('.swatch[data-hex]');
 await waitUntil((id) => {
   const c = window.__kp.store.itemById(id)?.color;
   return typeof c === 'string' && c[0] === '#';

@@ -98,7 +98,9 @@ test('a tab switch moves the class, the hidden attribute and aria-selected toget
 
   await app.click('#tab-btn-variables');
   expect(await tabState(app)).toEqual(expected('variables'));
-  await expect(app.locator('#variables-panel .prop-section-title')).toHaveText('Variables');
+  // WS-SPEC Phase 4: the tab/panel reads "Materials" now — the underlying
+  // ids (tab-btn-variables, #variables-panel, the 'variables' tab id) don't.
+  await expect(app.locator('#variables-panel .prop-section-title')).toHaveText('Materials');
 
   await app.click('#tab-btn-library');
   expect(await tabState(app)).toEqual(expected('library'));
@@ -154,7 +156,7 @@ test('the variables panel adds, renames and deletes a variable', async ({ app })
   await name.blur();
   await expect(name).toHaveValue('Variable');
 
-  // "New items use" only exists once a variable does, and drives defaultFrontVar
+  // "Default for new parts" only exists once a variable does, and drives defaultFrontVar
   await app.selectOption('#variables-panel select', id);
   await expect.poll(() => app.evaluate(() => window.__kp.store.design.defaultFrontVar)).toBe(id);
 
@@ -173,13 +175,14 @@ test('the swatch, material and rotate rows all commit through the store', async 
       return { color: v.color, material: v.material, materialRot: v.materialRot };
     });
 
-  // a literal swatch (FRONT_COLORS[3])
-  await app.click('#variables-panel .var-item .swatches button[title="#31455a"]');
+  // a literal swatch (FRONT_COLORS[3]) — data-hex is name-independent, unlike
+  // title, which now carries the swatch's human name (materialInfo.ts)
+  await app.click('#variables-panel .var-item .swatches button[data-hex="#31455a"]');
   await expect.poll(async () => (await read()).color).toBe('#31455a');
 
   // a textured material chip — and the rotate toggle it brings with it
   await expect(app.locator('#variables-panel .toggle-row')).toHaveCount(0);
-  await app.click('#variables-panel .var-item .swatches button[title="Oak"]');
+  await app.click('#variables-panel .var-item .swatches button[data-mat="oak"]');
   await expect.poll(async () => (await read()).material).toBe('oak');
   await expect(app.locator('#variables-panel .toggle-row label').first()).toHaveText(
     'Rotate texture 90°'
@@ -190,7 +193,7 @@ test('the swatch, material and rotate rows all commit through the store', async 
   await expect.poll(async () => (await read()).materialRot).toBe(true);
 
   // picking a plain colour drops a colour-hiding texture, so the colour shows
-  await app.click('#variables-panel .var-item .swatches button[title="#f2f1ec"]');
+  await app.click('#variables-panel .var-item .swatches button[data-hex="#f2f1ec"]');
   await expect.poll(async () => await read()).toEqual({ color: '#f2f1ec' });
   await expect(app.locator('#variables-panel .toggle-row')).toHaveCount(0);
 
