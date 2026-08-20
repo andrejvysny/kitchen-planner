@@ -306,9 +306,14 @@ PreToolUse hook (project tooling, not an attack) and that suites seed
 
 ## Phase 4 — materials
 
-- [ ] WP 4.1 material metadata (`materialInfo.ts`) + coverage test
-- [ ] WP 4.2 swatch-row names, captions, group headers
-- [ ] WP 4.3 Materials panel (label + bind/apply copy)
+- [x] WP 4.1 material metadata (`materialInfo.ts`) + palette-coverage test
+- [x] WP 4.2 swatch names/captions (title + aria-label + data-hex/data-mat),
+      family group headers on material rows
+- [x] WP 4.3 Materials panel — tab renamed, honest copy; "Apply to all
+      fronts" → "Bind all fronts" (store.applyVarToItems REBINDS, verified)
+
+**Phase 4 shipped — WS redesign complete.** Final gates: 945 unit ·
+interact 109/109 · Playwright 103/103.
 
 ---
 
