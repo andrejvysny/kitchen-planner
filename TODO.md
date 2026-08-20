@@ -55,10 +55,14 @@ disclosure), full scope, empty first run.
       + Output cards render from it; label-parity e2e test added.
 - [x] 1.3 terminology — wall "Thickness" everywhere user-facing;
       "Edit/Customize in Workshop…"; Mode2dToggle says "Floor plan".
-- [ ] 1.4 app-modal confirms (<ConfirmHost/> + confirmDialog/promptLength;
-      calibrate prompt() → dialog with parseLength). Part Studio close-dirty
-      guard STAYS native confirm() — sync switchWorkspace contract; WP 3.1
-      deletes that guard anyway.
+- [x] 1.4 app-modal confirms — dialogService + <ConfirmHost/> (#app-dialog,
+      capture-phase Escape/Enter); New / delete room / studio revert+delete;
+      calibrate promptValue takes expressions via parseLength. One deliberate
+      native survivor: Part Studio close-dirty guard (sync switchWorkspace
+      contract; WP 3.1 deletes it). Gates: 888 unit, interact 109/109,
+      Playwright 89/89.
+
+**Phase 1 shipped.**
 - [x] 1.5 hint severity (info|success|error) + persistent "Reference photo is
       NOT saved" warning + export failures console.error the real error.
 - [x] 1.6 draw-tool discoverability — chip names Shift/Alt, DrawHud ⟂ lock
