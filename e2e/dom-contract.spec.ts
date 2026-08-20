@@ -259,22 +259,35 @@ const STUDIO_PICKER: readonly ContractEntry[] = [
   vis('.studio-card[data-type="freeform"]'),
 ];
 
-/** src/ui/partstudio/index.ts + cabinetPanel.ts — the cabinet editor stage. */
+/**
+ * src/ui/partstudio/index.ts + cabinetPanel.ts — the cabinet editor as it
+ * OPENS, on the Simple sub-tab (WS-SPEC WP 3.3). Everything here is on both
+ * tabs; the advanced-only half is STUDIO_EDITOR_ADVANCED below.
+ */
 const STUDIO_EDITOR: readonly ContractEntry[] = [
   vis('#pane-workshop .studio-hosted'),
   vis('.studio-name'),
   vis('.studio-type-badge'),
+  vis('.studio-tabs'),
+  vis('.studio-tab[data-tab="simple"]'),
+  vis('.studio-tab[data-tab="advanced"]'),
   vis('.studio-form'),
-  vis('.studio-canvas'),
-  vis('.zone-canvas'),
+  vis('.studio-front-slot'),
+  present('#studio-front-layouts'), // empty until WP 3.4 mounts its tiles into it
   vis('.studio-preview'),
-  vis('.choice-btn'), // footprint picker (rect / chamfer / corner-L)
   vis('.studio-foot'),
   // Save and Revert died with the drafts (WS-SPEC WP 3.1) — the footer now
   // carries the part's own actions plus the live-apply caption.
   vis('.studio-delete'),
   vis('.studio-duplicate'),
   vis('.studio-live-note'),
+];
+
+/** …and what the Advanced sub-tab adds back (WS-SPEC WP 3.3). */
+const STUDIO_EDITOR_ADVANCED: readonly ContractEntry[] = [
+  vis('.studio-canvas'),
+  vis('.zone-canvas'),
+  vis('.choice-btn'), // footprint picker (rect / chamfer / corner-L)
 ];
 
 /**
@@ -507,9 +520,16 @@ test('DOM contract: selector table stays present across every pinned app state',
 
   const partsBefore = await app.evaluate(() => window.__kp.store.design.customParts.length);
 
-  await test.step('studio (cabinet editor)', async () => {
+  await test.step('studio (cabinet editor, Simple tab)', async () => {
     await app.click('.studio-card[data-type="cabinet"]');
     await assertContract(app, STUDIO_EDITOR);
+    // the split is real, not a stylesheet: Simple builds no zone canvas at all
+    await expect(app.locator('.zone-canvas')).toHaveCount(0);
+  });
+
+  await test.step('studio (cabinet editor, Advanced tab)', async () => {
+    await app.click('.studio-tab[data-tab="advanced"]');
+    await assertContract(app, STUDIO_EDITOR_ADVANCED);
   });
 
   await test.step('leave the Workshop', async () => {

@@ -105,6 +105,21 @@ const studioReady = (stage) =>
     }
   );
 
+/**
+ * Switch the studio's form column to Advanced (WS-SPEC WP 3.3).
+ *
+ * A cabinet opens on Simple — dimensions, front-layout slot, body toggles,
+ * colours — and the zone canvas and the footprint picker are the advanced half.
+ * The checks below drive both, so every cabinet sequence asks for the tab
+ * itself: the flag is a session module, so this is a cheap no-op once it is
+ * already advanced, but a reload puts it back on Simple and no check should
+ * depend on which check ran before it.
+ */
+const studioAdvanced = async () => {
+  await page.click('.studio-tab[data-tab="advanced"]');
+  await page.waitForSelector('.zone-canvas', { state: 'visible', timeout: 5000 });
+};
+
 /** Leave the Workshop the way a user does, and wait for the studio to go. */
 const leaveWorkshop = async () => {
   await page.click('#wsp-back');
@@ -566,6 +581,7 @@ await page.click('.cat-new');
 await studioReady('picker');
 await page.click('.studio-card[data-type="cabinet"]');
 await studioReady('editor');
+await studioAdvanced();
 const zcBox = await page.locator('.zone-canvas').boundingBox();
 await page.mouse.click(zcBox.x + zcBox.width / 2, zcBox.y + zcBox.height / 2);
 // the click handler selects the zone + re-renders the toolbar synchronously
@@ -596,6 +612,7 @@ await page.click('.cat-new');
 await studioReady('picker');
 await page.click('.studio-card[data-type="cabinet"]');
 await studioReady('editor');
+await studioAdvanced();
 await page.click('.foot-choice button:has-text("Diagonal corner")');
 await leaveWorkshop();
 const cornerPart = await page.evaluate(() => {
@@ -1668,6 +1685,7 @@ await page.click('.cat-new');
 await studioReady('picker');
 await page.click('.studio-card[data-type="cabinet"]');
 await studioReady('editor');
+await studioAdvanced();
 {
   const zc = await page.locator('.zone-canvas').boundingBox();
   // default new cabinet = 2-drawer stack zone; split first so we get a door zone

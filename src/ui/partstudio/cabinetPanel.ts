@@ -2,8 +2,16 @@ import { COUNTER_COLORS, FRONT_COLORS, OAK, WALNUT } from '../../model/catalog';
 import { clamp } from '../../model/geometry';
 import type { CabinetPartDef, Footprint } from '../../model/types';
 import { choiceRow, dimRow, numRow, section, swatchRow, toggleRow, unitSuffix } from './controls';
+import type { StudioTab } from './studioTab';
 
 type FootKind = 'rect' | 'angledEnd' | 'diagonal' | 'cornerL';
+
+/**
+ * Which sub-tab a rail section belongs to (WS-SPEC WP 3.3). `'both'` is the
+ * default answer, not a cop-out: the Simple tab is a FILTER over this one rail,
+ * so a section only earns a tag when a novice genuinely should not see it.
+ */
+type SectionTab = StudioTab | 'both';
 
 function footKind(fp: Footprint): FootKind {
   if (fp.kind === 'rect') return 'rect';
@@ -47,13 +55,25 @@ const FOOT_LABELS: [FootKind, string, string][] = [
 /**
  * Cabinet mode rail: body dimensions, footprint and finishes. The front
  * layout itself is edited in the zone canvas next to this rail.
+ *
+ * `tab` filters it (WS-SPEC WP 3.3). Every section declares which tab it
+ * belongs to AT ITS RENDER SITE, through `sec` below, and a section the
+ * current tab does not show is built into a throwaway holder instead of the
+ * rail. That is the whole mechanism: a list of "simple sections" kept anywhere
+ * else — in the studio, in a constant at the top of this file — would drift the
+ * first time somebody adds a section here and forgets it exists.
  */
 export function renderCabinetPanel(
   rail: HTMLElement,
   part: CabinetPartDef,
-  onChange: (transient?: boolean) => void
+  onChange: (transient?: boolean) => void,
+  tab: StudioTab
 ): void {
-  const dims = section(rail, `Dimensions (${unitSuffix()})`);
+  const on = (want: SectionTab): boolean => want === 'both' || want === tab;
+  const sec = (title: string, want: SectionTab): HTMLElement =>
+    section(on(want) ? rail : document.createElement('div'), title);
+
+  const dims = sec(`Dimensions (${unitSuffix()})`, 'both');
   dimRow(
     dims,
     'Width',
@@ -97,7 +117,21 @@ export function renderCabinetPanel(
     }
   );
 
-  const foot = section(rail, 'Footprint');
+  // The Simple tab's front-layout slot (WS-SPEC WP 3.3). WP 3.4 fills it with
+  // the canned arrangements; it is here already so the Simple rail reads in the
+  // order it will keep — dimensions, front layout, body, colours — and so the
+  // container id the tiles mount into is pinned by the DOM contract from now.
+  const layout = sec('Front layout', 'simple');
+  layout.classList.add('studio-front-slot');
+  const layoutCaption = document.createElement('div');
+  layoutCaption.className = 'studio-caption';
+  layoutCaption.textContent = 'Pick a canned front arrangement — coming with WP 3.4';
+  layout.appendChild(layoutCaption);
+  const layoutSlot = document.createElement('div');
+  layoutSlot.id = 'studio-front-layouts';
+  layout.appendChild(layoutSlot);
+
+  const foot = sec('Footprint', 'advanced');
   const buttons = document.createElement('div');
   buttons.className = 'choice foot-choice';
   const detail = document.createElement('div');
@@ -201,7 +235,7 @@ export function renderCabinetPanel(
   foot.appendChild(detail);
   renderDetail();
 
-  const body = section(rail, 'Body');
+  const body = sec('Body', 'both');
   toggleRow(
     body,
     'Plinth',
@@ -214,7 +248,9 @@ export function renderCabinetPanel(
   const overhangDetail = document.createElement('div');
   const renderOverhang = () => {
     overhangDetail.innerHTML = '';
-    if (!part.worktop) return;
+    // the Body TOGGLES are simple; three millimetre overhangs are not, so this
+    // one block follows the same per-render-site rule the sections do
+    if (!part.worktop || !on('advanced')) return;
     const ov = () => (part.worktopOverhang ??= { front: 0.015, back: 0.005, sides: 0.01 });
     numRow(
       overhangDetail,
@@ -267,7 +303,7 @@ export function renderCabinetPanel(
     }
   );
 
-  const colors = section(rail, 'Front colour');
+  const colors = sec('Front colour', 'both');
   swatchRow(
     colors,
     FRONT_COLORS,
@@ -277,7 +313,7 @@ export function renderCabinetPanel(
       onChange();
     }
   );
-  const accent = section(rail, 'Wood accent (top / niches)');
+  const accent = sec('Wood accent (top / niches)', 'both');
   swatchRow(
     accent,
     [OAK, WALNUT, ...COUNTER_COLORS.slice(1, 3)],

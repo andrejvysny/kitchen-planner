@@ -58,8 +58,18 @@ async function openPresetInWorkshop(page: Page): Promise<void> {
   await expect(page.locator('#pane-workshop .studio-body .studio-form')).toBeVisible();
 }
 
-/** Click the middle of the zone canvas so the root leaf's toolbar appears. */
+/**
+ * Click the middle of the zone canvas so the root leaf's toolbar appears.
+ *
+ * The canvas is the ADVANCED half of the studio since WS-SPEC WP 3.3 and the
+ * form column opens on Simple, so switch first. The tab is a session flag, so
+ * every call after the first is a no-op click on an already-active button —
+ * cheap, and it keeps each caller independent of the ones before it (the undo
+ * test re-opens the studio mid-run).
+ */
 async function selectRootZone(page: Page): Promise<void> {
+  await page.click('.studio-tab[data-tab="advanced"]');
+  await expect(page.locator('.zone-canvas')).toBeVisible();
   const box = (await page.locator('.zone-canvas').boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect(page.locator('.zone-stepper')).toBeVisible();

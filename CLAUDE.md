@@ -645,6 +645,12 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
     self-crossing outline from its bounding box, so `changed()` holds the write
     back while `validate()` reports anything — the live-apply spelling of the old
     disabled Save button, and what `.studio-validation` is still for.
+  - **Cabinet rails are filtered by a session `studioTab` flag** (Simple /
+    Advanced, src/ui/partstudio/studioTab.ts — module `let`, never persisted).
+    Every section declares its tab AT ITS RENDER SITE in cabinetPanel.ts (no
+    parallel list to drift), and the zone canvas is not built at all on Simple.
+    Board/freeform parts get no tab strip. `#studio-front-layouts` is the
+    Simple tab's front-layout slot (filled by WP 3.4).
   - **Undo REPLACES the design's objects**, so the studio subscribes to
     'history' and re-opens on whatever its id resolves to now (resident part,
     the preset it shadowed, or the picker). Its OWN commits are told apart by

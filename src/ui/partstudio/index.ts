@@ -17,6 +17,7 @@ import { renderCabinetPanel } from './cabinetPanel';
 import { FreeformPanel } from './freeformPanel';
 import { PolygonCanvas } from './polygonCanvas';
 import { StudioPreview } from './preview';
+import { setStudioTab, studioTab, type StudioTab } from './studioTab';
 import { renderTypePicker } from './typePicker';
 import { ZoneCanvas } from './zoneCanvas';
 
@@ -118,6 +119,10 @@ export class PartStudio {
           <span class="studio-scope-text"></span>
           <button class="btn studio-fork" title="Copies this part for just this cabinet — the other copies keep the original">Fork for this item only</button>
         </div>
+        <div class="studio-tabs" role="tablist">
+          <button class="btn studio-tab" data-tab="simple" role="tab" title="Size, front layout, body and colours">Simple</button>
+          <button class="btn studio-tab" data-tab="advanced" role="tab" title="Everything: zone tree, interiors, footprint">Advanced</button>
+        </div>
         <div class="studio-body"></div>
         <div class="studio-foot">
           <button class="btn danger studio-delete">Delete part</button>
@@ -207,6 +212,7 @@ export class PartStudio {
     (this.overlay!.querySelector('.studio-duplicate') as HTMLElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-live-note') as HTMLElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-scope') as HTMLElement).style.display = 'none';
+    (this.overlay!.querySelector('.studio-tabs') as HTMLElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-type-badge') as HTMLElement).textContent = 'New part';
     renderTypePicker(body, CREATABLE, (type) => {
       const fresh =
@@ -264,6 +270,7 @@ export class PartStudio {
     dup.addEventListener('click', () => this.duplicatePart());
     fork.addEventListener('click', () => this.forkForItem());
     this.refreshScope();
+    this.renderTabs();
 
     this.preview = new StudioPreview(body.querySelector('.studio-preview') as HTMLElement);
     if (part.type === 'cabinet') {
@@ -287,6 +294,37 @@ export class PartStudio {
     this.refreshPreview();
   }
 
+  /**
+   * The Simple / Advanced strip (WS-SPEC WP 3.3). CABINETS ONLY: a board is a
+   * polygon and a freeform part is a list of boards — neither has a novice half
+   * and an expert half to split, so they get no strip and their whole rail.
+   *
+   * The choice itself lives in the session module (`studioTab`), not on this
+   * object, because `open` tears the studio down and builds a new one every
+   * time the Workshop retargets: a field here would put the user back on Simple
+   * every time they stepped to the next part.
+   */
+  private renderTabs(): void {
+    const overlay = this.overlay!;
+    const strip = overlay.querySelector('.studio-tabs') as HTMLElement;
+    const cabinet = this.part?.type === 'cabinet';
+    strip.style.display = cabinet ? '' : 'none';
+    if (!cabinet) return;
+    for (const b of strip.querySelectorAll<HTMLButtonElement>('.studio-tab')) {
+      const tab = b.dataset.tab as StudioTab;
+      b.classList.toggle('active', tab === studioTab());
+      b.setAttribute('aria-selected', String(tab === studioTab()));
+      // assigned, not added: this runs again on every switch
+      b.onclick = () => {
+        if (studioTab() === tab) return;
+        setStudioTab(tab);
+        this.renderTabs();
+        this.renderRail();
+        this.refreshPreview();
+      };
+    }
+  }
+
   private renderRail(): void {
     const part = this.part!;
     const rail = this.overlay!.querySelector('.studio-form') as HTMLElement;
@@ -298,11 +336,26 @@ export class PartStudio {
 
     if (part.type === 'cabinet') {
       const mid = this.overlay!.querySelector('.studio-canvas') as HTMLElement;
-      this.zoneCanvas = new ZoneCanvas(mid, part, (transient) => this.changed(transient));
-      renderCabinetPanel(rail, part, (transient) => {
-        this.zoneCanvas?.draw();
-        this.changed(transient);
-      });
+      // a tab switch re-enters this method against a live editor, so the host
+      // is cleared here rather than by `renderEditor`'s one-shot innerHTML
+      mid.innerHTML = '';
+      const tab = studioTab();
+      // The zone tree IS the advanced half: the Simple tab is dimensions,
+      // body and colours, and it must not carry the column that teaches
+      // splits, dividers and interior drill-in.
+      mid.hidden = tab !== 'advanced';
+      if (tab === 'advanced') {
+        this.zoneCanvas = new ZoneCanvas(mid, part, (transient) => this.changed(transient));
+      }
+      renderCabinetPanel(
+        rail,
+        part,
+        (transient) => {
+          this.zoneCanvas?.draw();
+          this.changed(transient);
+        },
+        tab
+      );
     } else if (part.type === 'freeform') {
       this.freeform = new FreeformPanel(rail, part, (transient) => this.changed(transient));
       this.preview!.onPick = (id) => this.freeform?.select(id);

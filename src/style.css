@@ -1543,6 +1543,28 @@ body {
   font-size: 12px;
 }
 
+/*
+ * Simple / Advanced strip (WS-SPEC WP 3.3) — cabinet parts only. Plain .btn +
+ * .btn.active rather than .choice-btn: the segmented look is the footprint
+ * picker's, and these two are navigation, not a value.
+ */
+.studio-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.studio-tab {
+  flex: none;
+  padding: 5px 16px;
+  font-size: 12.5px;
+}
+
+.studio-front-slot .studio-caption {
+  padding-top: 0;
+}
+
 /* -- new-part type picker -- */
 
 .studio-body.picking {
@@ -1736,6 +1758,12 @@ body {
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--panel-border);
+}
+
+/* the Simple tab has no zone canvas (WP 3.3), and `display: flex` above beats
+   the UA's [hidden] rule, so say it here */
+.studio-canvas[hidden] {
+  display: none;
 }
 
 .poly-canvas {
