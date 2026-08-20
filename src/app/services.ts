@@ -1,4 +1,4 @@
-import { demoDesign, Store } from '../model/store';
+import { emptyDesign, Store } from '../model/store';
 import { Plan2D } from '../plan2d/plan2d';
 import { ElevationView } from '../plan2d/elevation';
 import { PartStudio } from '../ui/partstudio';
@@ -86,7 +86,18 @@ export interface AppServices {
  */
 export function createServices(): AppServices {
   const loadedDesign = Store.loadAutosaved();
-  const store = new Store(loadedDesign ?? demoDesign());
+  /**
+   * Nothing to load means an EMPTY design, not the demo kitchen. A furnished
+   * plan on arrival teaches nothing about how it got there — and the first
+   * thing a new user has to do is delete it. <PlanStarterCard/> and the tour
+   * take that slot instead, and `store.loadDemo()` behind the card's "Load
+   * sample design" is the way back to the demo.
+   *
+   * The unreadable-autosave path lands here too: <RecoveryBanner/> already
+   * says a backup was kept, so replacing the user's design with a sample one
+   * would only be one more thing to clear away.
+   */
+  const store = new Store(loadedDesign ?? emptyDesign());
   const needsRecoveryBanner = !loadedDesign && Store.recoveryPayload() !== null;
 
   /**
@@ -124,8 +135,8 @@ export function createServices(): AppServices {
 
   /**
    * One Part Studio for the whole app. Every route in — the catalog's ＋/✎
-   * tiles, the Workshop sidebar's rows, the props panel's "Edit part template…"
-   * / "Customize part…" — goes through `openInWorkshop`, and <WorkshopPane/> is
+   * tiles, the Workshop sidebar's rows, the props panel's "Edit in Workshop…"
+   * / "Customize in Workshop…" — goes through `openInWorkshop`, and <WorkshopPane/> is
    * what actually hands it a host to build into. Its constructor is DOM-free
    * (only `open()` touches the document), so it belongs with the singletons.
    *

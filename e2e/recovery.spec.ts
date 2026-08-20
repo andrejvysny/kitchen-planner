@@ -50,9 +50,11 @@ test('a corrupt autosave shows the banner as the FIRST child of #app', async ({ 
   );
   expect(firstChildClass).toBe('recovery-banner');
 
-  // the raw text was stashed, and the app fell back to a usable design
+  // the raw text was stashed, and the app fell back to an EMPTY design — the
+  // banner already says a backup was kept, so a sample design on top of it
+  // would only be one more thing to clear away (src/app/services.ts)
   expect(await page.evaluate((k) => localStorage.getItem(k), RECOVERY_KEY)).toBe(CORRUPT);
-  expect(await page.evaluate(() => window.__kp.store.design.rooms.length)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__kp.store.design.rooms.length)).toBe(0);
 });
 
 test('a healthy autosave shows no banner', async ({ page }) => {
@@ -84,7 +86,9 @@ test('Download hands over the raw text and KEEPS the backup', async ({ page }) =
 test('Dismiss removes the banner and clears the backup', async ({ page }) => {
   await bootCorrupt(page);
 
-  await page.getByRole('button', { name: 'Dismiss' }).click();
+  // scoped to the banner: the fallback design is EMPTY now, so Furnish's
+  // nudge is up too and its ✕ is also labelled "Dismiss"
+  await page.locator('.recovery-banner').getByRole('button', { name: 'Dismiss' }).click();
   await expect(page.locator('.recovery-banner')).toHaveCount(0);
   expect(await page.evaluate((k) => localStorage.getItem(k), RECOVERY_KEY)).toBeNull();
 });

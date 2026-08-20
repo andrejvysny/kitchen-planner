@@ -20,6 +20,14 @@ await page.addInitScript(() => {
 });
 
 await page.goto('http://localhost:4173/', { waitUntil: 'networkidle' });
+// A brand-new profile boots EMPTY now (src/app/services.ts), and these shots
+// are of a furnished plan — the multi-room step below even reads allWalls()[0].
+// Seed through the same call the starter card's "Load sample design" makes.
+await page.waitForFunction(() => !!window.__kp?.store, undefined, { polling: 50 });
+await page.evaluate(() => {
+  window.__kp.store.loadDemo();
+  window.__kp.plan.zoomFit();
+});
 await page.waitForTimeout(2500);
 await page.screenshot({ path: '/tmp/shot-split.png' });
 

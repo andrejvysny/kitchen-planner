@@ -1,7 +1,8 @@
 import { useState, type ReactElement } from 'react';
+import { NUDGE_KEY } from '../../model/storageKeys';
 import { workspace } from '../workspaceState';
 import { useChannel } from './hooks/useStore';
-import { useEditor, useStore } from './services';
+import { useAppServices, useEditor, useStore } from './services';
 
 /**
  * The three empty-state aids (WS-SPEC §5.4, WP 2.4): help for a brand-new
@@ -19,12 +20,20 @@ import { useEditor, useStore } from './services';
  */
 
 /**
- * Plan's "nothing here yet" card: two ways to get a room on the canvas.
+ * Plan's "nothing here yet" card: three ways to get a room on the canvas.
  * Gated on the resting tool as well as the empty design, so arming any
  * tool — the card's own buttons included — hides it immediately rather than
  * blocking the click that follows (e.g. placing the room itself).
+ *
+ * "Load sample design" is the demo kitchen's only route in since a first run
+ * stopped booting it (src/app/services.ts). It sits LAST because it answers a
+ * different question from the other two — "show me one" rather than "let me
+ * draw mine" — and it pairs `store.loadDemo()` with a `zoomFit` exactly as the
+ * topbar's New and Load do: a swapped design that lands off-screen reads as a
+ * button that did nothing.
  */
 export function PlanStarterCard(): ReactElement | null {
+  const { plan } = useAppServices();
   const store = useStore();
   const editor = useEditor();
   useChannel('workspace');
@@ -55,6 +64,15 @@ export function PlanStarterCard(): ReactElement | null {
         <button className="btn" onClick={() => document.getElementById('underlay-input')!.click()}>
           Import a floor plan photo…
         </button>
+        <button
+          className="btn"
+          onClick={() => {
+            store.loadDemo();
+            plan.zoomFit();
+          }}
+        >
+          Load sample design
+        </button>
       </div>
     </div>
   );
@@ -62,14 +80,31 @@ export function PlanStarterCard(): ReactElement | null {
 
 /**
  * Furnish's "nothing placed yet" nudge, dismissible for the rest of the
- * session. `nudgeDismissed` is a plain module `let` — real onboarding storage
- * is Phase 2.5's job; this is scoped to one visit, the same lifetime as
- * src/ui/workspaceState.ts's `workshopTarget`. The container stays
- * pointer-events:none (it sits over the bottom of the pane, where
- * test/interact.mjs clicks the canvas by world coordinate) and only the ✕
- * turns pointer events back on.
+ * session — and the session is the TAB's, not the page load's. The flag was a
+ * plain module `let`, so a reload re-raised a nudge the user had already
+ * answered; sessionStorage (NUDGE_KEY) is the smallest thing that spells the
+ * lifetime the copy already promised. Shape is src/ui/onboarded.ts's:
+ * load-at-import, no listener set, best-effort write — nothing subscribes to a
+ * decision that is read once per mount.
+ *
+ * A storage that throws reads as NOT dismissed (the opposite of `onboarded`,
+ * which would rather stay quiet than replay): the module `let` still carries
+ * the dismissal for the rest of the page's life, so the worst case is exactly
+ * the old behaviour.
+ *
+ * The container stays pointer-events:none (it sits over the bottom of the
+ * pane, where test/interact.mjs clicks the canvas by world coordinate) and
+ * only the ✕ turns pointer events back on.
  */
-let nudgeDismissed = false;
+let nudgeDismissed = loadNudgeDismissed();
+
+function loadNudgeDismissed(): boolean {
+  try {
+    return sessionStorage.getItem(NUDGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
 
 export function FurnishNudge(): ReactElement | null {
   const store = useStore();
@@ -83,6 +118,11 @@ export function FurnishNudge(): ReactElement | null {
   const dismiss = (): void => {
     nudgeDismissed = true;
     setDismissed(true);
+    try {
+      sessionStorage.setItem(NUDGE_KEY, '1');
+    } catch {
+      /* preference is best-effort */
+    }
   };
 
   return (

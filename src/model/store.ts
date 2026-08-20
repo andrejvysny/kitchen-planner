@@ -282,6 +282,18 @@ export class Store {
     this.emit('history', undefined);
   }
 
+  /**
+   * Install the shipped sample design (the demo kitchen + bedroom).
+   *
+   * A fresh profile boots EMPTY now, so the demo is something the user ASKS
+   * for — the Plan starter card's "Load sample design" — rather than what they
+   * find on arrival. Deliberately one product API rather than a `demoDesign()`
+   * call at each site: the test suites seed through exactly the button's path.
+   */
+  loadDemo(): void {
+    this.replaceDesign(demoDesign());
+  }
+
   /* ---------------- persistence ---------------- */
 
   autosave(): void {
@@ -1232,7 +1244,7 @@ export class Store {
   /**
    * Clone the item's resolved part (preset or shared custom part) into
    * design.customParts and repoint just this instance at the copy — the
-   * "Customize part…" flow. Caller commits.
+   * "Customize in Workshop…" flow. Caller commits.
    */
   forkPartForItem(itemId: string): CustomPartDef | undefined {
     const it = this.itemById(itemId);

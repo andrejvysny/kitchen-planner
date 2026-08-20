@@ -1,4 +1,4 @@
-import { expect, resetEmpty, test } from './fixtures';
+import { bootReady, expect, resetEmpty, test } from './fixtures';
 
 /**
  * EMPTY-STATE AIDS (WS-SPEC §5.4, WP 2.4) — the starter card in Plan, the
@@ -55,6 +55,23 @@ test('the photo-import button on the starter card does the right thing', async (
 });
 
 /**
+ * The demo kitchen's ONLY route in since a first run stopped booting it
+ * (src/app/services.ts boots `emptyDesign()`): the card's third button, wired
+ * to `store.loadDemo()`.
+ */
+test('the starter card loads the sample design', async ({ app }) => {
+  await resetEmpty(app);
+  await app.click('#ws-tab-plan');
+
+  await app.locator('#plan-starter').getByRole('button', { name: 'Load sample design' }).click();
+
+  // a room retires the card, and the demo brings furniture with it
+  await expect(app.locator('#plan-starter')).toHaveCount(0);
+  expect(await app.evaluate(() => window.__kp.store.design.rooms.length)).toBeGreaterThan(0);
+  expect(await app.evaluate(() => window.__kp.store.design.items.length)).toBeGreaterThan(0);
+});
+
+/**
  * The two aids answer DIFFERENT questions, and each retires on its own answer:
  * the card asks for a room and goes once one exists (items are irrelevant to
  * it), the nudge asks for something placed and goes once an item exists (rooms
@@ -85,7 +102,7 @@ test('a room retires the starter card, an item retires the furnish nudge', async
   await expect(app.locator('#furnish-nudge')).toHaveCount(0);
 });
 
-test('furnish nudge shows on a pristine design, dismisses, and stays dismissed across a workspace round trip', async ({
+test('furnish nudge shows on a pristine design, dismisses, and stays dismissed across a workspace round trip and a reload', async ({
   app,
 }) => {
   // the fixture's own reset lands in Furnish (the persisted default with
@@ -102,6 +119,13 @@ test('furnish nudge shows on a pristine design, dismisses, and stays dismissed a
   // a session flag, not design data: switching away and back keeps it hidden
   await app.click('#ws-tab-plan');
   await app.click('#ws-tab-furnish');
+  await expect(app.locator('#furnish-nudge')).toHaveCount(0);
+
+  // and the session is the TAB's, not the page load's — the flag lives in
+  // sessionStorage (NUDGE_KEY), so a reload does not re-raise an answered nudge
+  await app.reload({ waitUntil: 'networkidle' });
+  await bootReady(app);
+  expect(await app.evaluate(() => window.__kp.workspace())).toBe('furnish');
   await expect(app.locator('#furnish-nudge')).toHaveCount(0);
 });
 

@@ -1331,8 +1331,9 @@ await bootReady();
 const DESIGN_VERSION = await page.evaluate(() => window.__kp.store.design.version);
 const resetFresh = await page.evaluate((v) => {
   const d = window.__kp.store.design;
-  // the old 3-corner v1 payload must NOT survive — demo design loads instead
-  return d.version === v && d.rooms[0].corners.length === 4 && d.items.length > 0;
+  // the old 3-corner v1 payload must NOT survive — an unreadable autosave now
+  // falls back to emptyDesign(), with the recovery banner offering the backup
+  return d.version === v && d.rooms.length === 0 && d.items.length === 0;
 }, DESIGN_VERSION);
 results.push(['pre-v5 autosave resets to a fresh design', resetFresh]);
 
@@ -1547,7 +1548,7 @@ results.push([
   persisted.hasVar && persisted.cabBound && persisted.wallBound,
 ]);
 
-// 25. "Customize part…" forks a preset into My parts and repoints the instance.
+// 25. "Customize in Workshop…" forks a preset into My parts and repoints the instance.
 const customizeScenario = await page.evaluate(() => {
   const st = window.__kp.store;
   const item = st.addItem(st.defOf('base-cabinet'), 1.5, 1.5, 0);
@@ -1557,13 +1558,13 @@ const customizeScenario = await page.evaluate(() => {
 });
 await waitUntil(() =>
   [...document.querySelectorAll('#props-inner button')].some((b) =>
-    b.textContent.includes('Customize part')
+    b.textContent.includes('Customize in Workshop')
   )
 );
-const custBtn = page.locator('#props-inner button', { hasText: 'Customize part…' });
+const custBtn = page.locator('#props-inner button', { hasText: 'Customize in Workshop…' });
 const custVisible = await custBtn.count();
 await custBtn.click();
-await studioReady('editor'); // "Customize part…" forks straight into the editor
+await studioReady('editor'); // "Customize in Workshop…" forks straight into the editor
 const studioOpen = await page.locator('.studio-save').count();
 await page.click('.studio-save');
 await leaveWorkshop();
@@ -2501,13 +2502,21 @@ results.push([
 // ---------------------------------------------------------------------------
 // M3 — spatial checks engine (src/model/checks.ts): overlap / through-wall /
 // work-triangle E2E. Reload onto a clean demoDesign() baseline first — by
-// this point in the suite autosave holds a heavily mutated tree, and #btn-new
-// gives an emptyDesign(), not the demo (the only design carrying the shipped
-// sink/hob 70 cm work-triangle hint).
+// this point in the suite autosave holds a heavily mutated tree, and neither
+// #btn-new nor a fresh boot gives the demo any more (both land on
+// emptyDesign(); the demo is the only design carrying the shipped sink/hob
+// 70 cm work-triangle hint). The clear+reload is what wipes the mutated
+// autosave AND the parts library; store.loadDemo() — the exact call behind the
+// starter card's "Load sample design" — puts the demo back on top of it.
 // ---------------------------------------------------------------------------
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
 await bootReady();
+await page.evaluate(() => window.__kp.store.loadDemo());
+await waitUntil(() => {
+  const d = window.__kp.store.design;
+  return d.rooms.length === 2 && d.items.some((i) => i.defId === 'fridge');
+});
 
 // 31. moving one demo cabinet onto another raises an 'overlap' error naming
 // both, surfaces in the status bar, and undo clears it back to the baseline

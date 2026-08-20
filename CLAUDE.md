@@ -758,7 +758,14 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   src/ui/onboarded.ts (ONBOARDED_KEY, navPref-shaped: load-at-import, no
   listeners, best-effort write, and storage that THROWS reads as onboarded).
   A first run also forces `setWorkspace('plan')` right there — before React
-  mounts, so the first paint is already right — and <CoachMarks/> is a
+  mounts, so the first paint is already right — and **boots `emptyDesign()`,
+  not the demo kitchen**: nothing loaded (or an autosave that would not
+  sanitize) lands on a blank plan, where <PlanStarterCard/> and the tour teach
+  the real workflow instead of handing the user somebody else's finished
+  design to delete. `store.loadDemo()` is the ONE way back to it — the card's
+  "Load sample design", and the same call test/interact.mjs and
+  test/screenshot.mjs seed with, so the product path and the test path cannot
+  drift. <CoachMarks/> is a
   conditional in App.tsx like <RecoveryBanner/>, which is what makes the tour
   and the recovery banner mutually exclusive by construction. The tour writes
   the flag when it ENDS (walked or skipped), never on mount. The cheatsheet is
@@ -852,7 +859,10 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   `kitchen-planner-*` keys (never deleted). `UNDERLAY_KEY` (the tracing photo),
   `WORKSPACE_KEY` (the open workspace), `UNIT_PREFS_KEY` and `ONBOARDED_KEY`
   (the first-run tour, seeded by every test suite) are new-name only — they
-  postdate the rename and have no legacy twin. `DESIGN_VERSION` is 7.
+  postdate the rename and have no legacy twin. `NUDGE_KEY` (the Furnish
+  nudge's dismissal) is the one key there in **sessionStorage**: "for the rest
+  of the session" is the tab's lifetime, so a reload must keep it hidden and a
+  new tab must not. `DESIGN_VERSION` is 7.
   `sanitizeDesign()` (store.ts) is the single validation/repair gate for
   autosave and file import: it runs `migrateDesign()` first (versioned step
   map, `MIN_MIGRATABLE_VERSION` 5) and returns null when there is no path.

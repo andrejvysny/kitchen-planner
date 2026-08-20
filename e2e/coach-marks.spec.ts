@@ -43,6 +43,12 @@ test.describe('first-run coach marks', () => {
     expect(await page.evaluate(() => window.__kp.workspace())).toBe('plan');
     await expect(page.locator('#ws-tab-plan')).toHaveClass(/active/);
 
+    // and on an EMPTY design: the demo kitchen is no longer what a new user
+    // arrives to, so the tour and the starter card are pointing at the same
+    // blank plan rather than at somebody else's finished one
+    expect(await page.evaluate(() => window.__kp.store.design.rooms.length)).toBe(0);
+    await expect(page.locator('#plan-starter')).toBeVisible();
+
     // mark 1 of 4
     await expect(page.locator('#coach-marks')).toBeVisible();
     await expect(page.locator('.coach-mark[data-step="0"]')).toBeVisible();
@@ -145,6 +151,13 @@ test.describe('shortcut cheatsheet', () => {
     // persisted workspace puts it on the first paint
     await page.addInitScript((k) => localStorage.setItem(k, 'plan'), WORKSPACE_KEY);
     await bootOnboarded(page);
+    // a cleared profile boots EMPTY now (src/app/services.ts), and an empty
+    // design shows <NoRoomProps/> — seed the room the rename field lives on
+    await page.evaluate(() => {
+      const st = window.__kp.store;
+      st.addRoom();
+      st.commit();
+    });
 
     const name = page.locator('#props-inner .room-name');
     await name.click();

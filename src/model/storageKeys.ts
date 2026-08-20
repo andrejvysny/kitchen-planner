@@ -30,6 +30,14 @@ export const UNIT_PREFS_KEY = 'interior-planner-units-v1';
  * UNIT_PREFS_KEY above, new-name only, since the feature postdates the
  * rename. Test suites SEED it so a cleared profile never boots the tour. */
 export const ONBOARDED_KEY = 'interior-planner-onboarded-v1';
+/**
+ * Whether the Furnish "pick something from the library" nudge has been
+ * dismissed (src/ui/react/EmptyState.tsx). The one key here that lives in
+ * sessionStorage, not localStorage: dismissing it answers "not this visit",
+ * not "never again", so a reload inside the same tab must keep it hidden while
+ * a new tab starts over. New-name only, like the four keys above.
+ */
+export const NUDGE_KEY = 'interior-planner-nudge-v1';
 
 export const LEGACY_DESIGN_KEYS = ['kitchen-planner-design-v1'] as const;
 export const LEGACY_PARTS_KEYS = ['kitchen-planner-parts-v1'] as const;
