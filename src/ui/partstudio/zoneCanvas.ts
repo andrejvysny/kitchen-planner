@@ -80,6 +80,9 @@ export class ZoneCanvas {
   private onChange: () => void;
   private drag: DividerLine | null = null;
   selection: number[] | null = null;
+  /** selected divider line (mutually exclusive with `selection`) — toolbar
+   * shows Equalize for it; dblclick never acts on a divider any more. */
+  private dividerSel: DividerLine | null = null;
   /** leaf being edited in interior drill-in mode (null = zone mode) */
   interiorPath: number[] | null = null;
   private elemSel: number | null = null;
@@ -124,6 +127,12 @@ export class ZoneCanvas {
   handleEscape(): boolean {
     if (this.interiorPath) {
       this.exitInterior();
+      return true;
+    }
+    if (this.dividerSel) {
+      this.dividerSel = null;
+      this.renderToolbar();
+      this.draw();
       return true;
     }
     if (this.selection) {
@@ -289,6 +298,15 @@ export class ZoneCanvas {
     this.changed();
   }
 
+  /** Reset the selected divider's owning split to equal weights. */
+  private equalizeDivider(): void {
+    if (!this.dividerSel) return;
+    const split = zoneAtPath(this.part.face, this.dividerSel.path);
+    if (!split || split.kind !== 'split') return;
+    split.weights = split.weights.map(() => 1 / split.weights.length);
+    this.changed();
+  }
+
   private setFill(fill: ZoneFill): void {
     const leaf = this.selectedLeaf();
     if (!leaf) return;
@@ -329,6 +347,15 @@ export class ZoneCanvas {
     };
     if (this.interiorPath) {
       this.renderInteriorToolbar(btn);
+      return;
+    }
+    if (this.dividerSel) {
+      const axis = this.dividerSel.dir === 'v' ? 'columns' : 'rows';
+      btn('≡ Equalize', `Even out these ${axis} to equal sizes`, () => this.equalizeDivider());
+      const hint = document.createElement('span');
+      hint.className = 'studio-caption';
+      hint.textContent = 'divider selected — drag to resize';
+      tb.appendChild(hint);
       return;
     }
     const canSplit =
@@ -634,11 +661,16 @@ export class ZoneCanvas {
           : Math.abs(f.y - d.y) < hit && f.x > d.x - hit && f.x < d.x + d.len + hit;
       if (near) {
         this.drag = d;
+        this.dividerSel = d;
+        this.selection = null;
+        this.renderToolbar();
+        this.draw();
         return;
       }
     }
     const z = zoneAtPoint(this.part.face, v.faceW, v.faceH, f.x, f.y);
     this.selection = z ? z.path : null;
+    this.dividerSel = null;
     this.renderToolbar();
     this.draw();
   }
@@ -708,7 +740,8 @@ export class ZoneCanvas {
     this.changed();
   }
 
-  /** Double-click: equalize a divider, or drill into a leaf's interior. */
+  /** Double-click: drill into a leaf's interior. Never acts on a divider —
+   * equalizing one is a toolbar action now (see `equalizeDivider`). */
   private onDblClick(e: MouseEvent): void {
     if (this.interiorPath) return;
     const r = this.canvas.getBoundingClientRect();
@@ -717,17 +750,6 @@ export class ZoneCanvas {
       x: (e.clientX - r.left - v.ox) / v.scale,
       y: (v.oy - (e.clientY - r.top)) / v.scale,
     };
-    const hit = 6 / v.scale;
-    for (const d of this.dividers()) {
-      const near = d.dir === 'v' ? Math.abs(f.x - d.x) < hit : Math.abs(f.y - d.y) < hit;
-      if (!near) continue;
-      const split = zoneAtPath(this.part.face, d.path);
-      if (split && split.kind === 'split') {
-        split.weights = split.weights.map(() => 1 / split.weights.length);
-        this.changed();
-      }
-      return;
-    }
     const z = zoneAtPoint(this.part.face, v.faceW, v.faceH, f.x, f.y);
     if (z) this.enterInterior(z.path);
   }
@@ -864,7 +886,7 @@ export class ZoneCanvas {
     ctx.fillText(fmtCm(v.faceH), 0, 0);
     ctx.restore();
     this.fillFooterCaption(
-      'cabinet front — click a zone, drag the lines between zones, double-click for its interior',
+      'cabinet front — click a zone, click or drag a line between zones (Equalize on the toolbar), double-click a zone for its interior',
       cw / 2,
       ch - 12,
       cw - 24

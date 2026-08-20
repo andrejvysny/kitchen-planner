@@ -85,7 +85,7 @@ came from. Three part types cover essentially any furniture:
 
 - **Cabinet** — a carcass whose front you split into **zones**, Mozaik-style:
   click a zone, split it horizontally or vertically, drag the dividers to
-  resize (cm-snapped, double-click to equalize), and fill each zone with a
+  resize (cm-snapped; select a divider for the toolbar's ≡ Equalize), and fill each zone with a
   door, door pair, drawer stack, open oak niche, panel, glass door or an
   appliance niche. Double-click a zone to edit its interior (shelves and
   internal drawers, dragged to exact positions); doors get a hinge-side
