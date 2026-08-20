@@ -6,11 +6,12 @@ import {
   normalizeBoardOutline,
   normalizeFreeform,
 } from '../../model/parts';
+import { instancesOf } from '../../model/partUsage';
 import type { Store } from '../../model/store';
 import { confirmDialog } from '../dialogService';
 import type { CustomPartDef } from '../../model/types';
 import { uid } from '../../model/types';
-import { clearWorkshopTarget, openInWorkshop } from '../workspaceState';
+import { clearWorkshopTarget, openInWorkshop, workshopTarget } from '../workspaceState';
 import { BoardPanel } from './boardPanel';
 import { renderCabinetPanel } from './cabinetPanel';
 import { FreeformPanel } from './freeformPanel';
@@ -113,6 +114,10 @@ export class PartStudio {
           <input class="studio-name" type="text" maxlength="32" />
           <span class="studio-type-badge"></span>
         </div>
+        <div class="studio-scope">
+          <span class="studio-scope-text"></span>
+          <button class="btn studio-fork" title="Copies this part for just this cabinet — the other copies keep the original">Fork for this item only</button>
+        </div>
         <div class="studio-body"></div>
         <div class="studio-foot">
           <button class="btn danger studio-delete">Delete part</button>
@@ -201,6 +206,7 @@ export class PartStudio {
     (this.overlay!.querySelector('.studio-delete') as HTMLElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-duplicate') as HTMLElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-live-note') as HTMLElement).style.display = 'none';
+    (this.overlay!.querySelector('.studio-scope') as HTMLElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-type-badge') as HTMLElement).textContent = 'New part';
     renderTypePicker(body, CREATABLE, (type) => {
       const fresh =
@@ -247,13 +253,17 @@ export class PartStudio {
     (overlay.querySelector('.studio-type-badge') as HTMLElement).textContent =
       TYPE_LABELS[part.type];
     (overlay.querySelector('.studio-live-note') as HTMLElement).style.display = '';
+    (overlay.querySelector('.studio-scope') as HTMLElement).style.display = '';
 
     const del = overlay.querySelector('.studio-delete') as HTMLButtonElement;
     const dup = overlay.querySelector('.studio-duplicate') as HTMLButtonElement;
+    const fork = overlay.querySelector('.studio-fork') as HTMLButtonElement;
     del.style.display = '';
     dup.style.display = '';
     del.addEventListener('click', () => void this.deletePart());
     dup.addEventListener('click', () => this.duplicatePart());
+    fork.addEventListener('click', () => this.forkForItem());
+    this.refreshScope();
 
     this.preview = new StudioPreview(body.querySelector('.studio-preview') as HTMLElement);
     if (part.type === 'cabinet') {
@@ -371,6 +381,37 @@ export class PartStudio {
   }
 
   /**
+   * What editing this part will hit (WS-SPEC WP 3.2): live-apply means every
+   * placed copy follows the edit at once, so say how many that is up front.
+   * `Fork for this item only` is offered only when there is a "this item" to
+   * begin with (`workshopTarget().itemId`), it still resolves to the part on
+   * screen — a stale target from before an undo must not fork the wrong def —
+   * and there is more than one copy to split off from.
+   *
+   * No separate call site needed beyond `renderEditor`: an edit through
+   * `changed()` never changes how many items share a def, and anything that
+   * DOES (fork, duplicate, delete, undo) already re-opens the editor via
+   * `onHistory` or its own `open()` call, which calls this again.
+   */
+  private refreshScope(): void {
+    const part = this.part;
+    const overlay = this.overlay;
+    if (!part || !overlay) return;
+    const n = instancesOf(this.store.design, part.id);
+    (overlay.querySelector('.studio-scope-text') as HTMLElement).textContent =
+      n === 0
+        ? 'Not placed yet'
+        : n === 1
+          ? 'Edits apply to the 1 placed copy'
+          : `Edits apply to all ${n} placed copies`;
+
+    const itemId = workshopTarget()?.itemId;
+    const item = itemId ? this.store.itemById(itemId) : undefined;
+    const canFork = !!item && item.defId === part.id && n >= 2;
+    (overlay.querySelector('.studio-fork') as HTMLElement).style.display = canFork ? '' : 'none';
+  }
+
+  /**
    * An undo, a redo or a file load rebuilt `design.customParts` from JSON, so
    * the object this studio is editing is now an orphan. Re-open on whatever the
    * id resolves to NOW — the resident part, the preset it was shadowing (which
@@ -453,5 +494,22 @@ export class PartStudio {
     this.store.upsertCustomPart(copy);
     this.store.commit();
     openInWorkshop(copy.id);
+  }
+
+  /**
+   * "Fork for this item only" (WS-SPEC WP 3.2): the scope line's counterpart
+   * to `duplicatePart` — instead of an independent copy nothing yet uses, this
+   * clones the def and repoints ONLY the item that opened the studio, so the
+   * other placed copies keep resolving to the original. `forkPartForItem`
+   * commits nothing itself; the Workshop retargets onto the fork exactly like
+   * a duplicate does, which is what re-opens the editor on it.
+   */
+  private forkForItem(): void {
+    const itemId = workshopTarget()?.itemId;
+    if (!itemId) return;
+    const copy = this.store.forkPartForItem(itemId);
+    if (!copy) return;
+    this.store.commit();
+    openInWorkshop(copy.id, itemId);
   }
 }

@@ -1520,6 +1520,29 @@ body {
   padding: 4px 10px;
 }
 
+/*
+ * Scope line (WS-SPEC WP 3.2): live-apply reaches every placed copy of the
+ * part at once, so say how many that is before the user touches anything.
+ * `Fork for this item only` only shows up when there is a "this item" AND it
+ * is not the only copy — see PartStudio.refreshScope.
+ */
+.studio-scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--panel-border);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.studio-fork {
+  flex: none;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
 /* -- new-part type picker -- */
 
 .studio-body.picking {

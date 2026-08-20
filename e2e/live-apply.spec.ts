@@ -152,3 +152,56 @@ test('leaving after only LOOKING at a preset discards the shadow; an edit keeps 
   await expect.poll(() => shadow(app)).toEqual({ drawers: 4 });
   expect(await app.evaluate(() => window.__kp.store.design.customParts.length)).toBe(before + 1);
 });
+
+/**
+ * SCOPE LINE + FORK (WS-SPEC WP 3.2).
+ *
+ * Live-apply means an edit reaches every placed copy of the def at once, so
+ * the header says how many that is. "Fork for this item only" only shows up
+ * when the studio was opened FROM a specific item — ItemProps' "Edit in
+ * Workshop…" (a design-local part, opened as itself) or the plan's context
+ * menu, both of which pass an itemId — AND that def already has more than
+ * one placed copy. "Customize in Workshop…" forks a preset down to one copy
+ * before the studio ever opens, so it never needs the button; neither does
+ * opening a part from the sidebar or the catalog's ✎, which pass no itemId.
+ */
+test('scope line counts shared copies; Fork splits one off without touching the other', async ({
+  app,
+}) => {
+  // Fork PRESET once (creates a design-local part) and place a SECOND item
+  // against that same fork — two placed copies now share one design-local def.
+  const ids = await app.evaluate((defId) => {
+    const st = window.__kp.store;
+    const a = st.addItem(st.defOf(defId), 1.0, 1.0, 0);
+    st.commit();
+    const fork = st.forkPartForItem(a.id)!;
+    st.commit();
+    const b = st.addItem(st.defOf(fork.id), 2.6, 1.0, 0);
+    st.commit();
+    st.select({ kind: 'item', id: a.id });
+    return { a: a.id, b: b.id, partId: fork.id };
+  }, PRESET);
+
+  await expect.poll(() => app.locator('#props-inner .props-title').textContent()).not.toBeNull();
+  // a design-local part opens directly — no auto-fork, unlike "Customize…"
+  const editBtn = app.locator('#props-inner button', { hasText: 'Edit in Workshop…' });
+  await expect(editBtn).toHaveCount(1);
+  await editBtn.click();
+  await expect(app.locator('#pane-workshop .studio-body .studio-form')).toBeVisible();
+
+  await expect(app.locator('.studio-scope-text')).toHaveText('Edits apply to all 2 placed copies');
+  const forkBtn = app.locator('.studio-fork');
+  await expect(forkBtn).toBeVisible();
+
+  await forkBtn.click();
+  // the studio retargets onto the fork, which now has exactly one placed copy
+  await expect(app.locator('.studio-scope-text')).toHaveText('Edits apply to the 1 placed copy');
+  await expect(forkBtn).toBeHidden();
+
+  const after = await app.evaluate((arg) => {
+    const st = window.__kp.store;
+    return { aDef: st.itemById(arg.a)!.defId, bDef: st.itemById(arg.b)!.defId };
+  }, ids);
+  expect(after.bDef).toBe(ids.partId); // the OTHER copy keeps resolving to the shared def
+  expect(after.aDef).not.toBe(ids.partId); // the item that opened the studio moved to the fork
+});
