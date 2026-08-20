@@ -1565,6 +1565,54 @@ body {
   padding-top: 0;
 }
 
+/* Front-layout tile row (WS-SPEC WP 3.4) — canned zone trees, Simple tab only. */
+.front-layout-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.front-layout-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: #fbfaf9;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.front-layout-tile:hover,
+.front-layout-tile:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.front-layout-tile.active {
+  border-color: var(--accent);
+  background: #eef4f2;
+}
+
+.front-layout-schematic {
+  display: block;
+}
+
+.front-layout-label {
+  font-size: 11px;
+  color: var(--ink-soft);
+  text-align: center;
+  line-height: 1.25;
+}
+
+.front-layout-tile.active .front-layout-label {
+  color: var(--ink);
+  font-weight: 650;
+}
+
 /* -- new-part type picker -- */
 
 .studio-body.picking {

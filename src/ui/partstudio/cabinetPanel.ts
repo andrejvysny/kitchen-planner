@@ -2,6 +2,7 @@ import { COUNTER_COLORS, FRONT_COLORS, OAK, WALNUT } from '../../model/catalog';
 import { clamp } from '../../model/geometry';
 import type { CabinetPartDef, Footprint } from '../../model/types';
 import { choiceRow, dimRow, numRow, section, swatchRow, toggleRow, unitSuffix } from './controls';
+import { renderFrontLayoutTiles } from './frontLayoutTiles';
 import type { StudioTab } from './studioTab';
 
 type FootKind = 'rect' | 'angledEnd' | 'diagonal' | 'cornerL';
@@ -117,19 +118,20 @@ export function renderCabinetPanel(
     }
   );
 
-  // The Simple tab's front-layout slot (WS-SPEC WP 3.3). WP 3.4 fills it with
-  // the canned arrangements; it is here already so the Simple rail reads in the
-  // order it will keep — dimensions, front layout, body, colours — and so the
-  // container id the tiles mount into is pinned by the DOM contract from now.
+  // The Simple tab's front-layout slot (WS-SPEC WP 3.3/3.4): a tile row of
+  // canned zone trees so a novice never has to open the Advanced tab's zone
+  // canvas. It is here already so the Simple rail reads in the order it keeps
+  // — dimensions, front layout, body, colours.
   const layout = sec('Front layout', 'simple');
   layout.classList.add('studio-front-slot');
   const layoutCaption = document.createElement('div');
   layoutCaption.className = 'studio-caption';
-  layoutCaption.textContent = 'Pick a canned front arrangement — coming with WP 3.4';
+  layoutCaption.textContent = 'Pick a canned front arrangement';
   layout.appendChild(layoutCaption);
   const layoutSlot = document.createElement('div');
   layoutSlot.id = 'studio-front-layouts';
   layout.appendChild(layoutSlot);
+  renderFrontLayoutTiles(layoutSlot, part, onChange);
 
   const foot = sec('Footprint', 'advanced');
   const buttons = document.createElement('div');

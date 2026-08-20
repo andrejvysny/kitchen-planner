@@ -273,7 +273,8 @@ const STUDIO_EDITOR: readonly ContractEntry[] = [
   vis('.studio-tab[data-tab="advanced"]'),
   vis('.studio-form'),
   vis('.studio-front-slot'),
-  present('#studio-front-layouts'), // empty until WP 3.4 mounts its tiles into it
+  present('#studio-front-layouts'),
+  vis('.front-layout-tile'), // WP 3.4's 8 canned-layout tiles
   vis('.studio-preview'),
   vis('.studio-foot'),
   // Save and Revert died with the drafts (WS-SPEC WP 3.1) — the footer now
