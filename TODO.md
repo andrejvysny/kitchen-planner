@@ -295,9 +295,14 @@ PreToolUse hook (project tooling, not an attack) and that suites seed
 ## Phase 3 — workshop maturation
 
 - [x] WP 3.1 live-apply (`store.updateCustomPart`, guard deletion, discard-if-pristine)
-- [ ] WP 3.2 scope header (def vs instances, fork-for-this-item)
-- [ ] WP 3.3 Simple / Advanced split
-- [ ] WP 3.4 front-layout presets (`faceLayouts.ts`)
+- [x] WP 3.2 scope header — `instancesOf` (partUsage.ts), live scope line,
+      "Fork for this item only" gated on the target still holding the def.
+- [x] WP 3.3 Simple / Advanced split — session `studioTab` flag, sections
+      declare their tab at the render site, zone canvas Advanced-only.
+- [x] WP 3.4 front-layout presets — `faceLayouts.ts` (8 normalize-stable
+      trees), schematic tiles, replace-confirm on customized trees.
+
+**Phase 3 shipped.** Gates: 938 unit · interact 109/109 · Playwright 103/103.
 
 ## Phase 4 — materials
 
