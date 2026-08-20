@@ -76,10 +76,14 @@ Plan (dead row).
 
 ## Phase 2 — core flow
 
-- [ ] 2.1 3D drag-to-move selected item (same snapItem path as gizmo) + 3D
-      selected/attached hint chips
-- [ ] 2.2 hidden-gesture hints (stack cycling, place-then-drag)
-- [ ] 2.3 zone-canvas dblclick disambiguation
+- [x] 2.1 3D drag-to-move the selected item (shared snapMoveItem path with the
+      gizmo; orbit only from unselected/empty; e2e/3d-move.spec.ts).
+- [x] 2.2 hidden-gesture hints — stack cycling shown only when stacked,
+      "Mounted on <host>" naming, post-place fine-drag hint.
+- [x] 2.3 zone-canvas dblclick = drill-in only; dividers select, ≡ Equalize on
+      the toolbar.
+
+**Phase 2 shipped.** Gates: 890 unit · interact 109/109 · Playwright 92/92.
 
 ## Phase 3+4 — Workshop maturation + materials
 
