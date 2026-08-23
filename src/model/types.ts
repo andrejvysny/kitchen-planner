@@ -375,6 +375,25 @@ export interface Design {
   underlay?: Underlay;
 }
 
+/**
+ * The kinds of design entity the editor can select. Deliberately the same four
+ * the single-selection `Selection` union already carried — a room is NOT one of
+ * them, because `store.activeRoomId` already means "the room edits target" and
+ * two overlapping room concepts is a separate design.
+ */
+export type EntityKind = 'item' | 'corner' | 'wall' | 'opening';
+
+/**
+ * One design entity named by kind + id — the UNIT of selection. Plain model
+ * vocabulary so both `src/model` and `src/editor` can speak it; the selection
+ * STATE and its rules live in src/editor/selection.ts, because which entities
+ * may be held together is editor policy, not a property of the design.
+ */
+export interface EntityRef {
+  kind: EntityKind;
+  id: string;
+}
+
 export type Selection =
   | { kind: 'none' }
   | { kind: 'item'; id: string }

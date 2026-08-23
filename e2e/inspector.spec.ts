@@ -29,7 +29,7 @@ async function selectAndSettle(
   sel: { kind: string; id: string },
   firstSection: string
 ): Promise<void> {
-  await app.evaluate((s) => window.__kp.store.select(s as never), sel);
+  await app.evaluate((s) => window.__kp.editor.select(s as never), sel);
   await expect.poll(() => sections(app)).toContain(firstSection);
 }
 
@@ -40,7 +40,7 @@ async function place(app: Page, defId: string, x: number, y: number): Promise<st
       const st = window.__kp.store;
       const item = st.addItem(st.defOf(defId), x, y, 0);
       st.commit();
-      st.select({ kind: 'item', id: item.id });
+      window.__kp.editor.select({ kind: 'item', id: item.id });
       return item.id;
     },
     { defId, x, y }
@@ -125,7 +125,7 @@ test('a room row switches rooms without leaving the room panel', async ({ app })
     .click();
 
   await expect.poll(() => app.evaluate(() => window.__kp.store.activeRoomId)).not.toBe(second);
-  await expect.poll(() => app.evaluate(() => window.__kp.store.selection.kind)).toBe('none');
+  await expect.poll(() => app.evaluate(() => window.__kp.editor.selection.kind)).toBe('none');
   await expect(app.locator('#props-inner .room-row.active')).toHaveCount(1);
 });
 
@@ -150,7 +150,7 @@ test('the room name field survives a re-render while it holds the caret', async 
   await expect(name).toHaveValue('Galley');
 
   await name.press('Enter');
-  await expect.poll(() => app.evaluate(() => window.__kp.store.activeRoom().name)).toBe('Galley');
+  await expect.poll(() => app.evaluate(() => window.__kp.store.activeRoom()!.name)).toBe('Galley');
 });
 
 test('a cabinet shows dimensions, position, both colour slots and its worktop', async ({ app }) => {
@@ -241,7 +241,7 @@ test('wall, opening and corner panels keep their sections and their data-cls fie
     st.commit();
     return o.id;
   }, wallId);
-  await app.evaluate((id) => window.__kp.store.select({ kind: 'opening', id }), winId);
+  await app.evaluate((id) => window.__kp.editor.select({ kind: 'opening', id }), winId);
   await expect(app.locator('#props-inner .props-title')).toHaveText('Window');
   await expect.poll(() => sections(app)).toEqual(['Size', 'Actions']); // no swing on a window
 
@@ -259,7 +259,7 @@ test('dropping the selection returns to the room panel', async ({ app }) => {
   await place(app, 'base-cabinet', 2.0, 1.0);
   await expect(app.locator('#props-inner .props-title')).toHaveText('Base cabinet');
 
-  await app.evaluate(() => window.__kp.store.select({ kind: 'none' }));
+  await app.evaluate(() => window.__kp.editor.select({ kind: 'none' }));
   await expect(app.locator('#props-inner .props-title')).toHaveCount(0);
   await expect(app.locator('#props-inner .room-name')).toHaveCount(1);
 });

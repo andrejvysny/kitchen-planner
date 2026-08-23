@@ -86,7 +86,7 @@ test.describe('plan canvas', () => {
     app,
   }) => {
     const w = await wallMid(app);
-    const before = await app.evaluate(() => window.__kp.store.activeRoom().corners.length);
+    const before = await app.evaluate(() => window.__kp.store.activeRoom()!.corners.length);
 
     await rightClickPlan(app, w.x, w.y);
 
@@ -96,16 +96,16 @@ test.describe('plan canvas', () => {
     await expect(entry(app, 'add-corner').locator('.ctx-hint')).toHaveText('double-click');
     // right-click selects what it acts on
     await expect
-      .poll(() => app.evaluate(() => window.__kp.store.selection))
+      .poll(() => app.evaluate(() => window.__kp.editor.selection))
       .toEqual({ kind: 'wall', id: w.id });
 
     await entry(app, 'add-corner').click();
 
     await expect(menu(app)).toHaveCount(0);
     await expect
-      .poll(() => app.evaluate(() => window.__kp.store.activeRoom().corners.length))
+      .poll(() => app.evaluate(() => window.__kp.store.activeRoom()!.corners.length))
       .toBe(before + 1);
-    expect(await app.evaluate(() => window.__kp.store.selection.kind)).toBe('corner');
+    expect(await app.evaluate(() => window.__kp.editor.selection.kind)).toBe('corner');
   });
 
   test('Escape closes the menu and leaves the design alone', async ({ app }) => {
@@ -156,7 +156,7 @@ test.describe('plan canvas', () => {
 
     await expect(menu(app)).toHaveCount(0);
     await expect
-      .poll(() => app.evaluate(() => window.__kp.store.activeRoom().corners.length))
+      .poll(() => app.evaluate(() => window.__kp.store.activeRoom()!.corners.length))
       .toBe(6);
   });
 
@@ -187,7 +187,7 @@ test.describe('plan canvas', () => {
     await expect(menu(app)).toHaveCount(0);
     // wall finishes are a room-level style here, so the honest destination is
     // the room panel's Walls section — which means dropping the selection
-    await expect.poll(() => app.evaluate(() => window.__kp.store.selection.kind)).toBe('none');
+    await expect.poll(() => app.evaluate(() => window.__kp.editor.selection.kind)).toBe('none');
     await expect(app.locator('#section-walls')).toBeVisible();
   });
 
