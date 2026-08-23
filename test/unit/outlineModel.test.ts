@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { replaceSelection, type SelectionState } from '../../src/editor/selection';
 import type { CatalogDef } from '../../src/model/catalog';
-import type { Design, Item, Opening, Room, Selection } from '../../src/model/types';
+import type { Design, EntityRef, Item, Opening, Room } from '../../src/model/types';
 import { outlineGroups, type OutlineData, type OutlineSource } from '../../src/ui/outlineModel';
 
 /**
@@ -25,7 +26,6 @@ const opening = (id: string, type: 'door' | 'window'): Opening =>
 function source(
   parts: Partial<Design> & { rooms: Room[] },
   opts: {
-    selection?: Selection;
     activeRoomId?: string;
     defs?: Record<string, { kind: string; label: string }>;
   } = {}
@@ -33,7 +33,6 @@ function source(
   const design = { openings: [], items: [], ...parts } as Design;
   return {
     design,
-    selection: opts.selection ?? { kind: 'none' },
     activeRoomId: opts.activeRoomId ?? parts.rooms[0]?.id,
     defOf: (defId) =>
       (opts.defs?.[defId] ?? { kind: 'cabinet', label: defId }) as Pick<
@@ -43,6 +42,9 @@ function source(
     floorArea: (roomId) => (roomId === parts.rooms[0]?.id ? 12 : 9),
   };
 }
+
+/** The selection is the editor's since M18, so it arrives as a second argument. */
+const held = (ref?: EntityRef): SelectionState => replaceSelection(ref ?? null);
 
 const titles = (data: OutlineData): string[] => data.groups.map((g) => g.title);
 
@@ -166,14 +168,12 @@ describe('outlineGroups', () => {
 
   it('marks the selected row, and only that one', () => {
     const data = outlineGroups(
-      source(
-        {
-          rooms: [room('r1', 'Kitchen')],
-          items: [item('i1', 'base-cabinet'), item('i2', 'base-cabinet')],
-          openings: [opening('o1', 'door')],
-        },
-        { selection: { kind: 'item', id: 'i2' } }
-      )
+      source({
+        rooms: [room('r1', 'Kitchen')],
+        items: [item('i1', 'base-cabinet'), item('i2', 'base-cabinet')],
+        openings: [opening('o1', 'door')],
+      }),
+      held({ kind: 'item', id: 'i2' })
     );
     expect(data.groups.flatMap((g) => g.rows.map((r) => [r.id, r.active]))).toEqual([
       ['o1', false],
@@ -184,10 +184,8 @@ describe('outlineGroups', () => {
 
   it('marks a selected opening the same way', () => {
     const data = outlineGroups(
-      source(
-        { rooms: [room('r1', 'Kitchen')], openings: [opening('o1', 'door')] },
-        { selection: { kind: 'opening', id: 'o1' } }
-      )
+      source({ rooms: [room('r1', 'Kitchen')], openings: [opening('o1', 'door')] }),
+      held({ kind: 'opening', id: 'o1' })
     );
     expect(data.groups[0].rows[0].active).toBe(true);
   });

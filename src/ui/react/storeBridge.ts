@@ -79,7 +79,7 @@ export class StoreBridge {
           this.bump('transient');
         }
       }),
-      store.on('selection', () => this.bump('selection')),
+      editor.subscribeSelection(() => this.bump('selection')),
       store.on('history', () => this.bump('history')),
       store.on('pose', () => this.bump('pose')),
       store.on('activeRoom', () => this.bump('activeRoom')),

@@ -8,11 +8,11 @@ describe('Store event disposers', () => {
   it('disposer removes exactly its own handler', () => {
     const store = new Store(emptyDesign());
     const calls: string[] = [];
-    const disposeA = store.on('selection', () => calls.push('a'));
-    store.on('selection', () => calls.push('b'));
+    const disposeA = store.on('pose', () => calls.push('a'));
+    store.on('pose', () => calls.push('b'));
 
     disposeA();
-    store.select({ kind: 'none' });
+    store.openFronts.toggle('i1', 'door');
 
     expect(calls).toEqual(['b']);
   });
@@ -20,12 +20,12 @@ describe('Store event disposers', () => {
   it('double-dispose is a no-op and does not remove a different handler', () => {
     const store = new Store(emptyDesign());
     const calls: string[] = [];
-    const disposeA = store.on('selection', () => calls.push('a'));
-    store.on('selection', () => calls.push('b'));
+    const disposeA = store.on('pose', () => calls.push('a'));
+    store.on('pose', () => calls.push('b'));
 
     disposeA();
     disposeA(); // second call: indexOf finds nothing, must not touch 'b'
-    store.select({ kind: 'none' });
+    store.openFronts.toggle('i1', 'door');
 
     expect(calls).toEqual(['b']);
   });
@@ -39,14 +39,14 @@ describe('Store event disposers', () => {
       disposeH1();
     };
     const h2 = () => calls.push('h2');
-    disposeH1 = store.on('selection', h1);
-    store.on('selection', h2);
+    disposeH1 = store.on('pose', h1);
+    store.on('pose', h2);
 
-    store.select({ kind: 'none' });
+    store.openFronts.toggle('i1', 'door');
     expect(calls).toEqual(['h1', 'h2']); // h1 still ran this dispatch despite disposing itself
 
     calls.length = 0;
-    store.select({ kind: 'none' });
+    store.openFronts.toggle('i1', 'door');
     expect(calls).toEqual(['h2']); // h1 is gone from the next dispatch onward
   });
 
@@ -67,13 +67,13 @@ describe('Store event disposers', () => {
     const store = new Store(emptyDesign());
     const calls: string[] = [];
     const fn = () => calls.push('fired');
-    const disposeSelection = store.on('selection', fn);
+    const disposeSelection = store.on('pose', fn);
     store.on('change', fn); // same function instance, registered under a different event
 
     disposeSelection();
 
-    store.select({ kind: 'none' });
-    expect(calls).toEqual([]); // the 'selection' registration is gone
+    store.openFronts.toggle('i1', 'door');
+    expect(calls).toEqual([]); // the 'pose' registration is gone
 
     store.notify({ structural: false, transient: false });
     expect(calls).toEqual(['fired']); // the 'change' registration is untouched

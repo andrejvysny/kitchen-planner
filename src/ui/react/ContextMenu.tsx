@@ -49,7 +49,7 @@ interface OpenMenu {
 const EDGE = 6;
 
 export function ContextMenu(): ReactElement | null {
-  const { store, plan, view3d, commands } = useAppServices();
+  const { store, editor, plan, view3d, commands } = useAppServices();
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   const box = useRef<HTMLDivElement>(null);
 
@@ -80,8 +80,8 @@ export function ContextMenu(): ReactElement | null {
       // makes "Set wall length…" coherent (the panel it focuses is the panel
       // for the thing just clicked). Rooms are the exception: activating one is
       // an ENTRY here, so auto-activating would delete its own menu item.
-      if (hit.kind === 'item') store.select({ kind: 'item', id: hit.itemId });
-      else if (hit.kind === 'wall') store.select({ kind: 'wall', id: hit.wallId });
+      if (hit.kind === 'item') editor.select({ kind: 'item', id: hit.itemId });
+      else if (hit.kind === 'wall') editor.select({ kind: 'wall', id: hit.wallId });
       setMenu({ x: e.clientX, y: e.clientY, hit, entries });
     };
 
@@ -106,7 +106,7 @@ export function ContextMenu(): ReactElement | null {
       plan2d.removeEventListener('contextmenu', onPlan);
       canvas3d.removeEventListener('contextmenu', on3d);
     };
-  }, [store, plan, view3d]);
+  }, [store, editor, plan, view3d]);
 
   /** Keep the popup inside the window, and give it the keyboard. */
   useLayoutEffect(() => {
@@ -156,7 +156,7 @@ export function ContextMenu(): ReactElement | null {
         // the same three lines Plan2D's dblclick runs — one behaviour, two routes
         const corner = store.splitWall(hit.wallId, hit.t);
         if (!corner) return;
-        store.select({ kind: 'corner', id: corner.id });
+        editor.select({ kind: 'corner', id: corner.id });
         store.commit();
         return;
       }
@@ -168,7 +168,7 @@ export function ContextMenu(): ReactElement | null {
         return;
       case 'wall-length':
         if (hit.kind !== 'wall') return;
-        store.select({ kind: 'wall', id: hit.wallId });
+        editor.select({ kind: 'wall', id: hit.wallId });
         focusField('#props-inner input[data-cls="wall-len"]');
         return;
       case 'wall-colour': {
@@ -177,7 +177,7 @@ export function ContextMenu(): ReactElement | null {
         // so the honest destination is that room's Walls section
         const room = store.roomOfWall(hit.wallId);
         if (room) store.setActiveRoom(room.id);
-        store.select({ kind: 'none' });
+        editor.select({ kind: 'none' });
         scrollToSection('section-walls');
         return;
       }
@@ -187,12 +187,12 @@ export function ContextMenu(): ReactElement | null {
         if (hit.kind !== 'room') return;
         // ephemeral view state: no notify, no commit, never an undo step
         store.setActiveRoom(hit.roomId);
-        store.select({ kind: 'none' });
+        editor.select({ kind: 'none' });
         return;
       case 'rename-room':
         if (hit.kind !== 'room') return;
         store.setActiveRoom(hit.roomId);
-        store.select({ kind: 'none' });
+        editor.select({ kind: 'none' });
         focusField('#props-inner .room-name');
         return;
       case 'shape-rect':
@@ -232,7 +232,7 @@ export function ContextMenu(): ReactElement | null {
       case 'rotate90':
       case 'delete': {
         if (hit.kind !== 'item') return;
-        store.select({ kind: 'item', id: hit.itemId });
+        editor.select({ kind: 'item', id: hit.itemId });
         commands.execute(
           id === 'duplicate'
             ? 'selection.duplicate'

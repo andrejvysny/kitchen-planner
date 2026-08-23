@@ -312,7 +312,7 @@ export class Plan2D {
         this.measureMaterial = null;
         this.requestDraw();
       }),
-      this.store.on('selection', () => {
+      this.editor.subscribeSelection(() => {
         this.updateHint();
         this.requestDraw();
       }),
@@ -1239,7 +1239,7 @@ export class Plan2D {
       this.onHint('That chain is too short to be a wall');
       return;
     }
-    this.store.select({ kind: 'wall', id: chain.corners[0].id });
+    this.editor.select({ kind: 'wall', id: chain.corners[0].id });
     this.store.commit();
     this.finishGesture();
   }
@@ -1296,7 +1296,7 @@ export class Plan2D {
       this.onHint('That outline is not a usable room — it crosses itself or is too small');
       return null;
     }
-    this.store.select({ kind: 'none' }); // the new room's panel is the no-selection one
+    this.editor.select({ kind: 'none' }); // the new room's panel is the no-selection one
     this.store.commit();
     return room;
   }
@@ -1310,7 +1310,7 @@ export class Plan2D {
     for (const room of this.store.design.rooms) {
       const made = this.store.splitRoom(room.id, this.drawPts);
       if (!made) continue;
-      this.store.select({ kind: 'none' });
+      this.editor.select({ kind: 'none' });
       this.store.commit();
       this.finishGesture();
       return true;
@@ -1492,7 +1492,7 @@ export class Plan2D {
       }
       return;
     }
-    const sel = this.store.selection;
+    const sel = this.editor.selection;
     switch (sel.kind) {
       case 'item': {
         const it = this.store.itemById(sel.id);
@@ -1660,7 +1660,7 @@ export class Plan2D {
   }
 
   private hitRotateHandle(s: Point): string | null {
-    const sel = this.store.selection;
+    const sel = this.editor.selection;
     if (sel.kind !== 'item') return null;
     const it = this.store.itemById(sel.id);
     if (!it || it.attach) return null; // attached items derive their rotation
@@ -1834,7 +1834,7 @@ export class Plan2D {
 
     const cornerId = this.hitCorner(s);
     if (cornerId) {
-      this.store.select({ kind: 'corner', id: cornerId });
+      this.editor.select({ kind: 'corner', id: cornerId });
       this.drag = { type: 'corner', id: cornerId };
       return;
     }
@@ -1852,17 +1852,17 @@ export class Plan2D {
     const opening = this.hitOpening(w);
     if (opening) {
       this.activateForWall(this.store.wallById(opening.wallId));
-      this.store.select({ kind: 'opening', id: opening.id });
+      this.editor.select({ kind: 'opening', id: opening.id });
       this.drag = { type: 'opening', id: opening.id };
       return;
     }
     const stack = this.hitItems(w);
     if (stack.length) {
       // drag whatever is already selected in the stack; a plain click cycles to the item below
-      const sel = this.store.selection;
+      const sel = this.editor.selection;
       const selIdx = sel.kind === 'item' ? stack.findIndex((it) => it.id === sel.id) : -1;
       const item = selIdx >= 0 ? stack[selIdx] : stack[0];
-      this.store.select({ kind: 'item', id: item.id });
+      this.editor.select({ kind: 'item', id: item.id });
       this.drag = {
         type: 'item',
         id: item.id,
@@ -1876,7 +1876,7 @@ export class Plan2D {
     const wallId = this.hitWall(w);
     if (wallId) {
       this.activateForWall(this.store.wallById(wallId));
-      this.store.select({ kind: 'wall', id: wallId });
+      this.editor.select({ kind: 'wall', id: wallId });
       return;
     }
     // nothing modelled here: an unlocked photo under the cursor takes the drag
@@ -1909,7 +1909,7 @@ export class Plan2D {
       const near = nearestWall(this.store, w, 0.6);
       if (!near) return;
       const o = this.store.addOpening(def, near.wall.id, near.t);
-      this.store.select({ kind: 'opening', id: o.id });
+      this.editor.select({ kind: 'opening', id: o.id });
       this.store.commit();
       if (!keep) this.setArmed(null);
       return;
@@ -1921,7 +1921,7 @@ export class Plan2D {
       if (!hit) return;
       const item = this.store.addItem(def, w.x, w.y, 0);
       this.store.setAttachment(item.id, hit.attach);
-      this.store.select({ kind: 'item', id: item.id });
+      this.editor.select({ kind: 'item', id: item.id });
       this.store.commit();
       if (!keep) this.setArmed(null);
       this.drag = { type: 'item', id: item.id, ox: 0, oy: 0, moved: false };
@@ -1932,7 +1932,7 @@ export class Plan2D {
     if ((def.marker || isWallMounted(def)) && !snapped.wallId) return; // markers need a wall
     const item = this.store.addItem(def, snapped.x, snapped.y, snapped.rotation);
     item.roomId = snapped.roomId;
-    this.store.select({ kind: 'item', id: item.id });
+    this.editor.select({ kind: 'item', id: item.id });
     this.store.commit();
     if (!keep) this.setArmed(null);
     // continue dragging the fresh item for fine placement
@@ -1962,7 +1962,7 @@ export class Plan2D {
         if (!g) return;
         const nc = this.store.splitWall(d.wallId, g.len / 2);
         if (nc) {
-          this.store.select({ kind: 'corner', id: nc.id });
+          this.editor.select({ kind: 'corner', id: nc.id });
           this.drag = { type: 'corner', id: nc.id };
         } else {
           this.drag = { type: 'none' };
@@ -2223,10 +2223,10 @@ export class Plan2D {
       // pans (or, over the photo, moves it)
       const roomId = this.hitRoom(this.toWorld(wasDrag.sx, wasDrag.sy));
       if (roomId) this.store.setActiveRoom(roomId);
-      this.store.select({ kind: 'none' });
+      this.editor.select({ kind: 'none' });
     }
     if (wasDrag.type === 'maybe-split') {
-      this.store.select({ kind: 'wall', id: wasDrag.wallId });
+      this.editor.select({ kind: 'wall', id: wasDrag.wallId });
     }
     if (
       wasDrag.type === 'item' &&
@@ -2234,7 +2234,7 @@ export class Plan2D {
       wasDrag.cycleTo &&
       wasDrag.cycleTo !== wasDrag.id
     ) {
-      this.store.select({ kind: 'item', id: wasDrag.cycleTo });
+      this.editor.select({ kind: 'item', id: wasDrag.cycleTo });
     }
     this.endGesture();
   }
@@ -2303,7 +2303,7 @@ export class Plan2D {
       const pr = projectOnWall(g, w);
       const nc = this.store.splitWall(wallId, pr.t);
       if (nc) {
-        this.store.select({ kind: 'corner', id: nc.id });
+        this.editor.select({ kind: 'corner', id: nc.id });
         this.store.commit();
       }
     }
@@ -2395,6 +2395,7 @@ export class Plan2D {
         // the snap engine's guides are additive: `this.guides` still carries
         // the clearance spans snapItem produces, which are a different thing
         guides: [...this.guides, ...(this.activeSnap()?.guides ?? [])],
+        selection: this.editor.selectionState(),
         armedDef: this.armedDef,
         ghost: this.ghost,
         ghostOpening: this.ghostOpening,

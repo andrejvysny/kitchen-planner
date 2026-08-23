@@ -51,7 +51,7 @@ test('dragging an item never re-renders the inspector, yet its fields follow', a
     const st = window.__kp.store;
     const item = st.addItem(st.defOf('base-cabinet'), 2.0, 1.5, 0);
     st.commit();
-    st.select({ kind: 'item', id: item.id });
+    window.__kp.editor.select({ kind: 'item', id: item.id });
     return { id: item.id, x: item.x, y: item.y };
   });
 

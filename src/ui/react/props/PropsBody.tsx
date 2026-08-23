@@ -1,5 +1,5 @@
 import { useEffect, type ReactElement } from 'react';
-import { useStore } from '../services';
+import { useEditor, useStore } from '../services';
 import { countRender } from '../debugCounters';
 import { useChannel } from '../hooks/useStore';
 import { CornerProps } from './CornerProps';
@@ -31,6 +31,7 @@ import { WallProps } from './WallProps';
  */
 export function PropsBody(): ReactElement {
   const store = useStore();
+  const editor = useEditor();
   useChannel('selection');
   useChannel('history');
   useChannel('activeRoom');
@@ -40,7 +41,7 @@ export function PropsBody(): ReactElement {
   // transient rule is stated in
   useEffect(() => countRender('propsBody'));
 
-  const sel = store.selection;
+  const sel = editor.selection;
   // An id that resolves nowhere falls through to the room panel, exactly as
   // ui.ts's renderProps did — a stale selection shows the room, not an error.
   if (sel.kind === 'item') {

@@ -435,11 +435,11 @@ test('DOM contract: selector table stays present across every pinned app state',
       const st = window.__kp.store;
       const item = st.addItem(st.defOf('base-cabinet'), 2.0, 1.0, 0);
       st.commit();
-      st.select({ kind: 'item', id: item.id });
+      window.__kp.editor.select({ kind: 'item', id: item.id });
       return item.id;
     });
     await expect
-      .poll(() => app.evaluate(() => window.__kp.store.selection))
+      .poll(() => app.evaluate(() => window.__kp.editor.selection))
       .toEqual({ kind: 'item', id });
     return id;
   });
@@ -454,11 +454,11 @@ test('DOM contract: selector table stays present across every pinned app state',
     const id = await app.evaluate(() => {
       const st = window.__kp.store;
       const wall = st.allWalls()[0];
-      st.select({ kind: 'wall', id: wall.id });
+      window.__kp.editor.select({ kind: 'wall', id: wall.id });
       return wall.id;
     });
     await expect
-      .poll(() => app.evaluate(() => window.__kp.store.selection))
+      .poll(() => app.evaluate(() => window.__kp.editor.selection))
       .toEqual({ kind: 'wall', id });
     return id;
   });
@@ -475,11 +475,11 @@ test('DOM contract: selector table stays present across every pinned app state',
       const wall = st.wallById(wId)!;
       const o = st.addOpening(st.defOf('door'), wall.id, wall.len / 2);
       st.commit();
-      st.select({ kind: 'opening', id: o.id });
+      window.__kp.editor.select({ kind: 'opening', id: o.id });
       return o.id;
     }, wallId);
     await expect
-      .poll(() => app.evaluate(() => window.__kp.store.selection))
+      .poll(() => app.evaluate(() => window.__kp.editor.selection))
       .toEqual({ kind: 'opening', id });
     return id;
   });
@@ -494,11 +494,11 @@ test('DOM contract: selector table stays present across every pinned app state',
     const id = await app.evaluate(() => {
       const st = window.__kp.store;
       const corner = st.design.rooms[0].corners[0];
-      st.select({ kind: 'corner', id: corner.id });
+      window.__kp.editor.select({ kind: 'corner', id: corner.id });
       return corner.id;
     });
     await expect
-      .poll(() => app.evaluate(() => window.__kp.store.selection))
+      .poll(() => app.evaluate(() => window.__kp.editor.selection))
       .toEqual({ kind: 'corner', id });
     return id;
   });
@@ -565,7 +565,7 @@ test('DOM contract: selector table stays present across every pinned app state',
     // a right-click SELECTS what it acts on (src/ui/react/ContextMenu.tsx), so
     // the wall it landed on is the live selection now — put the corner back,
     // because the assertion at the end of this test is that it survived.
-    await app.evaluate((id) => window.__kp.store.select({ kind: 'corner', id }), cornerId);
+    await app.evaluate((id) => window.__kp.editor.select({ kind: 'corner', id }), cornerId);
   });
 
   // ---- export menu ----
@@ -606,7 +606,7 @@ test('DOM contract: selector table stays present across every pinned app state',
   // are still supposed to be alive weren't quietly dropped by the studio or
   // export-menu detour (corner was the last live selection made above).
   await expect
-    .poll(() => app.evaluate(() => window.__kp.store.selection))
+    .poll(() => app.evaluate(() => window.__kp.editor.selection))
     .toEqual({ kind: 'corner', id: cornerId });
 
   // openingId/itemId are asserted transitively above (selection + panel

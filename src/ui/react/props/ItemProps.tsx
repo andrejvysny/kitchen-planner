@@ -36,7 +36,7 @@ const MIN_DIM = 0.01;
  * useLiveValue.ts).
  */
 export function ItemProps({ item }: { item: Item }): ReactElement {
-  const { store } = useAppServices();
+  const { store, editor } = useAppServices();
   const def = store.defOf(item.defId);
   const part = store.partOf(item.defId);
   // presets are parts too, but read as built-ins to the user
@@ -126,7 +126,7 @@ export function ItemProps({ item }: { item: Item }): ReactElement {
             className="btn"
             onClick={() => {
               const copy = store.duplicateItem(item.id);
-              if (copy) store.select({ kind: 'item', id: copy.id });
+              if (copy) editor.select({ kind: 'item', id: copy.id });
               store.commit();
             }}
           >

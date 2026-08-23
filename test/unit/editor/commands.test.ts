@@ -169,7 +169,7 @@ describe('app commands', () => {
   function selectNewItem(): string {
     // defOf, never catalogDef: 'base-cabinet' is a preset part, not a catalog entry
     const it = store.addItem(store.defOf('base-cabinet'), 1, 1);
-    store.select({ kind: 'item', id: it.id });
+    editor.select({ kind: 'item', id: it.id });
     store.commit();
     return it.id;
   }
@@ -223,8 +223,8 @@ describe('app commands', () => {
 
     expect(reg.execute('selection.duplicate')).toBe(true);
     expect(store.design.items.length).toBe(n + 1);
-    expect(store.selection.kind).toBe('item');
-    expect(store.selection.kind === 'item' && store.selection.id).not.toBe(id);
+    expect(editor.selection.kind).toBe('item');
+    expect(editor.selection.kind === 'item' && editor.selection.id).not.toBe(id);
 
     store.undo();
     expect(store.design.items.length).toBe(n);
@@ -244,7 +244,7 @@ describe('app commands', () => {
     // parity with the old keyboard map: the guard was `kind !== 'none'` and the
     // body had no wall branch, so commit() saw an unchanged design
     const wallId = store.allWalls()[0].id;
-    store.select({ kind: 'wall', id: wallId });
+    editor.select({ kind: 'wall', id: wallId });
     const depth = store.canUndo();
 
     expect(reg.canExecute('selection.delete')).toBe(true);
@@ -340,7 +340,7 @@ describe('app commands', () => {
     it('under select it drops the selection', () => {
       selectNewItem();
       reg.execute('tool.cancel');
-      expect(store.selection).toEqual({ kind: 'none' });
+      expect(editor.selection).toEqual({ kind: 'none' });
       expect(plan.calls).toEqual([]);
     });
   });

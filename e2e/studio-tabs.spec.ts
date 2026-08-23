@@ -75,7 +75,7 @@ test('editing Width on the Simple tab reaches the placed instance at once', asyn
     const st = window.__kp.store;
     const it = st.addItem(st.defOf(defId), 1.2, 1.2, 0);
     st.commit();
-    st.select({ kind: 'none' });
+    window.__kp.editor.select({ kind: 'none' });
     return it.id;
   }, CABINET);
 
@@ -198,7 +198,7 @@ test('picking a canned layout on Simple reaches the placed instance; Ctrl+Z reve
     const st = window.__kp.store;
     const it = st.addItem(st.defOf(defId), 1.2, 1.2, 0);
     st.commit();
-    st.select({ kind: 'none' });
+    window.__kp.editor.select({ kind: 'none' });
     return it.id;
   }, OTHER_CABINET);
 

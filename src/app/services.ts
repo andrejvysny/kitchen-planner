@@ -4,6 +4,7 @@ import { ElevationView } from '../plan2d/elevation';
 import { PartStudio } from '../ui/partstudio';
 import { View3D } from '../view3d/view3d';
 import { EditorState } from '../editor/editorState';
+import { syncSelection } from '../editor/selectionSync';
 import { APP_COMMANDS } from '../editor/commands/appCommands';
 import { CommandRegistry } from '../editor/commands/registry';
 import { KeyboardController } from '../editor/keyboard/KeyboardController';
@@ -119,6 +120,9 @@ export function createServices(): AppServices {
 
   const editor = new EditorState();
 
+  // selection ⇄ design lifetime, in one line (src/editor/selectionSync.ts)
+  syncSelection(store, editor);
+
   // hints and the elevation's wall caption both go to the shell singleton,
   // which the status bar and <WallNav/> render — no DOM lookup, so a hint
   // raised by a DETACHED view (or before the first render) still lands
@@ -128,11 +132,12 @@ export function createServices(): AppServices {
     (hint) => setHint(hint),
     (s) => setDrawHud(s)
   );
-  const elevation = new ElevationView(store, () => setWallLabel(elevation.wallLabel()));
+  const elevation = new ElevationView(store, editor, () => setWallLabel(elevation.wallLabel()));
 
   const view3d = new View3D(store, {
     getArmed: () => plan.armedDef,
     clearArmed: () => plan.setArmed(null),
+    editor,
   });
 
   /**

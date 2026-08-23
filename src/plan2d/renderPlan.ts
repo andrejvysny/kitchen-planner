@@ -13,6 +13,7 @@
  * ratio is how the print path renders 150 dpi output from a 96 dpi layout.
  */
 
+import { emptySelection, type SelectionState } from '../editor/selection';
 import type { CatalogDef } from '../model/catalog';
 import type { Severity, Warning } from '../model/checks';
 import { convexHull, fmtCm, polygonCentroid, rot, wallPoint } from '../model/geometry';
@@ -225,12 +226,20 @@ export interface PlanOverlays {
    */
   snap: SnapResult | null;
   measure: Measure;
+  /**
+   * What is selected. Since M18 the selection lives on `EditorState`, not the
+   * Store, so it arrives with the rest of the in-flight editor state instead of
+   * being read off `store` — which is also why the print sheet, passing no
+   * overlays at all, draws no selection without needing to say so.
+   */
+  selection: SelectionState;
   /** the ⚠ toggle: warn/info findings on top of the always-drawn errors */
   advisoryChecks: boolean;
   hover: HoverOverlay;
 }
 
 const NO_SELECTION: Selection = { kind: 'none' };
+const NO_ENTITIES = emptySelection();
 
 /* ---------------- underlay image cache ---------------- */
 
@@ -407,7 +416,10 @@ export function renderPlan(
 
   const design = store.design;
   // the selection is an editing affordance: paper shows the plan, not the cursor
-  const sel = opts.handles ? store.selection : NO_SELECTION;
+  const selState = opts.handles ? (overlays?.selection ?? NO_ENTITIES) : NO_ENTITIES;
+  const sel: Selection = selState.primary
+    ? { kind: selState.primary.kind, id: selState.primary.id }
+    : NO_SELECTION;
   const activeId = store.activeRoomId;
   // a lone room needs no name plate — keep the single-room plan pixel-identical
   const multiRoom = design.rooms.length > 1;

@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { EditorState } from '../../src/editor/editorState';
+import { syncSelection } from '../../src/editor/selectionSync';
 import { catalogDef } from '../../src/model/catalog';
 import { projectOnWall, signedArea, wallPoint } from '../../src/model/geometry';
 import { toCatalogDef } from '../../src/model/parts';
@@ -616,7 +618,7 @@ describe('Store mutations', () => {
     store.commit();
     store.moveCorner('c0', 5.5, 4.5, false);
     store.commit();
-    expect(signedArea(store.activeRoom().corners)).toBeGreaterThan(0);
+    expect(signedArea(store.activeRoom()!.corners)).toBeGreaterThan(0);
     for (const o of store.design.openings) {
       const g = store.wallById(o.wallId)!;
       expect(g).toBeTruthy();
@@ -633,11 +635,11 @@ describe('Store mutations', () => {
     expect(store.wallVisibility(ids[0])).toBe('hide');
     // 'auto' clears the override rather than storing it
     store.setWallVisibility(ids[0], 'auto');
-    expect(store.activeRoom().wallVisibility?.[ids[0]]).toBeUndefined();
+    expect(store.activeRoom()!.wallVisibility?.[ids[0]]).toBeUndefined();
     store.setAllWallVisibility('hide');
     for (const id of ids) expect(store.wallVisibility(id)).toBe('hide');
     store.setAllWallVisibility('auto');
-    expect(store.activeRoom().wallVisibility).toEqual({});
+    expect(store.activeRoom()!.wallVisibility).toEqual({});
   });
 
   it('sets and clears the ceiling visibility override', () => {
@@ -647,7 +649,7 @@ describe('Store mutations', () => {
     expect(store.ceilingVisibility()).toBe('show');
     // 'auto' clears the override rather than storing it
     store.setCeilingVisibility('auto');
-    expect(store.activeRoom().ceilingVisibility).toBeUndefined();
+    expect(store.activeRoom()!.ceilingVisibility).toBeUndefined();
   });
 
   it('clamps opening offsets sanely on very short walls', () => {
@@ -883,7 +885,9 @@ describe('rooms CRUD', () => {
     const survivor = store.addItem(presetDef('base-cabinet'), 5.5, 1.5);
 
     store.setActiveRoom(a.id);
-    store.select({ kind: 'item', id: host.id });
+    const editor = new EditorState();
+    syncSelection(store, editor);
+    editor.select({ kind: 'item', id: host.id });
 
     expect(store.deleteRoom(a.id)).toEqual({ items: 2, openings: 1 });
 
@@ -902,7 +906,7 @@ describe('rooms CRUD', () => {
     expect(store.wallById(twinId)!.faceOffset).toBe(0);
 
     expect(store.activeRoomId).toBe(b.id);
-    expect(store.selection).toEqual({ kind: 'none' });
+    expect(editor.selection).toEqual({ kind: 'none' });
   });
 
   it('duplicateRoom copies the shell with fresh ids and no items', () => {

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { useStore } from './services';
+import { useEditor, useStore } from './services';
 import { useChannel } from './hooks/useStore';
 import { PropsBody } from './props/PropsBody';
 
@@ -18,10 +18,11 @@ import { PropsBody } from './props/PropsBody';
  */
 export function PropsPanel(): ReactElement {
   const store = useStore();
+  const editor = useEditor();
   useChannel('selection');
   useChannel('activeRoom');
 
-  const sel = store.selection;
+  const sel = editor.selection;
   const key = sel.kind === 'none' ? `room:${store.activeRoomId}` : `${sel.kind}:${sel.id}`;
 
   return (

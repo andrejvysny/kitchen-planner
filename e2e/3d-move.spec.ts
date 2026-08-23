@@ -81,7 +81,7 @@ async function placeCabinet(
       const item = st.addItem(st.defOf('base-cabinet'), c.x, c.y, 0);
       st.updateItem(item.id, { w: a.w, d: a.d });
       st.commit();
-      st.select(a.select ? { kind: 'item', id: item.id } : { kind: 'none' });
+      window.__kp.editor.select(a.select ? { kind: 'item', id: item.id } : { kind: 'none' });
       kp.view.setPreset(a.preset as 'top');
       kp.view.flushRebuild();
       return { id: item.id, x: item.x, y: item.y };
@@ -176,7 +176,7 @@ test('dragging an UNSELECTED item orbits the camera and leaves the item alone', 
   expect(await moving(app), 'an unselected item started a move gesture').toBe(null);
   expect(
     await app.evaluate(() => {
-      const sel = window.__kp.store.selection;
+      const sel = window.__kp.editor.selection;
       return sel.kind === 'item' ? sel.id : sel.kind;
     })
   ).toBe(cab.id);

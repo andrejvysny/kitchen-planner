@@ -23,7 +23,7 @@ declare global {
       elev: ElevationView;
       navInput: unknown;
       setNavInput: (v: unknown) => void;
-      /** ephemeral editor state (tool / armed def / checks layer) */
+      /** ephemeral editor state: tool, armed def, checks layer AND the selection */
       editor: EditorState;
       /** Store + EditorState → React adapter; nothing subscribes yet */
       bridge: StoreBridge;

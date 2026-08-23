@@ -1,5 +1,5 @@
 import { Fragment, useRef, type KeyboardEvent, type ReactElement } from 'react';
-import { useAppServices, useStore } from '../services';
+import { useAppServices, useEditor, useStore } from '../services';
 import { workspace } from '../../workspaceState';
 import { COUNTER_COLORS, FLOOR_COLORS, WALL_COLORS } from '../../../model/catalog';
 import {
@@ -278,9 +278,10 @@ function RoomName({ room }: { room: Room }): ReactElement {
 /** A row in the room switcher: picking one activates it and drops the selection. */
 function RoomRow({ room, active }: { room: Room; active: boolean }): ReactElement {
   const store = useStore();
+  const editor = useEditor();
   const pick = (): void => {
     store.setActiveRoom(room.id);
-    store.select({ kind: 'none' });
+    editor.select({ kind: 'none' });
   };
 
   const onKeyDown = (e: KeyboardEvent): void => {

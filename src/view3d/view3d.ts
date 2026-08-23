@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import type { EditorState } from '../editor/editorState';
 import { itemBaseY, SPOT_AIM, type CatalogDef } from '../model/catalog';
 import { polygonCentroid, wallPoint } from '../model/geometry';
 import { findHost } from '../model/attach';
@@ -138,6 +139,7 @@ const CAMERA_TARGET_FALLBACK_M = 3;
 
 export class View3D {
   private store: Store;
+  private editor: EditorState;
   private renderer!: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
@@ -221,8 +223,17 @@ export class View3D {
    * `attach()` — which is what a React ref effect calls once the element is in
    * the document.
    */
-  constructor(store: Store, opts: { getArmed: () => CatalogDef | null; clearArmed: () => void }) {
+  constructor(
+    store: Store,
+    opts: {
+      getArmed: () => CatalogDef | null;
+      clearArmed: () => void;
+      /** the selection lives here since M18 — the view reads and writes it */
+      editor: EditorState;
+    }
+  ) {
     this.store = store;
+    this.editor = opts.editor;
     this.getArmed = opts.getArmed;
     this.clearArmed = opts.clearArmed;
 
@@ -289,7 +300,7 @@ export class View3D {
         if (info.structural) this.queueRebuild();
         else this.softUpdate();
       }),
-      this.store.on('selection', () => this.applySelectionTint()),
+      this.editor.subscribeSelection(() => this.applySelectionTint()),
       this.store.on('pose', () => this.applyFrontPoses())
     );
 
@@ -1175,7 +1186,7 @@ export class View3D {
       // an error outranks a warn on the same item, whatever order they arrive in
       for (const id of w.itemIds) if (color === TINT_ERROR || !want.has(id)) want.set(id, color);
     }
-    const sel = this.store.selection;
+    const sel = this.editor.selection;
     if (sel.kind === 'item') want.set(sel.id, TINT_SELECTED);
 
     for (const id of this.appliedTints.keys()) if (!want.has(id)) this.setTint(id, null);
@@ -1259,7 +1270,7 @@ export class View3D {
   /** Attach the gizmo to the selected item's group, or detach when nothing is selected. */
   private updateGizmo(): void {
     if (!this.gizmo) return; // selection tint runs once before the gizmo exists
-    const sel = this.store.selection;
+    const sel = this.editor.selection;
     const entry = sel.kind === 'item' ? this.itemEntries.get(sel.id) : undefined;
     // attached appliances derive their pose from the host — no move gizmo
     const attached = sel.kind === 'item' && !!this.store.itemById(sel.id)?.attach;
@@ -1323,7 +1334,7 @@ export class View3D {
           if (!hit) return;
           const item = this.store.addItem(armed, p.x, p.z, 0);
           this.store.setAttachment(item.id, hit.attach);
-          this.store.select({ kind: 'item', id: item.id });
+          this.editor.select({ kind: 'item', id: item.id });
           this.store.commit();
           if (!e.shiftKey) this.clearArmed();
           return;
@@ -1331,7 +1342,7 @@ export class View3D {
         const snapped = snapItem(this.store, armed, null, p.x, p.z, 0);
         const item = this.store.addItem(armed, snapped.x, snapped.y, snapped.rotation);
         item.roomId = snapped.roomId;
-        this.store.select({ kind: 'item', id: item.id });
+        this.editor.select({ kind: 'item', id: item.id });
         this.store.commit();
         if (!e.shiftKey) this.clearArmed();
       }
@@ -1348,7 +1359,7 @@ export class View3D {
     // step and a click meant to select can never move anything. An attached
     // appliance derives its pose from its host and is refused here for the
     // same reason updateGizmo() refuses it a gizmo.
-    const sel = this.store.selection;
+    const sel = this.editor.selection;
     if (sel.kind === 'item' && sel.id === item.id && !item.attach) {
       const p = this.floorPoint(e);
       if (p) {
@@ -1356,7 +1367,7 @@ export class View3D {
         return;
       }
     }
-    this.store.select({ kind: 'item', id: item.id });
+    this.editor.select({ kind: 'item', id: item.id });
   }
 
   /**
@@ -1428,7 +1439,7 @@ export class View3D {
       e.button === 0 &&
       this.downPos.distanceTo(this.curPos.set(e.clientX, e.clientY)) < CLICK_SLOP_PX
     ) {
-      if (!this.pickItem(e)) this.store.select({ kind: 'none' });
+      if (!this.pickItem(e)) this.editor.select({ kind: 'none' });
     }
   }
 

@@ -316,12 +316,12 @@ results.push([
   'outline lists item under type group',
   !!baseGroup && baseGroup.rows.includes('Base cabinet'),
 ]);
-await page.evaluate(() => window.__kp.store.select({ kind: 'none' }));
-await waitUntil(() => window.__kp.store.selection.kind === 'none');
+await page.evaluate(() => window.__kp.editor.select({ kind: 'none' }));
+await waitUntil(() => window.__kp.editor.selection.kind === 'none');
 // the outline now leads with a Rooms group — the first component row follows it
 await page.click('#outline .ol-row:not(.room-row)');
-await waitUntil(() => window.__kp.store.selection.kind === 'item');
-const outlineSel = await page.evaluate(() => window.__kp.store.selection);
+await waitUntil(() => window.__kp.editor.selection.kind === 'item');
+const outlineSel = await page.evaluate(() => window.__kp.editor.selection);
 results.push([
   'outline row selects item',
   outlineSel.kind === 'item' &&
@@ -387,7 +387,7 @@ await page.mouse.click(
   bb.x + (await worldToScreen(0.0, 1.0)).x,
   bb.y + (await worldToScreen(0.0, 1.0)).y
 );
-await waitUntil(() => window.__kp.store.selection.kind === 'wall');
+await waitUntil(() => window.__kp.editor.selection.kind === 'wall');
 const wallTitle = await page.textContent('.props-title');
 const lenInput = page.locator('#props-inner .prop-row input[data-unit]').first();
 await lenInput.fill('3500');
@@ -399,7 +399,7 @@ results.push(['wall length edit', Math.abs(area - 4 * 3.5) < 0.05]);
 
 // 7. rectangle resize via room panel
 await page.keyboard.press('Escape');
-await waitUntil(() => window.__kp.store.selection.kind === 'none');
+await waitUntil(() => window.__kp.editor.selection.kind === 'none');
 const widthInput = page.locator('#props-inner .prop-row input[data-unit]').first();
 await widthInput.fill('5000');
 await widthInput.press('Enter');
@@ -539,7 +539,7 @@ const boardItemId = await page.evaluate(() => {
   const it = items[items.length - 1];
   window.__kp.store.updateItem(it.id, { x: 2.5, y: 1.6, rotation: 0 });
   window.__kp.store.commit();
-  window.__kp.store.select({ kind: 'none' });
+  window.__kp.editor.select({ kind: 'none' });
   return it.id;
 });
 // click inside the L's notch: bbox hit but polygon miss → must NOT select the board
@@ -548,7 +548,7 @@ const gcNotch = await page.evaluate(() => window.__kp.plan.debug().gestureCount)
 await page.mouse.click(bb.x + notch.x, bb.y + notch.y);
 await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gcNotch);
 const notchSel = await page.evaluate(() => {
-  const s = window.__kp.store.selection;
+  const s = window.__kp.editor.selection;
   return s.kind === 'item' ? s.id : null;
 });
 // click inside the L's arm → selects the board
@@ -557,7 +557,7 @@ const gcArm = await page.evaluate(() => window.__kp.plan.debug().gestureCount);
 await page.mouse.click(bb.x + arm.x, bb.y + arm.y);
 await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gcArm);
 const armSel = await page.evaluate(() => {
-  const s = window.__kp.store.selection;
+  const s = window.__kp.editor.selection;
   return s.kind === 'item' ? s.id : null;
 });
 results.push([
@@ -572,7 +572,7 @@ results.push([
 await page.evaluate((id) => {
   window.__kp.store.deleteItem(id);
   window.__kp.store.commit();
-  window.__kp.store.select({ kind: 'none' });
+  window.__kp.editor.select({ kind: 'none' });
 }, boardItemId);
 await page.keyboard.press('Escape');
 
@@ -628,7 +628,7 @@ await waitUntil((n) => window.__kp.store.design.items.length > n, cornerN0);
 const cornerItem = await page.evaluate(() => {
   const items = window.__kp.store.design.items;
   const it = items[items.length - 1];
-  window.__kp.store.select({ kind: 'none' });
+  window.__kp.editor.select({ kind: 'none' });
   return { id: it.id, x: it.x, y: it.y, rot: it.rotation };
 });
 // click the cut-off corner region (inside bbox, outside footprint) → not selected
@@ -644,7 +644,7 @@ const gcCut = await page.evaluate(() => window.__kp.plan.debug().gestureCount);
 await page.mouse.click(bb.x + cutPt.x, bb.y + cutPt.y);
 await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gcCut);
 const cutSel = await page.evaluate(() => {
-  const s = window.__kp.store.selection;
+  const s = window.__kp.editor.selection;
   return s.kind === 'item' ? s.id : null;
 });
 const bodyPt = await worldToScreen(cornerItem.x, cornerItem.y);
@@ -652,7 +652,7 @@ const gcBody = await page.evaluate(() => window.__kp.plan.debug().gestureCount);
 await page.mouse.click(bb.x + bodyPt.x, bb.y + bodyPt.y);
 await waitUntil((g) => window.__kp.plan.debug().gestureCount > g, gcBody);
 const bodySel = await page.evaluate(() => {
-  const s = window.__kp.store.selection;
+  const s = window.__kp.editor.selection;
   return s.kind === 'item' ? s.id : null;
 });
 const poseOk = Math.abs(Math.sin(cornerItem.rot * 2)) < 0.01; // snapped to a right-angle pose
@@ -667,13 +667,13 @@ results.push([
 await page.evaluate((id) => {
   window.__kp.store.deleteItem(id);
   window.__kp.store.commit();
-  window.__kp.store.select({ kind: 'none' });
+  window.__kp.editor.select({ kind: 'none' });
 }, cornerItem.id);
 await page.keyboard.press('Escape');
 
 // 10. wall midpoint: click selects the wall, only a drag adds a corner
 await page.keyboard.press('Escape');
-await waitUntil(() => window.__kp.store.selection.kind === 'none');
+await waitUntil(() => window.__kp.editor.selection.kind === 'none');
 const cornersBefore = await page.evaluate(() => window.__kp.store.activeRoom().corners.length);
 const midWorld = await page.evaluate(() => {
   // the left wall (x = 0) — the right one can sit outside the un-refitted viewport
@@ -682,10 +682,10 @@ const midWorld = await page.evaluate(() => {
 });
 const mp = await worldToScreen(midWorld.x, midWorld.y);
 await page.mouse.click(bb.x + mp.x, bb.y + mp.y);
-await waitUntil(() => window.__kp.store.selection.kind === 'wall');
+await waitUntil(() => window.__kp.editor.selection.kind === 'wall');
 const midClick = await page.evaluate(() => ({
   n: window.__kp.store.activeRoom().corners.length,
-  sel: window.__kp.store.selection.kind,
+  sel: window.__kp.editor.selection.kind,
 }));
 results.push([
   'midpoint click selects wall',
@@ -698,7 +698,7 @@ await page.mouse.up();
 await waitUntil((n0c) => window.__kp.store.activeRoom().corners.length > n0c, cornersBefore);
 const midDrag = await page.evaluate(() => ({
   n: window.__kp.store.activeRoom().corners.length,
-  sel: window.__kp.store.selection.kind,
+  sel: window.__kp.editor.selection.kind,
 }));
 results.push([
   'midpoint drag adds corner',
@@ -779,11 +779,11 @@ const stackIds = await page.evaluate(() => {
 });
 const sp = await worldToScreen(1.0, 1.0);
 await page.mouse.click(bb.x + sp.x, bb.y + sp.y);
-await waitUntil((id) => window.__kp.store.selection.id === id, stackIds.wallId);
-const cycleSel1 = await page.evaluate(() => window.__kp.store.selection.id);
+await waitUntil((id) => window.__kp.editor.selection.id === id, stackIds.wallId);
+const cycleSel1 = await page.evaluate(() => window.__kp.editor.selection.id);
 await page.mouse.click(bb.x + sp.x, bb.y + sp.y);
-await waitUntil((id) => window.__kp.store.selection.id === id, stackIds.baseId);
-const cycleSel2 = await page.evaluate(() => window.__kp.store.selection.id);
+await waitUntil((id) => window.__kp.editor.selection.id === id, stackIds.baseId);
+const cycleSel2 = await page.evaluate(() => window.__kp.editor.selection.id);
 results.push([
   'click cycles stacked items',
   cycleSel1 === stackIds.wallId && cycleSel2 === stackIds.baseId,
@@ -799,7 +799,7 @@ const kbSetup = await page.evaluate(() => {
   const st = window.__kp.store;
   const it = st.addItem(st.defOf('table'), 2.0, 1.5, 0);
   st.commit();
-  st.select({ kind: 'item', id: it.id });
+  window.__kp.editor.select({ kind: 'item', id: it.id });
   return { id: it.id, n: st.design.items.length };
 });
 await page.keyboard.press('r');
@@ -891,8 +891,8 @@ const pick3d = await page.evaluate((ids) => {
 }, stackIds);
 const bb3 = await page.locator('#canvas3d').boundingBox();
 await page.mouse.click(bb3.x + pick3d.x, bb3.y + pick3d.y);
-await waitUntil((id) => window.__kp.store.selection.id === id, pick3d.id);
-const sel3d = await page.evaluate(() => window.__kp.store.selection);
+await waitUntil((id) => window.__kp.editor.selection.id === id, pick3d.id);
+const sel3d = await page.evaluate(() => window.__kp.editor.selection);
 results.push(['3D click selects item', sel3d.kind === 'item' && sel3d.id === pick3d.id]);
 
 // 17a. mouse navigation (KITCHENP-13): in 3D, middle-drag orbits (camera swings
@@ -938,7 +938,7 @@ results.push([
 ]);
 
 // navigating with the middle button must never change what is selected
-const navSel = await page.evaluate(() => window.__kp.store.selection);
+const navSel = await page.evaluate(() => window.__kp.editor.selection);
 results.push(['3D middle-drag keeps selection', navSel.kind === 'item' && navSel.id === pick3d.id]);
 
 // back to the corner preset so later 3D steps see the standard framing
@@ -1142,9 +1142,9 @@ results.push(['item material rotation applies', frontRot]);
 
 // 17e. KITCHENP-12: picking a front COLOUR must drop a texture so the colour
 // shows (else the surface is stuck on textures). Drive the real props UI.
-await page.evaluate((id) => window.__kp.store.select({ kind: 'item', id }), stackIds.baseId);
+await page.evaluate((id) => window.__kp.editor.select({ kind: 'item', id }), stackIds.baseId);
 await waitUntil(
-  (id) => window.__kp.store.selection.kind === 'item' && window.__kp.store.selection.id === id,
+  (id) => window.__kp.editor.selection.kind === 'item' && window.__kp.editor.selection.id === id,
   stackIds.baseId
 );
 const colourSection = () =>
@@ -1489,7 +1489,7 @@ results.push([
     !elevView.ids.includes(elevIds.table),
 ]);
 // clicking the cabinet in the elevation selects it (edits via the props panel)
-await page.evaluate(() => window.__kp.store.select({ kind: 'none' }));
+await page.evaluate(() => window.__kp.editor.select({ kind: 'none' }));
 const elevPos = await page.evaluate((ids) => {
   const v = window.__kp.elev;
   const row = v.data().items.find((i) => i.id === ids.cab);
@@ -1498,11 +1498,11 @@ const elevPos = await page.evaluate((ids) => {
 const bbElev = await page.locator('#canvas-elev').boundingBox();
 await page.mouse.click(bbElev.x + elevPos.x, bbElev.y + elevPos.y);
 await waitUntil(
-  (id) => window.__kp.store.selection.kind === 'item' && window.__kp.store.selection.id === id,
+  (id) => window.__kp.editor.selection.kind === 'item' && window.__kp.editor.selection.id === id,
   elevIds.cab
 );
 const elevSel = await page.evaluate(() => {
-  const s = window.__kp.store.selection;
+  const s = window.__kp.editor.selection;
   return s.kind === 'item' ? s.id : null;
 });
 results.push(['elevation click selects item', elevSel === elevIds.cab]);
@@ -1512,7 +1512,7 @@ await page.click('#mode2d-toggle button[data-2dmode="plan"]');
 //     edit it live, undo, and confirm the binding survives a reload.
 const varScenario = await page.evaluate(() => {
   const st = window.__kp.store;
-  st.select({ kind: 'none' });
+  window.__kp.editor.select({ kind: 'none' });
   const cab = st.addItem(st.defOf('base-cabinet'), 1.0, 0.4, 0);
   const wallId = st.allWalls()[0].id;
   const v = st.addVariable({ name: 'Theme', color: '#123456' });
@@ -1576,7 +1576,7 @@ const customizeScenario = await page.evaluate(() => {
   const st = window.__kp.store;
   const item = st.addItem(st.defOf('base-cabinet'), 1.5, 1.5, 0);
   st.commit();
-  st.select({ kind: 'item', id: item.id });
+  window.__kp.editor.select({ kind: 'item', id: item.id });
   return { itemId: item.id, partsBefore: st.design.customParts.length };
 });
 await waitUntil(() =>
@@ -1890,7 +1890,7 @@ const added = await page.evaluate(() => {
   return {
     n: rooms.length,
     activeIsNew: st.activeRoomId === rooms[rooms.length - 1].id,
-    sel: st.selection.kind,
+    sel: window.__kp.editor.selection.kind,
     // the tool STAYS armed after a commit — a plan is a run of rooms, and
     // going back to the toolbar between each was the slowest thing about it
     toolArmed: window.__kp.plan.toolState().draw === true,
@@ -1923,12 +1923,12 @@ const roomIds = await page.evaluate(() => window.__kp.store.design.rooms.map((r)
 await clickWorld(8.0, 1.5); // inside the second room
 const switched = await page.evaluate(() => ({
   active: window.__kp.store.activeRoomId,
-  sel: window.__kp.store.selection.kind,
+  sel: window.__kp.editor.selection.kind,
 }));
 await clickWorld(8.0, 1.5); // again, already active
 const restated = await page.evaluate(() => ({
   active: window.__kp.store.activeRoomId,
-  sel: window.__kp.store.selection.kind,
+  sel: window.__kp.editor.selection.kind,
 }));
 await clickWorld(2.0, 1.5); // inside the first room
 const switchedBack = await page.evaluate(() => window.__kp.store.activeRoomId);
@@ -2294,7 +2294,7 @@ const leftMid10 = await page.evaluate(() => {
 });
 const leftScr10 = await worldToScreen(leftMid10.x, leftMid10.y);
 await page.mouse.click(bb10.x + leftScr10.x, bb10.y + leftScr10.y);
-await waitUntil(() => window.__kp.store.selection.kind === 'wall');
+await waitUntil(() => window.__kp.editor.selection.kind === 'wall');
 const wallTitle10 = await page.textContent('.props-title');
 const lenInput10 = page.locator('#props-inner .prop-row input[data-unit]').first();
 await lenInput10.fill('3000');
@@ -2307,7 +2307,7 @@ results.push([
 ]);
 
 await page.keyboard.press('Escape');
-await waitUntil(() => window.__kp.store.selection.kind === 'none');
+await waitUntil(() => window.__kp.editor.selection.kind === 'none');
 const widthInput10 = page.locator('#props-inner .prop-row input[data-unit]').first();
 await widthInput10.fill('4500');
 await widthInput10.press('Enter');
@@ -2584,7 +2584,7 @@ results.push([
 // 32. shoving the demo fridge into the shared partition raises a 'throughWall'
 // error and paints the fridge with the error emissive tint in 3D (selection
 // cleared first so the selection-green tint cannot win instead); undo clears it.
-await page.evaluate(() => window.__kp.store.select({ kind: 'none' }));
+await page.evaluate(() => window.__kp.editor.select({ kind: 'none' }));
 const fridgeId = await page.evaluate(() => {
   const st = window.__kp.store;
   const fridge = st.design.items.find((i) => i.defId === 'fridge');

@@ -45,7 +45,7 @@ async function placePreset(page: Page): Promise<string> {
     const st = window.__kp.store;
     const it = st.addItem(st.defOf(defId), 1.2, 1.2, 0);
     st.commit();
-    st.select({ kind: 'none' });
+    window.__kp.editor.select({ kind: 'none' });
     return it.id;
   }, PRESET);
   return id;
@@ -188,7 +188,7 @@ test('scope line counts shared copies; Fork splits one off without touching the 
     st.commit();
     const b = st.addItem(st.defOf(fork.id), 2.6, 1.0, 0);
     st.commit();
-    st.select({ kind: 'item', id: a.id });
+    window.__kp.editor.select({ kind: 'item', id: a.id });
     return { a: a.id, b: b.id, partId: fork.id };
   }, PRESET);
 

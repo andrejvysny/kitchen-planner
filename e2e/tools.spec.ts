@@ -204,11 +204,11 @@ test('Escape walks the tools in order, and the draw ring goes before its tool', 
   await app.evaluate(() => {
     const st = window.__kp.store;
     const it = st.addItem(st.defOf('base-cabinet'), 2, 2.6, 0);
-    st.select({ kind: 'item', id: it.id });
+    window.__kp.editor.select({ kind: 'item', id: it.id });
     st.commit();
   });
   await app.keyboard.press('Escape');
-  expect(await app.evaluate(() => window.__kp.store.selection.kind)).toBe('none');
+  expect(await app.evaluate(() => window.__kp.editor.selection.kind)).toBe('none');
 });
 
 test('an armed def whose part is deleted under the tool never throws', async ({ app }) => {

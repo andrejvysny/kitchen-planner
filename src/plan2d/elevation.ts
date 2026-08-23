@@ -1,6 +1,7 @@
 import { clamp, fmtCm } from '../model/geometry';
 import { wallElevation, type WallElevation, type WallElevationItem } from '../model/elevation';
 import type { RoomWall } from '../model/rooms';
+import type { EditorState } from '../editor/editorState';
 import type { Store } from '../model/store';
 import type { Point } from '../model/types';
 import { resolveColor } from '../model/variables';
@@ -22,6 +23,7 @@ export class ElevationView {
   private canvas!: HTMLCanvasElement;
   private ctx!: CanvasRenderingContext2D;
   private store: Store;
+  private editor: EditorState;
   private onWallChange: () => void;
 
   private wallId: string | null = null;
@@ -52,8 +54,9 @@ export class ElevationView {
    * React ref effect calls once the element is in the document. Nothing here
    * touches the DOM, so the view can be built before the shell renders.
    */
-  constructor(store: Store, onWallChange: () => void) {
+  constructor(store: Store, editor: EditorState, onWallChange: () => void) {
     this.store = store;
+    this.editor = editor;
     this.onWallChange = onWallChange;
   }
 
@@ -86,9 +89,9 @@ export class ElevationView {
           this.requestDraw();
         }
       }),
-      this.store.on('selection', () => {
+      this.editor.subscribeSelection(() => {
         // follow a wall picked in the plan; otherwise just repaint the highlight
-        const sel = this.store.selection;
+        const sel = this.editor.selection;
         if (sel.kind === 'wall' && sel.id !== this.wallId) this.setWall(sel.id);
         else this.requestDraw();
       })
@@ -278,7 +281,7 @@ export class ElevationView {
     const wpt = this.toWorld(e.offsetX, e.offsetY);
     const hit = this.hitItem(wpt.t, wpt.z);
     if (hit) {
-      this.store.select({ kind: 'item', id: hit.id });
+      this.editor.select({ kind: 'item', id: hit.id });
       this.drag = null;
       return;
     }
@@ -318,7 +321,7 @@ export class ElevationView {
       this.canvas.style.cursor = 'default';
       return;
     }
-    if (this.drag && !this.drag.moved) this.store.select({ kind: 'none' });
+    if (this.drag && !this.drag.moved) this.editor.select({ kind: 'none' });
     this.drag = null;
     this.canvas.style.cursor = 'default';
   }
@@ -392,7 +395,7 @@ export class ElevationView {
     }
 
     // ---- items (front rectangles) ----
-    const sel = this.store.selection;
+    const sel = this.editor.selection;
     for (const it of data.items) {
       const a = this.toScreen(it.center - it.halfW, it.z1);
       const w = it.halfW * 2 * this.zoom;

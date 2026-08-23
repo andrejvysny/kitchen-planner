@@ -22,11 +22,15 @@ import type { Page } from '@playwright/test';
  * on. Only the View3D test, whose subject IS the rebuild, adds items.
  */
 
-/** Baseline subscription counts, taken before any detach. */
+/**
+ * Baseline subscription counts, taken before any detach. The two upstreams are
+ * different objects since M18: 'change' is the Store's, the selection is the
+ * EditorState's (each exposes its own read-only count as a test seam).
+ */
 async function counts(page: Page): Promise<{ change: number; selection: number }> {
   return page.evaluate(() => ({
     change: window.__kp.store.handlerCount('change'),
-    selection: window.__kp.store.handlerCount('selection'),
+    selection: window.__kp.editor.selectionHandlerCount(),
   }));
 }
 

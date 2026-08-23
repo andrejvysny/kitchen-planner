@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { useStore } from '../services';
+import { useEditor, useStore } from '../services';
 import { MAX_WALL_W, MIN_WALL_W } from '../../../model/store';
 import type { WallVisMode } from '../../../model/types';
 import { ChoiceRow } from '../fields/ChoiceRow';
@@ -28,6 +28,7 @@ const VIS_CHOICES: readonly (readonly [string, string])[] = [
  */
 export function WallProps({ wallId }: { wallId: string }): ReactElement | null {
   const store = useStore();
+  const editor = useEditor();
   const wall = store.wallById(wallId);
   if (!wall) return null;
 
@@ -109,7 +110,7 @@ export function WallProps({ wallId }: { wallId: string }): ReactElement | null {
               if (!now) return;
               const nc = store.splitWall(wallId, now.len / 2);
               if (nc) {
-                store.select({ kind: 'corner', id: nc.id });
+                editor.select({ kind: 'corner', id: nc.id });
                 store.commit();
               }
             }}
@@ -131,7 +132,13 @@ export function WallProps({ wallId }: { wallId: string }): ReactElement | null {
  * neighbours the way `setWallLength` does on a closed ring. What it does have
  * that a room wall does not is deletion: the chain is its own object.
  */
-function FreeWallProps({ wallId, chainId }: { wallId: string; chainId: string }): ReactElement | null {
+function FreeWallProps({
+  wallId,
+  chainId,
+}: {
+  wallId: string;
+  chainId: string;
+}): ReactElement | null {
   const store = useStore();
   const wall = store.wallById(wallId);
   const chain = store.design.walls?.find((c) => c.id === chainId);

@@ -14,6 +14,18 @@
  * tool buttons call `setTool`/`setChecks` directly.
  */
 
+import type { EntityRef, Selection } from '../model/types';
+import {
+  emptySelection,
+  isSelected,
+  pruneSelection,
+  replaceSelection,
+  selectedIds,
+  selectionOf,
+  toggleSelection,
+  type SelectionState,
+} from './selection';
+
 /**
  * `drawRoom` is the ONE wall tool: drag a rectangle or click corner by corner.
  * The old separate `room` (drop-a-preset) tool folded into it — a drag IS the
@@ -56,6 +68,23 @@ export class EditorState {
    * never serialized, never in an undo step.
    */
   snapGrid: number | null = 0.05;
+
+  /**
+   * WHAT IS SELECTED — multi-entity, and ephemeral exactly like `tool`: never
+   * serialized, never in an undo step. It lived on the Store until M18; it is
+   * here because a selection is a property of the EDITING SESSION, not of the
+   * design, and because the store may not know the editor's policy (see
+   * ./selection.ts for the two rules).
+   *
+   * Its own subscriber set and version counter, deliberately separate from the
+   * tool ones: a tool switch must not re-render the properties panel, and
+   * picking an object must not re-run the tool mirrors.
+   */
+  private sel: SelectionState = emptySelection();
+  /** `selection` projected to the legacy single shape; rebuilt only on change */
+  private selProjection: Selection = { kind: 'none' };
+  private selSubs = new Set<() => void>();
+  private selVersion = 0;
 
   private subs = new Set<() => void>();
   private version = 0;
@@ -117,9 +146,117 @@ export class EditorState {
     this.bump();
   }
 
+  /* ---------------- selection ---------------- */
+
+  /**
+   * The PRIMARY selected entity in the single-selection shape every panel, view
+   * and test already speaks. `{ kind: 'none' }` when nothing is held. Reads are
+   * free: the object is rebuilt only when the selection actually changes.
+   */
+  get selection(): Selection {
+    return this.selProjection;
+  }
+
+  /** Everything held, in the order it was added. `[]` when nothing is selected. */
+  get entities(): readonly EntityRef[] {
+    return this.sel.entities;
+  }
+
+  /** The one that leads — snapped against, titled after. Null iff nothing is held. */
+  get primary(): EntityRef | null {
+    return this.sel.primary;
+  }
+
+  /** The whole state, for the pure helpers in ./selection.ts. */
+  selectionState(): SelectionState {
+    return this.sel;
+  }
+
+  /** Ids of every selected item, in selection order — the multi-move subject. */
+  selectedItemIds(): string[] {
+    return selectedIds(this.sel, 'item');
+  }
+
+  isSelected(ref: EntityRef): boolean {
+    return isSelected(this.sel, ref);
+  }
+
+  /** Legacy single-selection shape: replaces whatever was held. */
+  select(sel: Selection): void {
+    this.selectRef(sel.kind === 'none' ? null : { kind: sel.kind, id: sel.id });
+  }
+
+  /** Click semantics: this ref alone, or nothing. */
+  selectRef(ref: EntityRef | null): void {
+    this.setSelection(replaceSelection(ref));
+  }
+
+  /** Shift-click semantics; a non-item ref replaces (see ./selection.ts). */
+  toggleRef(ref: EntityRef): void {
+    this.setSelection(toggleSelection(this.sel, ref));
+  }
+
+  /** Marquee / select-all semantics: exactly this set. */
+  selectRefs(refs: readonly EntityRef[]): void {
+    this.setSelection(selectionOf(refs));
+  }
+
+  /**
+   * Drop whatever the design no longer holds. Wired to the store's 'change' and
+   * 'history' events by `createServices()` — the ONE place the editor's
+   * selection and the store's lifetime meet.
+   */
+  pruneSelection(exists: (ref: EntityRef) => boolean): void {
+    this.setSelection(pruneSelection(this.sel, exists));
+  }
+
+  /** Same disposer contract as `subscribe`, on its own channel. */
+  subscribeSelection(fn: () => void): () => void {
+    this.selSubs.add(fn);
+    return () => {
+      this.selSubs.delete(fn);
+    };
+  }
+
+  /** Monotonic, bumped once per real selection change — a valid getSnapshot. */
+  getSelectionVersion(): number {
+    return this.selVersion;
+  }
+
+  /**
+   * Test seam mirroring `Store.handlerCount`: a view that attaches and detaches
+   * must leave this at its baseline (e2e/lifecycle.spec.ts).
+   */
+  selectionHandlerCount(): number {
+    return this.selSubs.size;
+  }
+
+  private setSelection(next: SelectionState): void {
+    if (sameSelection(this.sel, next)) return;
+    this.sel = next;
+    this.selProjection = next.primary
+      ? { kind: next.primary.kind, id: next.primary.id }
+      : { kind: 'none' };
+    this.selVersion++;
+    // snapshot, for the same reason bump() does it
+    for (const fn of [...this.selSubs]) fn();
+  }
+
   private bump(): void {
     this.version++;
     // snapshot: a subscriber that unsubscribes mid-dispatch must not skip a sibling
     for (const fn of [...this.subs]) fn();
   }
+}
+
+/** Identical held set AND identical primary — anything else is a real change. */
+function sameSelection(a: SelectionState, b: SelectionState): boolean {
+  if (a === b) return true;
+  if (a.entities.length !== b.entities.length) return false;
+  for (let i = 0; i < a.entities.length; i++) {
+    if (a.entities[i].kind !== b.entities[i].kind || a.entities[i].id !== b.entities[i].id) {
+      return false;
+    }
+  }
+  return a.primary?.id === b.primary?.id && a.primary?.kind === b.primary?.kind;
 }

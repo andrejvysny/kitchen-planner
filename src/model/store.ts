@@ -48,13 +48,13 @@ import type {
   CustomPartDef,
   Design,
   DesignVar,
+  EntityRef,
   FreeWall,
   Item,
   Opening,
   Point,
   Room,
   RoomStyle,
-  Selection,
   Underlay,
   WallVisMode,
 } from './types';
@@ -77,8 +77,9 @@ export { DESIGN_VERSION };
 
 type EventMap = {
   change: ChangeInfo;
-  selection: Selection;
   history: void;
+  /** the whole design was swapped wholesale (undo/redo restore, file load, New) */
+  reset: void;
   /** ephemeral open-front poses changed — apply without rebuild */
   pose: void;
   /** the room subsequent edits target changed — ephemeral, never serialized */
@@ -125,14 +126,13 @@ const MAX_WELD_PASSES = 12;
 
 export class Store {
   design: Design;
-  selection: Selection = { kind: 'none' };
   /** ephemeral door/drawer open-preview state — like selection, never saved */
   readonly openFronts = new OpenFronts();
 
   private handlers: { [K in keyof EventMap]: Handler<EventMap[K]>[] } = {
     change: [],
-    selection: [],
     history: [],
+    reset: [],
     pose: [],
     activeRoom: [],
     savefail: [],
@@ -209,17 +209,6 @@ export class Store {
     return this.checksCache;
   }
 
-  /* ---------------- selection ---------------- */
-
-  select(sel: Selection): void {
-    this.selection = sel;
-    this.emit('selection', sel);
-  }
-
-  selectedItem(): Item | undefined {
-    return this.selection.kind === 'item' ? this.itemById(this.selection.id) : undefined;
-  }
-
   /* ---------------- history ---------------- */
 
   /** Push an undo snapshot if anything changed since the last commit. Call at the end of a gesture. */
@@ -260,7 +249,7 @@ export class Store {
     this.design = normalizeDesign(JSON.parse(json));
     this.lastCommitted = json;
     this.revalidateActiveRoom();
-    this.select({ kind: 'none' });
+    this.emit('reset', undefined); // selection lives in the editor now; it listens
     this.openFronts.clear(); // stale poses must not survive an undo/redo design swap
     this.saveSharedLibrary(); // undoing a part fork/save must not orphan it in the library
     this.autosave();
@@ -274,7 +263,7 @@ export class Store {
     this.design = normalizeDesign(design);
     this.lastCommitted = JSON.stringify(this.design);
     this.revalidateActiveRoom();
-    this.select({ kind: 'none' });
+    this.emit('reset', undefined); // selection lives in the editor now; it listens
     this.openFronts.clear(); // stale poses must not leak across designs
     this.saveSharedLibrary();
     this.autosave();
@@ -591,9 +580,6 @@ export class Store {
     const own = new Set(list[i].corners.map((c) => c.id));
     this.design.openings = this.design.openings.filter((o) => !own.has(o.wallId));
     list.splice(i, 1);
-    if (this.selection.kind === 'wall' && own.has(this.selection.id)) {
-      this.select({ kind: 'none' });
-    }
     this.notify({ structural: true });
     return true;
   }
@@ -898,7 +884,6 @@ export class Store {
     this.design.rooms = this.design.rooms.filter((r) => r.id !== id);
     // a re-homed opening now answers to the twin room's ceiling height
     for (const o of rehomed) this.clampOpening(o);
-    this.pruneSelection();
     if (wasActive) {
       this.activeId = null;
       this.emit('activeRoom', this.activeRoomId);
@@ -945,16 +930,23 @@ export class Store {
     this.notify({ structural: false });
   }
 
-  /** Drop the selection when it names something the design no longer holds. */
-  private pruneSelection(): void {
-    const s = this.selection;
-    const alive =
-      s.kind === 'none' ||
-      (s.kind === 'item' && !!this.itemById(s.id)) ||
-      (s.kind === 'corner' && !!this.cornerById(s.id)) ||
-      (s.kind === 'wall' && !!this.wallById(s.id)) ||
-      (s.kind === 'opening' && !!this.openingById(s.id));
-    if (!alive) this.select({ kind: 'none' });
+  /**
+   * Does the design still hold this entity? The ONE thing the store knows about
+   * selection since M18 moved it to `EditorState` — `createServices()` hands
+   * this to `editor.pruneSelection` after every settled change, so a deleted
+   * object drops out of the selection without the store owning one.
+   */
+  entityExists(ref: EntityRef): boolean {
+    switch (ref.kind) {
+      case 'item':
+        return !!this.itemById(ref.id);
+      case 'corner':
+        return !!this.cornerById(ref.id);
+      case 'wall':
+        return !!this.wallById(ref.id);
+      case 'opening':
+        return !!this.openingById(ref.id);
+    }
   }
 
   /* ---------------- room mutations ---------------- */
@@ -1055,7 +1047,6 @@ export class Store {
       if (merged) o.offset = projectOnWall(merged, p).t;
     }
     this.renormalizeRoom(room.id);
-    if (this.selection.kind === 'corner' && this.selection.id === id) this.select({ kind: 'none' });
     this.notify({ structural: true });
   }
 
@@ -1131,7 +1122,6 @@ export class Store {
     reprojectOpeningsNearest(before, room.corners, affected);
     for (const o of affected) this.clampOpening(o);
     room.wallVisibility = {};
-    this.select({ kind: 'none' });
     this.notify({ structural: true });
   }
 
@@ -1170,8 +1160,6 @@ export class Store {
 
   deleteOpening(id: string): void {
     this.design.openings = this.design.openings.filter((o) => o.id !== id);
-    if (this.selection.kind === 'opening' && this.selection.id === id)
-      this.select({ kind: 'none' });
     this.notify({ structural: true });
   }
 
@@ -1349,9 +1337,6 @@ export class Store {
     this.design.items = this.design.items.filter((i) => !doomed.has(i.id));
     this.design.customParts = this.design.customParts.filter((p) => p.id !== id);
     this.saveSharedLibrary();
-    if (this.selection.kind === 'item' && !this.itemById(this.selection.id)) {
-      this.select({ kind: 'none' });
-    }
     this.notify({ structural: true });
     return used;
   }
@@ -1452,8 +1437,6 @@ export class Store {
     // deleting a host takes its mounted appliances with it (one undo step)
     const doomed = this.withAttached(new Set([id]));
     this.design.items = this.design.items.filter((i) => !doomed.has(i.id));
-    if (this.selection.kind === 'item' && doomed.has(this.selection.id))
-      this.select({ kind: 'none' });
     this.notify({ structural: true });
   }
 

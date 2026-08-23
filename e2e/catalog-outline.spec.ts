@@ -211,7 +211,7 @@ test('an outline row selects its object, by click and by Enter', async ({ app })
   const rows = app.locator('#outline .ol-row:not(.room-row)');
   await rows.first().click();
   await expect
-    .poll(() => app.evaluate(() => window.__kp.store.selection))
+    .poll(() => app.evaluate(() => window.__kp.editor.selection))
     .toEqual({
       kind: 'opening',
       id: ids.opening,
@@ -223,7 +223,7 @@ test('an outline row selects its object, by click and by Enter', async ({ app })
   await rows.nth(1).focus();
   await app.keyboard.press('Enter');
   await expect
-    .poll(() => app.evaluate(() => window.__kp.store.selection))
+    .poll(() => app.evaluate(() => window.__kp.editor.selection))
     .toEqual({ kind: 'item', id: ids.items[0] });
   await expect(rows.nth(1)).toHaveClass(/active/);
 });
@@ -234,7 +234,7 @@ test('a room row switches the active room and drops the selection', async ({ app
     st.addRoom({ against: { wallId: st.allWalls()[0].id }, d: 3 });
     const item = st.addItem(st.defOf('base-cabinet'), 1.0, 1.0, 0);
     st.commit();
-    st.select({ kind: 'item', id: item.id });
+    window.__kp.editor.select({ kind: 'item', id: item.id });
     return st.design.rooms.map((r) => r.id);
   });
   await app.click('#tab-btn-components');
@@ -249,7 +249,7 @@ test('a room row switches the active room and drops the selection', async ({ app
   await expect(rooms.nth(0)).toHaveClass(/active/);
   await expect(rooms.nth(1)).not.toHaveClass(/active/);
   // switching rooms drops back to the room panel — the item selection goes
-  expect(await app.evaluate(() => window.__kp.store.selection)).toEqual({ kind: 'none' });
+  expect(await app.evaluate(() => window.__kp.editor.selection)).toEqual({ kind: 'none' });
 
   // and Enter on a focused row does the same
   await rooms.nth(1).focus();

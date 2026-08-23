@@ -116,4 +116,77 @@ describe('EditorState', () => {
     ed.setTool('select');
     expect(seen).toEqual(['second']);
   });
+
+  /* ---------------- selection (M18) ---------------- */
+
+  it('the selection starts empty and projects to the single-selection shape', () => {
+    const ed = new EditorState();
+    expect(ed.selection).toEqual({ kind: 'none' });
+    expect(ed.entities).toEqual([]);
+    expect(ed.primary).toBe(null);
+    expect(ed.getSelectionVersion()).toBe(0);
+  });
+
+  it('selection and tool are separate channels — neither bumps the other', () => {
+    const ed = new EditorState();
+    let tool = 0;
+    let sel = 0;
+    ed.subscribe(() => tool++);
+    ed.subscribeSelection(() => sel++);
+
+    ed.select({ kind: 'item', id: 'i1' });
+    expect([tool, sel]).toEqual([0, 1]);
+    expect(ed.getVersion()).toBe(0);
+    expect(ed.getSelectionVersion()).toBe(1);
+
+    ed.setTool('measure');
+    expect([tool, sel]).toEqual([1, 1]);
+  });
+
+  it('selecting what is already selected is a no-op — no bump, no emit', () => {
+    const ed = new EditorState();
+    let calls = 0;
+    ed.subscribeSelection(() => calls++);
+
+    ed.select({ kind: 'item', id: 'i1' });
+    ed.select({ kind: 'item', id: 'i1' });
+    expect(calls).toBe(1);
+    // and clearing an already-empty selection likewise
+    ed.select({ kind: 'none' });
+    ed.select({ kind: 'none' });
+    expect(calls).toBe(2);
+  });
+
+  it('primary projects; entities carries the whole set', () => {
+    const ed = new EditorState();
+    ed.selectRefs([
+      { kind: 'item', id: 'a' },
+      { kind: 'item', id: 'b' },
+    ]);
+    expect(ed.selectedItemIds()).toEqual(['a', 'b']);
+    expect(ed.selection).toEqual({ kind: 'item', id: 'b' });
+    expect(ed.isSelected({ kind: 'item', id: 'a' })).toBe(true);
+
+    ed.toggleRef({ kind: 'item', id: 'b' });
+    expect(ed.selection).toEqual({ kind: 'item', id: 'a' });
+  });
+
+  it('pruneSelection drops what the caller says is gone', () => {
+    const ed = new EditorState();
+    ed.selectRefs([
+      { kind: 'item', id: 'a' },
+      { kind: 'item', id: 'b' },
+    ]);
+    ed.pruneSelection((r) => r.id !== 'b');
+    expect(ed.selectedItemIds()).toEqual(['a']);
+  });
+
+  it('subscribeSelection returns a disposer and counts its listeners', () => {
+    const ed = new EditorState();
+    const off = ed.subscribeSelection(() => {});
+    expect(ed.selectionHandlerCount()).toBe(1);
+    off();
+    off();
+    expect(ed.selectionHandlerCount()).toBe(0);
+  });
 });

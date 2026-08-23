@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { EditorState } from '../../src/editor/editorState';
+import { syncSelection } from '../../src/editor/selectionSync';
 import { DEFAULT_WALL_W, NO_ROOM, designWalls, freeWallGeoms } from '../../src/model/rooms';
 import { catalogDef } from '../../src/model/catalog';
 import { emptyDesign, Store } from '../../src/model/store';
@@ -125,13 +127,35 @@ describe('store: free wall chains', () => {
 
   it('the width clamps to the same range a per-wall override takes', () => {
     const s = store();
-    expect(s.addFreeWall([{ x: 0, y: 8 }, { x: 2, y: 8 }], 9)!.thickness).toBeCloseTo(0.4, 12);
-    expect(s.addFreeWall([{ x: 0, y: 9 }, { x: 2, y: 9 }], 0.001)!.thickness).toBeCloseTo(0.05, 12);
+    expect(
+      s.addFreeWall(
+        [
+          { x: 0, y: 8 },
+          { x: 2, y: 8 },
+        ],
+        9
+      )!.thickness
+    ).toBeCloseTo(0.4, 12);
+    expect(
+      s.addFreeWall(
+        [
+          { x: 0, y: 9 },
+          { x: 2, y: 9 },
+        ],
+        0.001
+      )!.thickness
+    ).toBeCloseTo(0.05, 12);
   });
 
   it('wallById and cornerById reach into chains — one id space with the rooms', () => {
     const s = store();
-    const chain = s.addFreeWall([{ x: 1, y: 1 }, { x: 3, y: 1 }], 0.115)!;
+    const chain = s.addFreeWall(
+      [
+        { x: 1, y: 1 },
+        { x: 3, y: 1 },
+      ],
+      0.115
+    )!;
     const id = chain.corners[0].id;
     expect(s.wallById(id)?.freeWallId).toBe(chain.id);
     expect(s.cornerById(id)).toMatchObject({ x: 1, y: 1 });
@@ -140,7 +164,13 @@ describe('store: free wall chains', () => {
 
   it('per-segment width lands on the CHAIN, not on a room', () => {
     const s = store();
-    const chain = s.addFreeWall([{ x: 1, y: 1 }, { x: 3, y: 1 }], 0.115)!;
+    const chain = s.addFreeWall(
+      [
+        { x: 1, y: 1 },
+        { x: 3, y: 1 },
+      ],
+      0.115
+    )!;
     const id = chain.corners[0].id;
     expect(s.hasWallWidthOverride(id)).toBe(false);
     s.setWallWidth(id, 0.3);
@@ -154,23 +184,37 @@ describe('store: free wall chains', () => {
 
   it('deleteFreeWall drops the chain, its openings and the selection', () => {
     const s = store();
-    const chain = s.addFreeWall([{ x: 1, y: 1 }, { x: 3, y: 1 }], 0.115)!;
+    const chain = s.addFreeWall(
+      [
+        { x: 1, y: 1 },
+        { x: 3, y: 1 },
+      ],
+      0.115
+    )!;
     const id = chain.corners[0].id;
     s.addOpening(catalogDef('door'), id, 1);
     expect(s.design.openings.filter((o) => o.wallId === id)).toHaveLength(1);
-    s.select({ kind: 'wall', id });
+    const editor = new EditorState();
+    syncSelection(s, editor);
+    editor.select({ kind: 'wall', id });
 
     expect(s.deleteFreeWall(chain.id)).toBe(true);
     expect(s.design.walls).toHaveLength(0);
     expect(s.design.openings.filter((o) => o.wallId === id)).toHaveLength(0);
-    expect(s.selection.kind).toBe('none');
+    expect(editor.selection.kind).toBe('none');
     expect(s.deleteFreeWall(chain.id)).toBe(false);
   });
 
   it('a chain never becomes half of a partition, however it lies', () => {
     const s = store();
     // laid exactly along the room's right wall centreline
-    s.addFreeWall([{ x: 4, y: 0 }, { x: 4, y: 3 }], DEFAULT_WALL_W);
+    s.addFreeWall(
+      [
+        { x: 4, y: 0 },
+        { x: 4, y: 3 },
+      ],
+      DEFAULT_WALL_W
+    );
     s.commit();
     expect(s.allWalls().filter((w) => w.shared)).toHaveLength(0);
   });

@@ -98,10 +98,10 @@ describe('StoreBridge', () => {
   });
 
   it('selection / history / pose / activeRoom / savefail each bump only their own channel', () => {
-    const { store, bridge } = setup();
+    const { store, editor, bridge } = setup();
 
     let before = versions(bridge);
-    store.select({ kind: 'none' });
+    editor.select({ kind: 'item', id: 'i1' });
     expect(moved(before, versions(bridge))).toEqual(['selection']);
 
     // savefail goes first: the store only emits it on an ok↔fail TRANSITION,
@@ -170,14 +170,14 @@ describe('StoreBridge', () => {
   });
 
   it('subscribe returns a disposer that drops exactly its own listener', () => {
-    const { store, bridge } = setup();
+    const { editor, bridge } = setup();
     const seen: string[] = [];
     const off = bridge.subscribe('selection', () => seen.push('a'));
     bridge.subscribe('selection', () => seen.push('b'));
 
     off();
     off(); // double-dispose is a no-op
-    store.select({ kind: 'none' });
+    editor.select({ kind: 'item', id: 'i1' });
 
     expect(seen).toEqual(['b']);
     expect(bridge.getVersion('selection')).toBe(1); // the version still moved
@@ -199,7 +199,7 @@ describe('StoreBridge', () => {
     bridge.dispose();
 
     store.notify({ structural: true, transient: false });
-    store.select({ kind: 'none' });
+    editor.select({ kind: 'item', id: 'i1' });
     editor.setTool('select');
     setHint('after dispose');
 
@@ -212,7 +212,7 @@ describe('StoreBridge', () => {
     const editor = new EditorState();
     const base = {
       change: store.handlerCount('change'),
-      selection: store.handlerCount('selection'),
+      selection: editor.selectionHandlerCount(),
       history: store.handlerCount('history'),
       pose: store.handlerCount('pose'),
       activeRoom: store.handlerCount('activeRoom'),
@@ -227,7 +227,7 @@ describe('StoreBridge', () => {
 
     expect({
       change: store.handlerCount('change'),
-      selection: store.handlerCount('selection'),
+      selection: editor.selectionHandlerCount(),
       history: store.handlerCount('history'),
       pose: store.handlerCount('pose'),
       activeRoom: store.handlerCount('activeRoom'),

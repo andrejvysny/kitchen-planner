@@ -14,6 +14,65 @@ npm run lint && npm run typecheck && npm run test:unit && npm run build \
 
 ---
 
+# M18 — Selection system (multi-select) (active)
+
+Plan: `~/.claude/plans/act-as-senior-software-magical-stallman.md`. Audience is
+a personal tool for an own renovation; one deep track (this) plus a quick-win
+batch. Decisions D1-D8 live in the plan; the two that shape everything: a
+multi-selection is ITEMS-ONLY (a wall/corner/opening always replaces), and
+multi-move snaps the PRIMARY only, applying its delta to the rest.
+
+- [x] S-pre CI unblocked — `npm run typecheck` was red on master at an 8-error
+      TS2531 baseline (`store.activeRoom()` went nullable with the zero-room
+      New flow; four test/spec sites deref it). `!` at each site; typecheck is
+      now 0 errors, so the deploy workflow's gate passes again.
+- [x] S0 pure selection model — `EntityKind`/`EntityRef` in model/types.ts,
+      `src/editor/selection.ts` (SelectionState + replace/toggle/selectionOf/
+      prune, both rules encoded there), `test/unit/editor/selection.test.ts`
+      (15 cases).
+- [x] S1 relocation — selection moved off `Store` onto `EditorState`, behaviour
+      identical, still single-select:
+      - `Store` loses `selection`/`select()`/`selectedItem()`/`pruneSelection()`
+        and the `'selection'` event; it gains `entityExists(ref)` and a new
+        `'reset'` event (the design was swapped wholesale: undo/redo restore,
+        file load, New) — the three inline `select({kind:'none'})` calls it used
+        to make had no other honest home.
+      - `src/editor/selectionSync.ts` `syncSelection(store, editor)` is the ONE
+        wire: prune on every SETTLED change (transient ticks are skipped — a
+        drag deletes nothing, and `entityExists` resolves a wall through
+        `allWalls()`), clear on 'reset'. Unit-tested (7 cases) rather than
+        living inline in `createServices()`.
+      - `EditorState` gains the selection with its OWN subscriber set and
+        version counter, deliberately separate from the tool ones; `selection`
+        projects the PRIMARY in the legacy single shape, so all ~140 read sites
+        kept their spelling. `selectionHandlerCount()` is the leak seam
+        e2e/lifecycle.spec.ts now counts.
+      - `renderPlan` takes the selection through `PlanOverlays` (the print
+        sheet passes no overlays, so paper still shows no selection);
+        `ElevationView` takes the editor as a constructor argument and `View3D`
+        through its `opts`; `outlineGroups(src, selection)` takes it as a second
+        argument (defaulting to none) instead of reading it off the source.
+      - `StoreBridge`'s `'selection'` channel is unchanged in name and now fed
+        by `editor.subscribeSelection`, so no React consumer moved.
+      - One behaviour change, deliberate: selecting what is already selected is
+        a NO-OP (no bump, no emit), matching `setTool`'s contract. The old
+        `store.select` always emitted.
+      Gates: lint · typecheck **0 errors** · **973 unit** · build ·
+      interact **109/109** · Playwright **103/103**.
+- [ ] S2 gestures — shift-click toggle, marquee on left-drag empty (pan keeps
+      middle/right), Ctrl+A, multi handles in renderPlan
+- [ ] S3 multi move / rotate / delete / duplicate
+- [ ] S4 props panel + outline multi
+- [ ] S5 3D tints + gizmo
+- [ ] S6 docs + acceptance walk
+
+Quick wins (independent commits): Q1 checks recompute throttled during drags ·
+Q2 corner/sink-base/oven-tower/end-panel presets · Q3 `findHost` hosting cache ·
+Q4 manual file-load recovery stash · Q5 graphify excludes render/.blender ·
+Q6 `format:check` in CI.
+
+---
+
 # M17 — UX review execution (active)
 
 Plan: `~/.claude/plans/act-as-senior-software-vast-waffle.md`. Full UX review

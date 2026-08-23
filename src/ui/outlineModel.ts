@@ -1,5 +1,6 @@
 import { CATALOG, type CatalogDef } from '../model/catalog';
 import { PRESETS } from '../model/presets';
+import { emptySelection, isSelected, type SelectionState } from '../editor/selection';
 import type { Design, Selection } from '../model/types';
 
 /**
@@ -58,28 +59,35 @@ export interface OutlineData {
  */
 export interface OutlineSource {
   readonly design: Design;
-  readonly selection: Selection;
   readonly activeRoomId: string;
   /** THROWS on an id that resolves nowhere; sanitizeDesign guarantees it cannot happen */
   defOf(defId: string): Pick<CatalogDef, 'kind' | 'label'>;
   floorArea(roomId: string): number;
 }
 
-/** Group every opening and item of the design, in display order. */
-export function outlineGroups(src: OutlineSource): OutlineData {
+/**
+ * Group every opening and item of the design, in display order.
+ *
+ * The selection arrives as a SEPARATE argument since M18: it belongs to the
+ * editor, not the store, and a row is "active" when the selection HOLDS it —
+ * which is already the multi-selection question, not a single-id compare.
+ */
+export function outlineGroups(
+  src: OutlineSource,
+  selection: SelectionState = emptySelection()
+): OutlineData {
   const groups = new Map<string, OutlineRow[]>();
   const add = (group: string, row: OutlineRow) => {
     const list = groups.get(group) ?? (groups.set(group, []).get(group) as OutlineRow[]);
     list.push(row);
   };
-  const sel = src.selection;
 
   for (const o of src.design.openings) {
     add('Doors & windows', {
       id: o.id,
       label: o.type === 'door' ? 'Door' : 'Window',
       sel: { kind: 'opening', id: o.id },
-      active: sel.kind === 'opening' && sel.id === o.id,
+      active: isSelected(selection, { kind: 'opening', id: o.id }),
     });
   }
   for (const it of src.design.items) {
@@ -91,7 +99,7 @@ export function outlineGroups(src: OutlineSource): OutlineData {
       id: it.id,
       label: def.label,
       sel: { kind: 'item', id: it.id },
-      active: sel.kind === 'item' && sel.id === it.id,
+      active: isSelected(selection, { kind: 'item', id: it.id }),
     });
   }
 

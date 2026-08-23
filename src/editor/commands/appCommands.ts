@@ -52,11 +52,11 @@ const onCanvas = (ctx: EditorContext): boolean => {
 };
 
 const itemSelected = (ctx: EditorContext): boolean =>
-  onCanvas(ctx) && ctx.store.selection.kind === 'item';
+  onCanvas(ctx) && ctx.editor.selection.kind === 'item';
 
 /** Move the selected item by (dx, dy) meters — non-structural, then commit. */
 function nudge(ctx: EditorContext, dx: number, dy: number): void {
-  const sel = ctx.store.selection;
+  const sel = ctx.editor.selection;
   if (sel.kind !== 'item') return;
   const it = ctx.store.itemById(sel.id);
   if (!it) return;
@@ -65,7 +65,7 @@ function nudge(ctx: EditorContext, dx: number, dy: number): void {
 }
 
 function rotate(ctx: EditorContext, step: number): void {
-  const sel = ctx.store.selection;
+  const sel = ctx.editor.selection;
   if (sel.kind !== 'item') return;
   const it = ctx.store.itemById(sel.id);
   if (!it) return;
@@ -116,10 +116,10 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     label: 'Duplicate',
     canExecute: itemSelected,
     execute: (ctx) => {
-      const sel = ctx.store.selection;
+      const sel = ctx.editor.selection;
       if (sel.kind !== 'item') return;
       const copy = ctx.store.duplicateItem(sel.id);
-      if (copy) ctx.store.select({ kind: 'item', id: copy.id });
+      if (copy) ctx.editor.select({ kind: 'item', id: copy.id });
       ctx.store.commit();
     },
   },
@@ -129,9 +129,9 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     // A room's wall still has no delete of its own (you delete the room, or
     // move its corners) — but a FREE-STANDING chain is its own object, so
     // deleting one is exactly what Delete should do there.
-    canExecute: (ctx) => onCanvas(ctx) && ctx.store.selection.kind !== 'none',
+    canExecute: (ctx) => onCanvas(ctx) && ctx.editor.selection.kind !== 'none',
     execute: (ctx) => {
-      const sel = ctx.store.selection;
+      const sel = ctx.editor.selection;
       if (sel.kind === 'item') ctx.store.deleteItem(sel.id);
       else if (sel.kind === 'opening') ctx.store.deleteOpening(sel.id);
       else if (sel.kind === 'corner') ctx.store.deleteCorner(sel.id);
@@ -172,14 +172,14 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     // cascade: the modal outranks the tools, and 'select' falls through to
     // dropping the selection. Order is load-bearing — e2e/tools.spec.ts pins it.
     execute: (ctx) => {
-      const { store, editor, plan, modal } = ctx;
+      const { editor, plan, modal } = ctx;
       if (modal.isOpen()) modal.handleEscape();
       else if (editor.isTool('place')) plan.setArmed(null);
       else if (editor.isTool('calibrate')) plan.setCalibrate(false);
       else if (editor.isTool('measure')) plan.setMeasure(false);
       // two-stage: the ring in progress goes first, the tool only when empty
       else if (editor.isTool('drawRoom')) plan.cancelDrawRoom();
-      else store.select({ kind: 'none' });
+      else editor.select({ kind: 'none' });
     },
   },
   {

@@ -165,11 +165,11 @@ describe('Plan2D ↔ EditorState', () => {
   // updateHint() itself — toggling a tool on/off is enough to force a fresh
   // read of the current (headless-set) store.selection.
   it('the item hint calls out click-to-cycle only when another item actually overlaps', () => {
-    const { store, plan, hints } = setup();
+    const { store, editor, plan, hints } = setup();
     const def = store.defOf('base-cabinet');
     // far outside the demo room/layout so nothing else is nearby to begin with
     const a = store.addItem(def, 50, 50, 0);
-    store.select({ kind: 'item', id: a.id });
+    editor.select({ kind: 'item', id: a.id });
 
     hints.length = 0;
     plan.setMeasure(true);
@@ -184,13 +184,13 @@ describe('Plan2D ↔ EditorState', () => {
   });
 
   it('an attached item is told it is mounted, not that it drags freely', () => {
-    const { store, plan, hints } = setup();
+    const { store, editor, plan, hints } = setup();
     const hostDef = store.defOf('base-cabinet');
     const host = store.addItem(hostDef, 50, 50, 0);
     const sinkDef = store.defOf('appl-sink');
     const sink = store.addItem(sinkDef, 50, 50, 0);
     store.setAttachment(sink.id, { kind: 'counter', hostId: host.id, u: 0, v: 0 });
-    store.select({ kind: 'item', id: sink.id });
+    editor.select({ kind: 'item', id: sink.id });
 
     hints.length = 0;
     plan.setMeasure(true);

@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type ReactElement } from 'react';
-import { useStore } from './services';
+import { useEditor, useStore } from './services';
 import { outlineGroups, type OutlineRoomRow, type OutlineRow } from '../outlineModel';
 import { useChannel } from './hooks/useStore';
 
@@ -14,11 +14,12 @@ import { useChannel } from './hooks/useStore';
  */
 export function OutlinePanel(): ReactElement {
   const store = useStore();
+  const editor = useEditor();
   useChannel('selection');
   useChannel('history');
   useChannel('activeRoom');
 
-  const { roomRows, groups, total } = outlineGroups(store);
+  const { roomRows, groups, total } = outlineGroups(store, editor.selectionState());
 
   return (
     <>
@@ -65,11 +66,12 @@ function activateOnKey(e: KeyboardEvent, fn: () => void): void {
 
 function RoomRow({ row }: { row: OutlineRoomRow }): ReactElement {
   const store = useStore();
+  const editor = useEditor();
   // ui.ts activateRoom, inlined: switching rooms drops back to the room panel.
   // The props panel still owns its own copy until it becomes a component too.
   const pick = (): void => {
     store.setActiveRoom(row.id);
-    store.select({ kind: 'none' });
+    editor.select({ kind: 'none' });
   };
 
   return (
@@ -87,8 +89,8 @@ function RoomRow({ row }: { row: OutlineRoomRow }): ReactElement {
 }
 
 function ObjectRow({ row }: { row: OutlineRow }): ReactElement {
-  const store = useStore();
-  const pick = (): void => store.select(row.sel);
+  const editor = useEditor();
+  const pick = (): void => editor.select(row.sel);
 
   return (
     <div
