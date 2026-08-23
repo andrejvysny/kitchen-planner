@@ -110,7 +110,23 @@ type Drag =
    */
   | { type: 'drawRect'; a: Point; sx: number; sy: number; moved: boolean }
   | { type: 'pinch' }
-  | { type: 'item'; id: string; ox: number; oy: number; moved: boolean; cycleTo?: string | null }
+  | {
+      type: 'item';
+      id: string;
+      ox: number;
+      oy: number;
+      moved: boolean;
+      cycleTo?: string | null;
+      /**
+       * Multi-move: where the dragged item and its followers STARTED. The
+       * delta is measured against these, never accumulated frame to frame —
+       * the primary is snapped every frame, so an incremental delta would
+       * feed each snap correction back into the followers.
+       */
+      ax?: number;
+      ay?: number;
+      followers?: { id: string; x0: number; y0: number }[];
+    }
   | { type: 'corner'; id: string }
   | { type: 'opening'; id: string }
   | { type: 'rotate'; id: string }
@@ -1902,6 +1918,9 @@ export class Plan2D {
         oy: w.y - item.y,
         moved: false,
         cycleTo: selIdx >= 0 ? stack[(selIdx + 1) % stack.length].id : null,
+        ax: item.x,
+        ay: item.y,
+        followers: this.dragFollowers(item.id),
       };
       return;
     }
@@ -2085,6 +2104,7 @@ export class Plan2D {
               { x: p.x, y: p.y },
               { structural: false, transient: true }
             );
+            this.moveFollowers(d, p.x, p.y);
           }
           return;
         }
@@ -2095,6 +2115,9 @@ export class Plan2D {
           { x: res.x, y: res.y, rotation: res.rotation, roomId: res.roomId },
           { structural: false, transient: true }
         );
+        // the PRIMARY is what snapped; everything else takes its delta, so the
+        // set keeps the exact spacing it was drawn with
+        this.moveFollowers(d, res.x, res.y);
         return;
       }
       case 'rotate': {
@@ -2254,6 +2277,42 @@ export class Plan2D {
    * touch-selects band is the more surprising of the two, since it swallows
    * whatever the band happened to clip on its way.
    */
+  /**
+   * The other selected items a drag of `leadId` carries, with the positions
+   * they start from.
+   *
+   * An appliance mounted on a host that is ALSO moving is left out: its world
+   * pose is recomputed from its host-local anchor by `syncAttachments`, so
+   * applying the delta here as well would move it twice.
+   */
+  private dragFollowers(leadId: string): { id: string; x0: number; y0: number }[] {
+    const held = new Set(this.editor.selectedItemIds());
+    if (held.size < 2) return [];
+    const out: { id: string; x0: number; y0: number }[] = [];
+    for (const id of held) {
+      if (id === leadId) continue;
+      const it = this.store.itemById(id);
+      if (!it) continue;
+      if (it.attach && held.has(it.attach.hostId)) continue;
+      out.push({ id, x0: it.x, y0: it.y });
+    }
+    return out;
+  }
+
+  /** Put every follower at its start plus the delta the lead item just took. */
+  private moveFollowers(d: Extract<Drag, { type: 'item' }>, x: number, y: number): void {
+    if (!d.followers?.length || d.ax === undefined || d.ay === undefined) return;
+    const dx = x - d.ax;
+    const dy = y - d.ay;
+    for (const f of d.followers) {
+      this.store.updateItem(
+        f.id,
+        { x: f.x0 + dx, y: f.y0 + dy },
+        { structural: false, transient: true }
+      );
+    }
+  }
+
   private marqueeHits(): EntityRef[] {
     const m = this.marquee;
     if (!m) return [];

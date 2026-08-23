@@ -179,3 +179,96 @@ test('Ctrl+A takes every item in the active room', async ({ app }) => {
   await app.keyboard.press('Control+a');
   await expect.poll(() => heldIds(app)).toEqual(ids);
 });
+
+test('dragging one member moves the whole set, and only the primary snaps', async ({ app }) => {
+  const [a, b, c] = await threeCabinets(app);
+  await app.evaluate(
+    (ids) => window.__kp.editor.selectRefs(ids.map((id) => ({ kind: 'item', id }) as const)),
+    [a, b, c]
+  );
+
+  const before = await app.evaluate(() => {
+    const st = window.__kp.store;
+    return st.design.items.map((it) => ({ id: it.id, x: it.x, y: it.y }));
+  });
+
+  // press the middle cabinet and drag it 1 m to the right, well clear of a wall
+  const from = await at(app, 2.0, 1.0);
+  await app.mouse.move(from.x, from.y);
+  await app.mouse.down();
+  await app.mouse.move(from.x + 60, from.y, { steps: 10 });
+  await app.mouse.up();
+
+  const after = await app.evaluate(() => {
+    const st = window.__kp.store;
+    return st.design.items.map((it) => ({ id: it.id, x: it.x, y: it.y }));
+  });
+
+  const dx = (id: string): number =>
+    after.find((i) => i.id === id)!.x - before.find((i) => i.id === id)!.x;
+  expect(dx(b)).toBeGreaterThan(0.5);
+  // the set is rigid: every member took the SAME delta the dragged one did
+  expect(dx(a)).toBeCloseTo(dx(b), 6);
+  expect(dx(c)).toBeCloseTo(dx(b), 6);
+  // the set survives the drag; pressing b promoted it to primary, which is
+  // what made it the one that snapped
+  await expect.poll(() => heldIds(app).then((ids) => [...ids].sort())).toEqual([a, b, c].sort());
+  await expect.poll(() => primary(app)).toEqual({ kind: 'item', id: b });
+});
+
+test('R turns the set about its middle, and one undo puts it back', async ({ app }) => {
+  const ids = await threeCabinets(app);
+  await app.evaluate(
+    (list) => window.__kp.editor.selectRefs(list.map((id) => ({ kind: 'item', id }) as const)),
+    ids
+  );
+  const before = await app.evaluate(() =>
+    window.__kp.store.design.items.map((it) => ({ id: it.id, x: it.x, y: it.y, r: it.rotation }))
+  );
+
+  await app.keyboard.press('r');
+
+  const after = await app.evaluate(() =>
+    window.__kp.store.design.items.map((it) => ({ id: it.id, x: it.x, y: it.y, r: it.rotation }))
+  );
+  // the middle one is the centre of the set, so it stays put and only turns
+  const mid = (list: typeof before, id: string) => list.find((i) => i.id === id)!;
+  expect(mid(after, ids[1]).x).toBeCloseTo(mid(before, ids[1]).x, 6);
+  expect(mid(after, ids[1]).r).toBeCloseTo(mid(before, ids[1]).r + Math.PI / 2, 6);
+  // the outer two swing round it
+  expect(mid(after, ids[0]).y).not.toBeCloseTo(mid(before, ids[0]).y, 2);
+
+  await app.keyboard.press('Control+z');
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.store.design.items.map((it) => it.rotation)))
+    .toEqual(before.map((i) => i.r));
+});
+
+test('Delete removes every held item in ONE undo step', async ({ app }) => {
+  const ids = await threeCabinets(app);
+  await app.evaluate(
+    (list) => window.__kp.editor.selectRefs(list.map((id) => ({ kind: 'item', id }) as const)),
+    ids
+  );
+
+  await app.keyboard.press('Delete');
+  await expect.poll(() => app.evaluate(() => window.__kp.store.design.items.length)).toBe(0);
+
+  await app.keyboard.press('Control+z');
+  await expect.poll(() => app.evaluate(() => window.__kp.store.design.items.length)).toBe(3);
+});
+
+test('Ctrl+D duplicates the whole set and selects the copies', async ({ app }) => {
+  const ids = await threeCabinets(app);
+  await app.evaluate(
+    (list) => window.__kp.editor.selectRefs(list.map((id) => ({ kind: 'item', id }) as const)),
+    ids
+  );
+
+  await app.keyboard.press('Control+d');
+  await expect.poll(() => app.evaluate(() => window.__kp.store.design.items.length)).toBe(6);
+
+  const held = await heldIds(app);
+  expect(held).toHaveLength(3);
+  for (const id of held) expect(ids).not.toContain(id);
+});

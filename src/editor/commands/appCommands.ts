@@ -1,4 +1,6 @@
 import { roomOfItem } from '../../model/rooms';
+import type { Item } from '../../model/types';
+import { rotateAbout, selectionCentre, withoutCarried } from '../selectionOps';
 import type { CommandDefinition, EditorContext, WorkspaceId } from './types';
 
 /**
@@ -55,22 +57,42 @@ const onCanvas = (ctx: EditorContext): boolean => {
 const itemSelected = (ctx: EditorContext): boolean =>
   onCanvas(ctx) && ctx.editor.selection.kind === 'item';
 
-/** Move the selected item by (dx, dy) meters — non-structural, then commit. */
+/**
+ * The selected items, minus the ones another selected item carries. One list,
+ * so nudge / rotate / delete / duplicate cannot disagree about what "the
+ * selection" means.
+ */
+function selectedItems(ctx: EditorContext): Item[] {
+  const items = ctx.editor
+    .selectedItemIds()
+    .map((id) => ctx.store.itemById(id))
+    .filter((it): it is Item => !!it);
+  return withoutCarried(items);
+}
+
+/** Move the whole selection by (dx, dy) meters — non-structural, then commit. */
 function nudge(ctx: EditorContext, dx: number, dy: number): void {
-  const sel = ctx.editor.selection;
-  if (sel.kind !== 'item') return;
-  const it = ctx.store.itemById(sel.id);
-  if (!it) return;
-  ctx.store.updateItem(sel.id, { x: it.x + dx, y: it.y + dy }, { structural: false });
+  const items = selectedItems(ctx);
+  if (!items.length) return;
+  for (const it of items) {
+    ctx.store.updateItem(it.id, { x: it.x + dx, y: it.y + dy }, { structural: false });
+  }
   ctx.store.commit();
 }
 
+/**
+ * Turn the selection. Several items turn about the middle of the set, not each
+ * about its own centre — rotating a dining set one chair at a time is never
+ * what is wanted — and `selectionCentre` returns the lone item's own centre for
+ * a set of one, so the single-selection behaviour is not a special case here.
+ */
 function rotate(ctx: EditorContext, step: number): void {
-  const sel = ctx.editor.selection;
-  if (sel.kind !== 'item') return;
-  const it = ctx.store.itemById(sel.id);
-  if (!it) return;
-  ctx.store.updateItem(sel.id, { rotation: it.rotation + step }, { structural: false });
+  const items = selectedItems(ctx);
+  const centre = selectionCentre(items);
+  if (!centre) return;
+  for (const p of rotateAbout(items, centre, step)) {
+    ctx.store.updateItem(p.id, { x: p.x, y: p.y, rotation: p.rotation }, { structural: false });
+  }
   ctx.store.commit();
 }
 
@@ -132,10 +154,15 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     label: 'Duplicate',
     canExecute: itemSelected,
     execute: (ctx) => {
-      const sel = ctx.editor.selection;
-      if (sel.kind !== 'item') return;
-      const copy = ctx.store.duplicateItem(sel.id);
-      if (copy) ctx.editor.select({ kind: 'item', id: copy.id });
+      const ids = ctx.editor.selectedItemIds();
+      if (!ids.length) return;
+      // the copies become the selection, so a second Ctrl+D duplicates THEM —
+      // the same promise the single-item version always made
+      const copies = ids
+        .map((id) => ctx.store.duplicateItem(id))
+        .filter((c): c is Item => !!c)
+        .map((c) => ({ kind: 'item', id: c.id }) as const);
+      if (copies.length) ctx.editor.selectRefs(copies);
       ctx.store.commit();
     },
   },
@@ -148,7 +175,8 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     canExecute: (ctx) => onCanvas(ctx) && ctx.editor.selection.kind !== 'none',
     execute: (ctx) => {
       const sel = ctx.editor.selection;
-      if (sel.kind === 'item') ctx.store.deleteItem(sel.id);
+      if (sel.kind === 'item')
+        for (const id of ctx.editor.selectedItemIds()) ctx.store.deleteItem(id);
       else if (sel.kind === 'opening') ctx.store.deleteOpening(sel.id);
       else if (sel.kind === 'corner') ctx.store.deleteCorner(sel.id);
       else if (sel.kind === 'wall') {
