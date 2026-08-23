@@ -39,6 +39,7 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
   { group: 'Edit', keys: 'Ctrl+Z', does: 'Undo' },
   { group: 'Edit', keys: 'Ctrl+Shift+Z  ·  Ctrl+Y', does: 'Redo' },
   { group: 'Edit', keys: 'Ctrl+D', does: 'Duplicate the selected item' },
+  { group: 'Edit', keys: 'Ctrl+A', does: 'Select every item in the active room' },
   { group: 'Edit', keys: 'R  ·  Shift+R', does: 'Rotate the selection by 90° or 15°' },
   { group: 'Edit', keys: 'Arrows', does: 'Nudge the selection by 1 cm' },
   { group: 'Edit', keys: 'Shift+arrows', does: 'Nudge the selection by 10 cm' },
@@ -58,7 +59,13 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
 
   { group: 'Mouse', keys: 'Drag with the wall tool', does: 'Draw a rectangular room' },
 
-  { group: 'Mouse', keys: 'Drag empty space', does: 'Pan the plan' },
+  {
+    group: 'Mouse',
+    keys: 'Shift-click an item',
+    does: 'Add it to (or drop it from) the selection',
+  },
+  { group: 'Mouse', keys: 'Drag empty space', does: 'Rubber-band select everything inside' },
+  { group: 'Mouse', keys: 'Right-drag  ·  middle-drag', does: 'Pan the plan' },
   { group: 'Mouse', keys: 'Scroll', does: 'Zoom the plan' },
   { group: 'Mouse', keys: 'Right-click', does: 'Menu for whatever is under the pointer' },
   { group: 'Mouse', keys: 'Double-click a wall', does: 'Add a corner there' },

@@ -71,6 +71,7 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   { key: 'z', mod: true, shift: false, commandId: 'history.undo' },
   { key: 'y', mod: true, commandId: 'history.redo' },
   { key: 'd', mod: true, commandId: 'selection.duplicate' },
+  { key: 'a', mod: true, commandId: 'selection.all' },
 
   // The wall tool's dimension box comes FIRST, and `draw.*`'s canExecute is
   // what makes that safe: while a ring is in flight Backspace edits the typed

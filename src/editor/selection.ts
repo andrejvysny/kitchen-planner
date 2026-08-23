@@ -85,6 +85,17 @@ export function toggleSelection(state: SelectionState, ref: EntityRef): Selectio
   return build([...state.entities, ref]);
 }
 
+/**
+ * Make `ref` the one that leads without changing WHAT is held — dragging a
+ * member of a multi-selection has to snap against the item under the cursor,
+ * not against whichever one happened to be picked last. A ref that is not held
+ * replaces the selection, which is what a plain click on a stranger means.
+ */
+export function withPrimary(state: SelectionState, ref: EntityRef): SelectionState {
+  if (!isSelected(state, ref)) return replaceSelection(ref);
+  return build([...state.entities.filter((e) => !sameRef(e, ref)), ref]);
+}
+
 /** Marquee / select-all semantics: exactly this set, primary = the last ref. */
 export function selectionOf(refs: readonly EntityRef[]): SelectionState {
   return build(refs);

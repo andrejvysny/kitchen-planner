@@ -9,6 +9,7 @@ import {
   selectedIds,
   selectionOf,
   toggleSelection,
+  withPrimary,
 } from '../../../src/editor/selection';
 import type { EntityRef } from '../../../src/model/types';
 
@@ -91,6 +92,19 @@ describe('selection state', () => {
 
   it('selectionOf([]) is empty', () => {
     expect(isEmpty(selectionOf([]))).toBe(true);
+  });
+
+  it('withPrimary reorders without changing the set', () => {
+    const s = selectionOf([item('a'), item('b'), item('c')]);
+    const p = withPrimary(s, item('a'));
+    expect(selectedIds(p, 'item')).toEqual(['b', 'c', 'a']);
+    expect(p.primary).toEqual(item('a'));
+  });
+
+  it('withPrimary on a ref that is NOT held replaces the selection', () => {
+    const s = selectionOf([item('a'), item('b')]);
+    const p = withPrimary(s, item('z'));
+    expect(p.entities).toEqual([item('z')]);
   });
 
   it('prune drops what no longer exists and re-picks the primary', () => {

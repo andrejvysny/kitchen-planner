@@ -168,10 +168,12 @@ walkthrough and flag reference.
 | arrow keys / `Shift`+arrows | nudge 1 cm / 10 cm |
 | `Ctrl+Z` / `Ctrl+Shift+Z` or `Ctrl+Y` | undo / redo |
 | `Ctrl+D` | duplicate item |
+| `Ctrl+A` | select every item in the active room |
 | `Delete` / `Backspace` | remove selection |
 | `Esc` | cancel placement · clear the studio selection · deselect |
 | `?` | show the keyboard & mouse cheatsheet (also under ⚙ → *Shortcuts…*) |
-| mouse wheel / drag empty space | zoom / pan the plan |
+| mouse wheel / right-drag | zoom / pan the plan |
+| drag empty space / `Shift`-click | rubber-band select / add or drop one item |
 | right-click / double-click a wall | context menu for what is under the pointer / add a corner |
 
 The very first time you open the app it starts in **Plan** and points out the

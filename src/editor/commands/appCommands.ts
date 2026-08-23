@@ -1,3 +1,4 @@
+import { roomOfItem } from '../../model/rooms';
 import type { CommandDefinition, EditorContext, WorkspaceId } from './types';
 
 /**
@@ -111,6 +112,21 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     execute: (ctx) => ctx.store.redo(),
   },
 
+  {
+    id: 'selection.all',
+    label: 'Select all items',
+    // Items only, and only in the ACTIVE room: a multi-selection is items-only
+    // by construction, and "everything in the room I am working in" is what
+    // Ctrl+A means in a plan that may hold a whole apartment.
+    canExecute: (ctx) => onCanvas(ctx) && ctx.store.design.items.length > 0,
+    execute: (ctx) => {
+      const roomId = ctx.store.activeRoomId;
+      const ids = ctx.store.design.items
+        .filter((it) => (roomOfItem(ctx.store.design, it)?.id ?? null) === roomId)
+        .map((it) => ({ kind: 'item', id: it.id }) as const);
+      ctx.editor.selectRefs(ids);
+    },
+  },
   {
     id: 'selection.duplicate',
     label: 'Duplicate',

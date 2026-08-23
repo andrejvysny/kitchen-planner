@@ -1940,19 +1940,22 @@ results.push([
     restated.sel === 'none' &&
     switchedBack === roomIds[0],
 ]);
+// M18: the LEFT button rubber-band-selects on empty floor, so panning with a
+// mouse lives on the right (and middle) button. The check is still the same
+// one — a pan must not switch the active room.
 const panFrom = await worldToScreen(8.0, 1.5); // empty floor of the INACTIVE room
 const panBefore = await page.evaluate(() => window.__kp.plan.viewport().panX);
 await page.mouse.move(roomBb.x + panFrom.x, roomBb.y + panFrom.y);
-await page.mouse.down();
+await page.mouse.down({ button: 'right' });
 await page.mouse.move(roomBb.x + panFrom.x + 60, roomBb.y + panFrom.y, { steps: 6 });
-await page.mouse.up();
+await page.mouse.up({ button: 'right' });
 await waitUntil((x0) => Math.abs(window.__kp.plan.viewport().panX - x0) > 40, panBefore);
 const panned = await page.evaluate(() => ({
   panX: window.__kp.plan.viewport().panX,
   active: window.__kp.store.activeRoomId,
 }));
 results.push([
-  'dragging empty space pans without switching rooms',
+  'right-dragging empty space pans without switching rooms',
   Math.abs(panned.panX - panBefore) > 40 && panned.active === roomIds[0],
 ]);
 

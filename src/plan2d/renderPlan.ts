@@ -13,7 +13,7 @@
  * ratio is how the print path renders 150 dpi output from a 96 dpi layout.
  */
 
-import { emptySelection, type SelectionState } from '../editor/selection';
+import { emptySelection, isSelected, type SelectionState } from '../editor/selection';
 import type { CatalogDef } from '../model/catalog';
 import type { Severity, Warning } from '../model/checks';
 import { convexHull, fmtCm, polygonCentroid, rot, wallPoint } from '../model/geometry';
@@ -233,6 +233,8 @@ export interface PlanOverlays {
    * overlays at all, draws no selection without needing to say so.
    */
   selection: SelectionState;
+  /** the live rubber-band rectangle (world coords), or null when none is up */
+  marquee: { a: Point; b: Point } | null;
   /** the ⚠ toggle: warn/info findings on top of the always-drawn errors */
   advisoryChecks: boolean;
   hover: HoverOverlay;
@@ -484,7 +486,10 @@ export function renderPlan(
   // ---- items ----
   for (const it of sortedItems(store)) {
     const def = store.defOf(it.defId);
-    const selected = sel.kind === 'item' && sel.id === it.id;
+    // every member of the selection is highlighted; the handles below belong to
+    // the PRIMARY alone, since it is the one a drag snaps and a rotate turns
+    const selected = isSelected(selState, { kind: 'item', id: it.id });
+    const primary = sel.kind === 'item' && sel.id === it.id;
     ctx.save();
     ctx.translate(it.x, it.y);
     ctx.rotate(it.rotation);
@@ -511,7 +516,7 @@ export function renderPlan(
     });
     ctx.restore();
 
-    if (selected && !it.attach) {
+    if (primary && !it.attach) {
       // rotation handle (attached appliances follow their host)
       const h = rotateHandlePos(it);
       ctx.strokeStyle = ACCENT;
@@ -765,6 +770,24 @@ export function renderPlan(
       ctx.fillRect(h.x - r, h.y - r, r * 2, r * 2);
       ctx.strokeRect(h.x - r, h.y - r, r * 2, r * 2);
     }
+  }
+
+  // ---- rubber-band selection ----
+  const band = opts.handles ? (overlays?.marquee ?? null) : null;
+  if (band) {
+    const x = Math.min(band.a.x, band.b.x);
+    const y = Math.min(band.a.y, band.b.y);
+    const w = Math.abs(band.b.x - band.a.x);
+    const h = Math.abs(band.b.y - band.a.y);
+    ctx.fillStyle = ACCENT;
+    ctx.globalAlpha = 0.08;
+    ctx.fillRect(x, y, w, h);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = hair;
+    ctx.setLineDash([6 * hair, 4 * hair]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
   }
 
   // ---- spatial checks + measure overlays (on top of everything) ----

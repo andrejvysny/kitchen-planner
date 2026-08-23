@@ -34,7 +34,7 @@ import { unitPrefs } from '../model/prefs';
 import { parseAngle, parseLength } from '../model/units';
 import { nearestWall, snapItem, type Guide } from '../model/snapping';
 import type { Store } from '../model/store';
-import type { Item, Opening, Point } from '../model/types';
+import type { EntityRef, Item, Opening, Point } from '../model/types';
 import { resolveDevice } from '../model/navPref';
 import { isMac, type WheelLike } from '../view3d/wheelInput';
 import { findHost } from '../model/attach';
@@ -115,8 +115,18 @@ type Drag =
   | { type: 'opening'; id: string }
   | { type: 'rotate'; id: string }
   | { type: 'measure'; sx: number; sy: number; moved: boolean }
+  /**
+   * Rubber-band selection from empty floor. Below MARQUEE_SLOP it releases as
+   * the plain click on nothing it looks like (deselect, switch room); past it
+   * the band takes over. `add` = Shift was down, so the band UNIONS with what
+   * is already held instead of replacing it.
+   */
+  | { type: 'marquee'; sx: number; sy: number; add: boolean; moved: boolean }
   /** dragging the tracing photo; `ox/oy` = grab offset from its top-left */
   | { type: 'underlay'; ox: number; oy: number; sx: number; sy: number; moved: boolean };
+
+/** px of pointer travel before a press on empty floor becomes a rubber band */
+const MARQUEE_SLOP = 4;
 
 export class Plan2D {
   private canvas!: HTMLCanvasElement;
@@ -202,6 +212,8 @@ export class Plan2D {
   private drag: Drag = { type: 'none' };
   private pinch = new PinchGesture(); // two-finger pinch-zoom / pan (touch)
   private guides: Guide[] = [];
+  /** the live rubber-band rectangle in WORLD coords, or null when none is up */
+  private marquee: { a: Point; b: Point } | null = null;
   private raf = 0;
   private fitted = false;
   /** Test/debug seam (`debug()`): counts full `draw()` executions. */
@@ -1493,6 +1505,14 @@ export class Plan2D {
       return;
     }
     const sel = this.editor.selection;
+    const held = this.editor.entities.length;
+    if (held > 1) {
+      this.onHint(
+        `${held} items selected · drag to move them together · Shift-click adds or removes one · ` +
+          'R rotates about the centre · Delete removes all'
+      );
+      return;
+    }
     switch (sel.kind) {
       case 'item': {
         const it = this.store.itemById(sel.id);
@@ -1505,7 +1525,7 @@ export class Plan2D {
           hint = 'Drag to move';
         }
         if (it && this.hasItemBeneath(it)) hint += ' · click again: select the item beneath';
-        hint += ' · R rotates · arrows nudge · Ctrl+D duplicates · Delete removes';
+        hint += ' · Shift-click adds another · R rotates · arrows nudge · Delete removes';
         this.onHint(hint);
         break;
       }
@@ -1523,8 +1543,8 @@ export class Plan2D {
       default:
         this.onHint(
           this.store.design.rooms.length > 1
-            ? 'Click a room to work in it · drag its corners to reshape · scroll zooms, drag empty space pans'
-            : 'Drag corners to reshape the room · pick items from the left · scroll zooms, drag empty space pans'
+            ? 'Click a room to work in it · drag empty space to select several · scroll zooms, right-drag pans'
+            : 'Drag corners to reshape the room · drag empty space to select several · scroll zooms, right-drag pans'
         );
     }
   }
@@ -1862,7 +1882,19 @@ export class Plan2D {
       const sel = this.editor.selection;
       const selIdx = sel.kind === 'item' ? stack.findIndex((it) => it.id === sel.id) : -1;
       const item = selIdx >= 0 ? stack[selIdx] : stack[0];
-      this.editor.select({ kind: 'item', id: item.id });
+      const ref: EntityRef = { kind: 'item', id: item.id };
+      if (e.shiftKey) {
+        // a Shift-click EDITS the selection; it never starts a move, or the
+        // item just added would jump on the first pixel of pointer travel
+        this.editor.toggleRef(ref);
+        this.updateHint();
+        this.requestDraw();
+        return;
+      }
+      // pressing a member of a multi-selection keeps the set and leads with it;
+      // pressing a stranger replaces, exactly as it always did
+      if (this.editor.isSelected(ref)) this.editor.setPrimary(ref);
+      else this.editor.select({ kind: 'item', id: item.id });
       this.drag = {
         type: 'item',
         id: item.id,
@@ -1892,15 +1924,21 @@ export class Plan2D {
       };
       return;
     }
-    // empty space: maybe-pan; deselect on plain click
-    this.drag = {
-      type: 'maybe-pan',
-      sx: s.x,
-      sy: s.y,
-      panX0: this.panX,
-      panY0: this.panY,
-      moved: false,
-    };
+    // Empty space. A mouse rubber-bands (pan lives on the middle and right
+    // buttons and the wheel); a single finger must still PAN, since a tablet
+    // has no second button to move the plan with.
+    if (e.pointerType === 'touch') {
+      this.drag = {
+        type: 'maybe-pan',
+        sx: s.x,
+        sy: s.y,
+        panX0: this.panX,
+        panY0: this.panY,
+        moved: false,
+      };
+      return;
+    }
+    this.drag = { type: 'marquee', sx: s.x, sy: s.y, add: e.shiftKey, moved: false };
   }
 
   private placeArmed(w: Point, keep: boolean): void {
@@ -1967,6 +2005,17 @@ export class Plan2D {
         } else {
           this.drag = { type: 'none' };
         }
+        return;
+      }
+      case 'marquee': {
+        const d = this.drag;
+        if (!d.moved) {
+          if (Math.hypot(s.x - d.sx, s.y - d.sy) <= MARQUEE_SLOP) return;
+          d.moved = true;
+          this.canvas.style.cursor = 'crosshair';
+        }
+        this.marquee = { a: this.toWorld(d.sx, d.sy), b: w };
+        this.requestDraw();
         return;
       }
       case 'pan':
@@ -2197,6 +2246,31 @@ export class Plan2D {
     }
   }
 
+  /**
+   * Every item the live band FULLY encloses, in plan order.
+   *
+   * Fully enclosed, not merely touched: without a direction convention (drag
+   * left = crossing, drag right = window, as the CAD tools do it) a
+   * touch-selects band is the more surprising of the two, since it swallows
+   * whatever the band happened to clip on its way.
+   */
+  private marqueeHits(): EntityRef[] {
+    const m = this.marquee;
+    if (!m) return [];
+    const x0 = Math.min(m.a.x, m.b.x);
+    const x1 = Math.max(m.a.x, m.b.x);
+    const y0 = Math.min(m.a.y, m.b.y);
+    const y1 = Math.max(m.a.y, m.b.y);
+    const hits: EntityRef[] = [];
+    for (const it of sortedItems(this.store)) {
+      const o = itemOutlineWorld(this.store, it);
+      if (o.every((p) => p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1)) {
+        hits.push({ kind: 'item', id: it.id });
+      }
+    }
+    return hits;
+  }
+
   private onPointerUp(e: PointerEvent): void {
     this.pinch.up(e.pointerId);
     const wasDrag = this.drag;
@@ -2218,7 +2292,18 @@ export class Plan2D {
       this.requestDraw();
       return;
     }
-    if ((wasDrag.type === 'maybe-pan' || wasDrag.type === 'underlay') && !wasDrag.moved) {
+    if (wasDrag.type === 'marquee' && wasDrag.moved) {
+      const hits = this.marqueeHits();
+      // Shift UNIONS: a band drawn over a second run adds to the first
+      this.editor.selectRefs(wasDrag.add ? [...this.editor.entities, ...hits] : hits);
+      this.marquee = null;
+      this.endGesture();
+      return;
+    }
+    if (
+      (wasDrag.type === 'maybe-pan' || wasDrag.type === 'marquee' || wasDrag.type === 'underlay') &&
+      !wasDrag.moved
+    ) {
       // a click on empty floor of another room switches to it; a drag only
       // pans (or, over the photo, moves it)
       const roomId = this.hitRoom(this.toWorld(wasDrag.sx, wasDrag.sy));
@@ -2228,7 +2313,14 @@ export class Plan2D {
     if (wasDrag.type === 'maybe-split') {
       this.editor.select({ kind: 'wall', id: wasDrag.wallId });
     }
-    if (
+    if (wasDrag.type === 'item' && !wasDrag.moved && this.editor.entities.length > 1) {
+      // Pressing a member of a multi-selection KEEPS the set, so the whole
+      // group can be dragged; releasing without moving is the plain click it
+      // turned out to be, and collapses to the one under the pointer. Cycling
+      // is skipped here — with several items held, "the one below" is
+      // ambiguous and collapsing is what the user just asked for.
+      this.editor.select({ kind: 'item', id: wasDrag.id });
+    } else if (
       wasDrag.type === 'item' &&
       !wasDrag.moved &&
       wasDrag.cycleTo &&
@@ -2245,6 +2337,7 @@ export class Plan2D {
     const wasDrag = this.drag;
     this.drag = { type: 'none' };
     this.guides = [];
+    this.marquee = null;
     this.canvas.style.cursor = this.toolCursor();
     if (wasDrag.type === 'corner') {
       // welding cuts other rings, so it belongs at the end of the gesture —
@@ -2396,6 +2489,7 @@ export class Plan2D {
         // the clearance spans snapItem produces, which are a different thing
         guides: [...this.guides, ...(this.activeSnap()?.guides ?? [])],
         selection: this.editor.selectionState(),
+        marquee: this.marquee,
         armedDef: this.armedDef,
         ghost: this.ghost,
         ghostOpening: this.ghostOpening,

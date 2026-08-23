@@ -23,6 +23,7 @@ import {
   selectedIds,
   selectionOf,
   toggleSelection,
+  withPrimary,
   type SelectionState,
 } from './selection';
 
@@ -199,6 +200,14 @@ export class EditorState {
   /** Marquee / select-all semantics: exactly this set. */
   selectRefs(refs: readonly EntityRef[]): void {
     this.setSelection(selectionOf(refs));
+  }
+
+  /**
+   * Promote a HELD ref to primary without changing the set — what pressing on
+   * one member of a multi-selection means. A stranger replaces the selection.
+   */
+  setPrimary(ref: EntityRef): void {
+    this.setSelection(withPrimary(this.sel, ref));
   }
 
   /**

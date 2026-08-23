@@ -217,6 +217,31 @@ describe('app commands', () => {
     expect(store.itemById(id)!.y).toBeCloseTo(y + 0.01 - 0.1, 12);
   });
 
+  it('selection.all takes every item in the ACTIVE room and nothing else', () => {
+    const def = store.defOf('base-cabinet');
+    // the demo design has two rooms; drop one item well inside each
+    const [a, b] = store.design.rooms;
+    const mid = (r: (typeof store.design.rooms)[number]): { x: number; y: number } => ({
+      x: r.corners.reduce((t, c) => t + c.x, 0) / r.corners.length,
+      y: r.corners.reduce((t, c) => t + c.y, 0) / r.corners.length,
+    });
+    const pb = mid(b);
+    const there = store.addItem(def, pb.x, pb.y);
+    const pa = mid(a);
+    const here = store.addItem(def, pa.x, pa.y);
+    store.setActiveRoom(a.id);
+    store.commit();
+    expect(there.roomId).toBe(b.id);
+    expect(here.roomId).toBe(a.id);
+
+    expect(reg.execute('selection.all')).toBe(true);
+    const ids = editor.selectedItemIds();
+    expect(ids).toContain(here.id);
+    expect(ids).not.toContain(there.id);
+    // it is a selection change, never a design change
+    expect(store.canUndo()).toBe(true);
+  });
+
   it('duplicate selects the copy and leaves one undo step behind', () => {
     const id = selectNewItem();
     const n = store.design.items.length;
