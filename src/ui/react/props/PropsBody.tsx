@@ -1,4 +1,5 @@
 import { useEffect, type ReactElement } from 'react';
+import type { Item } from '../../../model/types';
 import { useEditor, useStore } from '../services';
 import { countRender } from '../debugCounters';
 import { useChannel } from '../hooks/useStore';
@@ -45,8 +46,12 @@ export function PropsBody(): ReactElement {
   // An id that resolves nowhere falls through to the room panel, exactly as
   // ui.ts's renderProps did — a stale selection shows the room, not an error.
   if (sel.kind === 'item') {
-    const item = store.itemById(sel.id);
-    if (item) return <ItemProps item={item} />;
+    // the whole selection, in selection order — the last one is the primary
+    const items = editor
+      .selectedItemIds()
+      .map((id) => store.itemById(id))
+      .filter((it): it is Item => !!it);
+    if (items.length) return <ItemProps items={items} />;
   } else if (sel.kind === 'wall') {
     if (store.wallById(sel.id)) return <WallProps wallId={sel.id} />;
   } else if (sel.kind === 'opening') {

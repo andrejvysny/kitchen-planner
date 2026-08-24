@@ -35,64 +35,92 @@ const MIN_DIM = 0.01;
  * 'transient' channel without this component re-rendering at all (see
  * useLiveValue.ts).
  */
-export function ItemProps({ item }: { item: Item }): ReactElement {
+/**
+ * The panel for the SELECTED OBJECTS. `items` is the whole selection in
+ * selection order, so the last entry is the primary — the one the title, the
+ * position boxes and the Workshop routes speak for.
+ *
+ * What applies to MANY is what a run of cabinets is selected for: dimensions,
+ * off-floor height, the colour/material slots, the worktop finish and (when
+ * every member is the same part) its configuration. What cannot be shared
+ * honestly stays single: an exact X/Y, a mounted appliance's host, a fixture's
+ * bulb, and anything that routes into the Workshop for one part.
+ */
+export function ItemProps({ items }: { items: Item[] }): ReactElement {
   const { store, editor } = useAppServices();
+  const item = items[items.length - 1];
+  const many = items.length > 1;
   const def = store.defOf(item.defId);
   const part = store.partOf(item.defId);
   // presets are parts too, but read as built-ins to the user
   const isOwnPart = !!store.customPartById(item.defId);
-  const one = [item];
+  // one patch per member, computed from that member — a colour swap has to read
+  // each item's own material to know whether it must drop it
+  const applyEach = (patch: (it: Item) => Partial<Item>): void => {
+    for (const it of items) store.updateItem(it.id, patch(it));
+  };
+  const sameDef = items.every((it) => it.defId === item.defId);
 
   return (
     <>
-      <h2 className="props-title">{def.label}</h2>
-      <p className="props-sub">{isOwnPart ? 'Custom part' : 'Catalog item'}</p>
+      <h2 className="props-title">{many ? `${items.length} items selected` : def.label}</h2>
+      <p className="props-sub">
+        {many
+          ? sameDef
+            ? `${def.label} ×${items.length}`
+            : 'Mixed selection — shared fields apply to all'
+          : isOwnPart
+            ? 'Custom part'
+            : 'Catalog item'}
+      </p>
 
-      <ChecksSection
-        list={store.warnings().filter((w) => w.itemIds.includes(item.id))}
-        exceptId={item.id}
-      />
+      {many ? null : (
+        <ChecksSection
+          list={store.warnings().filter((w) => w.itemIds.includes(item.id))}
+          exceptId={item.id}
+        />
+      )}
 
-      {item.attach ? <MountingSection item={item} /> : null}
+      {!many && item.attach ? <MountingSection item={item} /> : null}
 
       <div className="prop-section">
         <div className="prop-section-title">Dimensions</div>
         <LengthField
           label="Width"
-          items={one}
+          items={items}
           read={(it) => it.w}
-          onCommit={(m) => store.updateItem(item.id, { w: m })}
+          onCommit={(m) => applyEach(() => ({ w: m }))}
           min={MIN_DIM}
         />
         <LengthField
           label="Depth"
-          items={one}
+          items={items}
           read={(it) => it.d}
-          onCommit={(m) => store.updateItem(item.id, { d: m })}
+          onCommit={(m) => applyEach(() => ({ d: m }))}
           min={MIN_DIM}
         />
         <LengthField
           label="Height"
-          items={one}
+          items={items}
           read={(it) => it.h}
-          onCommit={(m) => store.updateItem(item.id, { h: m })}
+          onCommit={(m) => applyEach(() => ({ h: m }))}
           min={MIN_DIM}
         />
-        {item.attach ? null : (
+        {items.every((it) => it.attach) ? null : (
           // off-floor placement is likewise freeform for every item (floor at 0, no ceiling cap)
           <LengthField
             label="Off floor"
-            items={one}
+            items={items}
             read={(it) => it.elevation}
-            onCommit={(m) => store.updateItem(item.id, { elevation: m })}
+            onCommit={(m) => applyEach(() => ({ elevation: m }))}
             min={0}
           />
         )}
       </div>
 
-      {item.attach ? null : <PositionSection item={item} />}
+      {many || item.attach ? null : <PositionSection item={item} />}
 
-      {def.params?.length ? (
+      {def.params?.length && sameDef ? (
         <div className="prop-section">
           <div className="prop-section-title">Configuration</div>
           {def.params.map((p) => (
@@ -102,7 +130,9 @@ export function ItemProps({ item }: { item: Item }): ReactElement {
               value={item.params?.[p.key] ?? p.def}
               min={p.min}
               max={p.max}
-              onChange={(v) => store.setItemParam(item.id, p.key, v)}
+              onChange={(v) => {
+                for (const it of items) store.setItemParam(it.id, p.key, v);
+              }}
             />
           ))}
         </div>
@@ -110,14 +140,16 @@ export function ItemProps({ item }: { item: Item }): ReactElement {
 
       {def.opening || def.marker ? null : (
         <>
-          <ColourSection item={item} />
-          {part ? <AccentSection item={item} accentDefault={part.accentColor} /> : null}
+          <ColourSection items={items} />
+          {part ? <AccentSection items={items} accentDefault={part.accentColor} /> : null}
           {/* worktops live on cabinet parts now — nothing else carries one */}
-          {part && part.type === 'cabinet' && part.worktop ? <WorktopSection item={item} /> : null}
+          {part && part.type === 'cabinet' && part.worktop ? (
+            <WorktopSection items={items} />
+          ) : null}
         </>
       )}
 
-      {item.light ? <LightSection item={item} light={item.light} /> : null}
+      {!many && item.light ? <LightSection item={item} light={item.light} /> : null}
 
       <div className="prop-section">
         <div className="prop-section-title">Actions</div>
@@ -125,24 +157,27 @@ export function ItemProps({ item }: { item: Item }): ReactElement {
           <button
             className="btn"
             onClick={() => {
-              const copy = store.duplicateItem(item.id);
-              if (copy) editor.select({ kind: 'item', id: copy.id });
+              const copies = items
+                .map((it) => store.duplicateItem(it.id))
+                .filter((c): c is Item => !!c)
+                .map((c) => ({ kind: 'item', id: c.id }) as const);
+              if (copies.length) editor.selectRefs(copies);
               store.commit();
             }}
           >
-            Duplicate
+            {many ? `Duplicate ${items.length}` : 'Duplicate'}
           </button>
           <button
             className="btn danger"
             onClick={() => {
-              store.deleteItem(item.id);
+              for (const it of items) store.deleteItem(it.id);
               store.commit();
             }}
           >
-            Delete
+            {many ? `Delete ${items.length}` : 'Delete'}
           </button>
         </div>
-        {isOwnPart ? (
+        {many ? null : isOwnPart ? (
           <div className="btn-row">
             <button
               className="btn"
@@ -251,26 +286,36 @@ function PositionSection({ item }: { item: Item }): ReactElement {
   );
 }
 
-/** The front slot: a variable binding, a literal colour, and a texture on top. */
-function ColourSection({ item }: { item: Item }): ReactElement {
+/**
+ * The front slot: a variable binding, a literal colour, and a texture on top.
+ *
+ * Reads the PRIMARY (the last member) and writes every member: with a run
+ * selected, "make these sage" is the whole point, and the swatch row has one
+ * current colour to show either way.
+ */
+function ColourSection({ items }: { items: Item[] }): ReactElement {
   const store = useStore();
+  const item = items[items.length - 1];
   const bound = isVarRef(item.color);
   const boundVar = bound ? store.variableById(refId(item.color)) : undefined;
+  const each = (patch: (it: Item) => Partial<Item>): void => {
+    for (const it of items) store.updateItem(it.id, patch(it));
+  };
 
   return (
     <div className="prop-section">
       <div className="prop-section-title">Colour &amp; material</div>
       {/* bind chips first — picking a literal swatch below detaches back to a hex */}
-      <VarChips current={item.color} onBind={(ref) => store.updateItem(item.id, { color: ref })} />
+      <VarChips current={item.color} onBind={(ref) => each(() => ({ color: ref }))} />
       <SwatchRow
         colors={FRONT_COLORS}
         current={resolveColor(store.design, item.color)}
         boundTo={boundVar?.name}
         onPick={(c) =>
-          // picking a plain colour drops a colour-hiding texture so the colour shows
-          store.updateItem(
-            item.id,
-            overridesColor(item.material)
+          // picking a plain colour drops a colour-hiding texture so the colour
+          // shows — decided per member, since they may not share a material
+          each((it) =>
+            overridesColor(it.material)
               ? { color: c, material: undefined, materialRot: undefined }
               : { color: c }
           )
@@ -285,13 +330,13 @@ function ColourSection({ item }: { item: Item }): ReactElement {
           <MaterialRow
             mats={ITEM_MATERIALS}
             current={item.material}
-            onPick={(id) => store.updateItem(item.id, { material: id })}
+            onPick={(id) => each(() => ({ material: id }))}
             groupHeaders
           />
           <RotToggle
             matId={item.material}
             value={item.materialRot === true}
-            onChange={(v) => store.updateItem(item.id, { materialRot: v || undefined })}
+            onChange={(v) => each(() => ({ materialRot: v || undefined }))}
           />
         </>
       )}
@@ -301,46 +346,59 @@ function ColourSection({ item }: { item: Item }): ReactElement {
 
 /** Custom parts expose an accent (wood-tone) slot — bindable per instance. */
 function AccentSection({
-  item,
+  items,
   accentDefault,
 }: {
-  item: Item;
+  items: Item[];
   accentDefault: string;
 }): ReactElement {
   const store = useStore();
+  const item = items[items.length - 1];
   const raw = item.accentColor ?? '';
   const boundVar = isVarRef(raw) ? store.variableById(refId(raw)) : undefined;
   return (
     <div className="prop-section">
       <div className="prop-section-title">Accent</div>
-      <VarChips current={raw} onBind={(ref) => store.updateItem(item.id, { accentColor: ref })} />
+      <VarChips
+        current={raw}
+        onBind={(ref) => {
+          for (const it of items) store.updateItem(it.id, { accentColor: ref });
+        }}
+      />
       <SwatchRow
         colors={COUNTER_COLORS}
         current={resolveColor(store.design, item.accentColor ?? accentDefault)}
         boundTo={boundVar?.name}
-        onPick={(c) => store.updateItem(item.id, { accentColor: c })}
+        onPick={(c) => {
+          for (const it of items) store.updateItem(it.id, { accentColor: c });
+        }}
       />
     </div>
   );
 }
 
 /** Per-item worktop finish; the first chip falls back to the room's setting. */
-function WorktopSection({ item }: { item: Item }): ReactElement {
+function WorktopSection({ items }: { items: Item[] }): ReactElement {
   const store = useStore();
+  const item = items[items.length - 1];
   return (
     <div className="prop-section">
       <div className="prop-section-title">Worktop</div>
       <MaterialRow
         mats={COUNTER_MATERIALS}
         current={item.counterMaterial}
-        onPick={(id) => store.updateItem(item.id, { counterMaterial: id })}
+        onPick={(id) => {
+          for (const it of items) store.updateItem(it.id, { counterMaterial: id });
+        }}
         plainTitle="Room default"
         groupHeaders
       />
       <RotToggle
         matId={item.counterMaterial}
         value={item.counterMaterialRot === true}
-        onChange={(v) => store.updateItem(item.id, { counterMaterialRot: v || undefined })}
+        onChange={(v) => {
+          for (const it of items) store.updateItem(it.id, { counterMaterialRot: v || undefined });
+        }}
       />
       <p className="props-sub" style={{ marginTop: 8 }}>
         First chip follows the room&apos;s worktop setting

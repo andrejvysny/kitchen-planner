@@ -23,7 +23,13 @@ export function PropsPanel(): ReactElement {
   useChannel('activeRoom');
 
   const sel = editor.selection;
-  const key = sel.kind === 'none' ? `room:${store.activeRoomId}` : `${sel.kind}:${sel.id}`;
+  // Remount on WHICH object is selected — and on how many, since the body is a
+  // different shape for one item and for a set (M18). Editing the SAME
+  // selection is an ordinary re-render that keeps focus and caret.
+  const key =
+    sel.kind === 'none'
+      ? `room:${store.activeRoomId}`
+      : `${sel.kind}:${sel.id}:${editor.entities.length}`;
 
   return (
     <aside id="props">

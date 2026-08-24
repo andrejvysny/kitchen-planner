@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactElement } from 'react';
+import { type KeyboardEvent, type ReactElement, type MouseEvent as ReactMouseEvent } from 'react';
 import { useEditor, useStore } from './services';
 import { outlineGroups, type OutlineRoomRow, type OutlineRow } from '../outlineModel';
 import { useChannel } from './hooks/useStore';
@@ -91,13 +91,19 @@ function RoomRow({ row }: { row: OutlineRoomRow }): ReactElement {
 function ObjectRow({ row }: { row: OutlineRow }): ReactElement {
   const editor = useEditor();
   const pick = (): void => editor.select(row.sel);
+  // Shift adds or drops one, exactly as it does in the plan — the two lists
+  // are the same selection, so they must grow it the same way
+  const click = (e: ReactMouseEvent): void => {
+    if (e.shiftKey && row.sel.kind !== 'none') editor.toggleRef(row.sel);
+    else pick();
+  };
 
   return (
     <div
       className={row.active ? 'ol-row active' : 'ol-row'}
       role="button"
       tabIndex={0}
-      onClick={pick}
+      onClick={click}
       onKeyDown={(e) => activateOnKey(e, pick)}
     >
       {row.label}

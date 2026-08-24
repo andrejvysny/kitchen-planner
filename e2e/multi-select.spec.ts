@@ -272,3 +272,64 @@ test('Ctrl+D duplicates the whole set and selects the copies', async ({ app }) =
   expect(held).toHaveLength(3);
   for (const id of held) expect(ids).not.toContain(id);
 });
+
+test('the inspector speaks for the whole set and edits reach every member', async ({ app }) => {
+  const ids = await threeCabinets(app);
+  await app.evaluate(
+    (list) => window.__kp.editor.selectRefs(list.map((id) => ({ kind: 'item', id }) as const)),
+    ids
+  );
+
+  await expect(app.locator('#props-inner .props-title')).toHaveText('3 items selected');
+
+  // Width is the first length box in the Dimensions section
+  const width = app.locator('#props-inner input[data-unit]').first();
+  await width.fill('700');
+  await width.press('Enter');
+
+  // 700 mm through units.ts lands a float a hair off 0.7 — compare in mm
+  await expect
+    .poll(() =>
+      app.evaluate(() => window.__kp.store.design.items.map((it) => Math.round(it.w * 1000)))
+    )
+    .toEqual([700, 700, 700]);
+
+  // one undo step for the whole edit
+  await app.evaluate(() => window.__kp.store.undo());
+  await expect
+    .poll(() =>
+      app.evaluate(() =>
+        window.__kp.store.design.items.every((it) => Math.round(it.w * 1000) !== 700)
+      )
+    )
+    .toBe(true);
+});
+
+test('fields that cannot be shared honestly are hidden for a set', async ({ app }) => {
+  const ids = await threeCabinets(app);
+
+  await app.evaluate((id) => window.__kp.editor.select({ kind: 'item', id }), ids[0]);
+  await expect(app.locator('#props-inner input[data-cls="pos-x"]')).toBeVisible();
+
+  await app.evaluate(
+    (list) => window.__kp.editor.selectRefs(list.map((id) => ({ kind: 'item', id }) as const)),
+    ids
+  );
+  // no single X/Y for three objects, and no Workshop route for one part
+  await expect(app.locator('#props-inner input[data-cls="pos-x"]')).toHaveCount(0);
+  await expect(app.locator('#props-inner button', { hasText: 'in Workshop' })).toHaveCount(0);
+  await expect(app.locator('#props-inner button', { hasText: 'Delete 3' })).toBeVisible();
+});
+
+test('the outline highlights every member and Shift-click grows the set', async ({ app }) => {
+  const ids = await threeCabinets(app);
+  await app.click('#sidebar-tabs button[data-tab="components"]');
+
+  const rows = app.locator('#outline .ol-row:not(.room-row)');
+  await rows.nth(0).click();
+  await expect.poll(() => heldIds(app)).toEqual([ids[0]]);
+
+  await rows.nth(1).click({ modifiers: ['Shift'] });
+  await expect.poll(() => heldIds(app)).toEqual([ids[0], ids[1]]);
+  await expect(app.locator('#outline .ol-row.active:not(.room-row)')).toHaveCount(2);
+});
