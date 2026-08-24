@@ -7,6 +7,13 @@ colours and procedural textures as future work; both shipped).
 Completed milestone logs: HISTORY.md. Active milestone: TODO.md. Architecture,
 invariants and gotchas: CLAUDE.md.
 
+**Two numbering schemes, deliberately not merged.** The M-numbers BELOW are
+planned tiers, in build order. The M-numbers in TODO.md/HISTORY.md are the
+chronological sequence of what was actually built, and they were already out of
+step before this note (TODO's M17 was the UX review, not this file's
+"Organization UX"). When the two meet, the mapping is written down: the
+selection system is **planned M13, delivered as TODO's M18**.
+
 The through-line: **precision first → furniture → persistence → domain
 breadth.** Professional precision features are the thing every later feature
 leans on, and they need editor abstractions the app did not have while the UI
@@ -24,7 +31,7 @@ why the editor core comes next — not because the UI framework was the point.
 | Editor infrastructure | Tool state + commands + key map exist; tools, input routing and snapping do not. |
 | Test infrastructure | Two complementary layers: `test/interact.mjs` (broad) and `e2e/*.spec.ts` (isolated, architectural). |
 | Numeric input | Expressions + mm through `units.ts`, in the inspector and the Part Studio. Canvas labels still cm. |
-| Multi-selection | Fields are already selection-array shaped; the model is still single-select. |
+| Multi-selection | **Done (M18).** `EntityRef[]` on `EditorState`; items-only sets, primary-snapped moves, marquee, multi-edit inspector. |
 | Snapping | Fixed world-space tolerances inside one item-specific `snapItem()`. Unchanged since the prototype. |
 | Dimensions / constraints | Absent. |
 | Furniture | Zone-tree parts + panel-list IR — the strongest part of the model. |
@@ -50,38 +57,22 @@ Measure → Calibrate → DrawRoom → AddRoom → Place → Select
 Undo stays snapshot-based throughout. Command-shaped history is a separate
 decision, taken only if project size makes snapshots hurt.
 
-## M13 — Selection system
+## M13 — Selection system — SHIPPED (as TODO's M18)
 
-Generalized selection, not an `items[]` special case — the model has to hold
-mixed kinds from the start or it gets redesigned the moment dimensions and
-groups arrive:
+Delivered 2026-08-24, with three deliberate differences from the sketch below:
 
-```ts
-type EntityRef =
-  | { kind: 'item'; id: string }
-  | { kind: 'opening'; id: string }
-  | { kind: 'wall'; id: string }
-  | { kind: 'corner'; id: string }
-  | { kind: 'room'; id: string };
+- selection lives on `EditorState`, not in a new module, and `store.selection`
+  is GONE rather than kept as a projection — `editor.selection` projects the
+  primary in the same single shape, so the call sites did not change;
+- a multi-selection is **items-only** (a wall/corner/opening replaces), which
+  is why `'room'` never became an `EntityRef` kind — `store.activeRoomId`
+  already means "the room edits target";
+- marquee is **window-select** (fully enclosed), on a left-drag over empty
+  floor; pan moved to the middle and right buttons, except under a finger.
 
-interface SelectionState {
-  entities: EntityRef[];
-  primary: EntityRef | null;
-}
-```
-
-Selection moves from Store to the editor (it is already ephemeral, so this is a
-relocation, not a semantic change), with a compatibility projection for
-`store.selection` during migration.
-
-Behaviour: click replaces · Shift-click toggles · click-empty clears · drag-empty
-marquees · Esc clears. Then multi-move / rotate / delete / duplicate.
-
-**Multi-move snaps the PRIMARY entity only** and applies the resulting delta to
-the rest. Snapping six chairs independently deforms the selection.
-
-The React fields already handle mixed values (`useMixedValue`) — reuse it, do
-not redesign the inspector.
+Multi-move snaps the PRIMARY and applies its delta to the rest, exactly as
+sketched. `useMixedValue` was reused, not redesigned. See CLAUDE.md's selection
+contract and `src/editor/selection.ts` / `selectionOps.ts` / `selectionSync.ts`.
 
 ## M14 — Precision editor v1
 

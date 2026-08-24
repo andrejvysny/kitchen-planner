@@ -697,6 +697,11 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   one's ordered section titles, because test/interact.mjs reaches into this
   panel by ordinal (`.prop-section` index, the room panel's first numeric
   field) and those couplings are invisible from the code they constrain.
+  `<ItemProps/>` takes the WHOLE selection (`items`, in selection order — the
+  last is the primary): dimensions, off-floor height, the colour/accent/worktop
+  slots and (when every member is the same part) its configuration apply to all
+  of them, while an exact X/Y, a mounted appliance's host, a fixture's bulb and
+  the Workshop routes stay single, because they cannot be shared honestly.
 - **A length or angle box is `type=text` with `data-unit`, not a spinner.**
   src/model/units.ts parses and formats it, in the unit src/model/prefs.ts
   holds (mm, 0 decimals, by default, on its own 'units' bridge channel), so
@@ -724,6 +729,52 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   `setX()` methods are delegates that keep their ENTRY reset (re-arming the
   live tool is a no-op upstream, so that reset is the only effect) and then
   call `editor.setTool`. React's tool buttons call the editor directly.
+- **The SELECTION lives on `EditorState` too, and it is MULTI-ENTITY** (M18).
+  `EntityRef` ({kind: 'item'|'corner'|'wall'|'opening', id}) is plain model
+  vocabulary in types.ts; the state and every rule governing it are pure in
+  `src/editor/selection.ts`. Two rules carry the design:
+  - **A multi-selection is ITEMS-ONLY.** A wall, corner or opening always
+    REPLACES. Mixed kinds share no operation and no properties body, so the
+    combination would buy nothing and cost every panel a mixed-kind branch.
+  - **The primary is the LAST entity added**, and dropping it promotes the last
+    one still standing. It is what a drag snaps, what a rotate turns about when
+    alone, and what the inspector titles itself after — so it can never be
+    undefined while the selection is non-empty. `setPrimary` reorders WITHOUT
+    changing the set: pressing a member of a group has to snap against the item
+    under the cursor.
+
+  `editor.selection` projects the primary in the legacy single shape
+  (`{kind:'none'}` | `{kind, id}`), which is why ~140 read sites and the
+  StoreBridge `'selection'` channel never moved; `editor.entities` /
+  `selectedItemIds()` are the multi view. Selection changes bump their OWN
+  subscriber set and version counter, separate from the tool ones — a tool
+  switch must not re-render the inspector. Selecting what is already selected is
+  a NO-OP, matching `setTool`.
+
+  The Store owns NO selection. It exposes `entityExists(ref)` and a `'reset'`
+  event (the design was swapped wholesale: undo/redo restore, file load, New),
+  and `src/editor/selectionSync.ts` `syncSelection(store, editor)` is the one
+  wire: prune on every SETTLED change, clear on 'reset'. Transient ticks are
+  skipped deliberately — a drag deletes nothing, and `entityExists` resolves a
+  wall through `allWalls()`.
+
+  What a selection DOES is pure in `src/editor/selectionOps.ts`, so the plan and
+  the 3D view cannot drift: multi-move snaps the PRIMARY and applies its delta
+  to the rest (measured against poses captured at press time, never accumulated
+  frame to frame — the primary is re-snapped every frame); multi-rotate turns
+  about the middle of the bounding box of item CENTRES (an outline box grows and
+  shrinks as the set turns, so the centre would drift across presses);
+  `withoutCarried` drops an appliance whose host is also moving, because
+  `syncAttachments` already carries it. `renderPlan` takes the selection through
+  `PlanOverlays` (so the print sheet, passing none, draws none), highlights every
+  member and draws handles for the primary alone.
+
+  Gestures: click replaces · Shift-click toggles · **left-drag on empty floor
+  rubber-bands** (fully enclosed only) and Shift unions · pan therefore lives on
+  the middle and right buttons — except under a FINGER, where one touch still
+  pans · Ctrl+A (`selection.all`) takes every item in the ACTIVE room · a plain
+  click on a member of a group collapses to it, which is why pressing one keeps
+  the set (so the group can be dragged) and only the RELEASE decides.
 - **Named editor behaviours live in `src/editor/commands/`, not in a listener.**
   `CommandRegistry` runs a `CommandDefinition` by id against one
   `EditorContext`; an unknown id is a no-op returning `false`, never a throw.

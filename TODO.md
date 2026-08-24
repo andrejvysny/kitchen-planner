@@ -16,6 +16,9 @@ npm run lint && npm run typecheck && npm run test:unit && npm run build \
 
 # M18 — Selection system (multi-select) (active)
 
+ROADMAP.md plans this as its **M13**; the two numbering schemes are
+chronological here and planned there (see the note at the top of ROADMAP.md).
+
 Plan: `~/.claude/plans/act-as-senior-software-magical-stallman.md`. Audience is
 a personal tool for an own renovation; one deep track (this) plus a quick-win
 batch. Decisions D1-D8 live in the plan; the two that shape everything: a
@@ -59,12 +62,38 @@ multi-move snaps the PRIMARY only, applying its delta to the rest.
         `store.select` always emitted.
       Gates: lint · typecheck **0 errors** · **973 unit** · build ·
       interact **109/109** · Playwright **103/103**.
-- [ ] S2 gestures — shift-click toggle, marquee on left-drag empty (pan keeps
-      middle/right), Ctrl+A, multi handles in renderPlan
-- [ ] S3 multi move / rotate / delete / duplicate
-- [ ] S4 props panel + outline multi
-- [ ] S5 3D tints + gizmo
-- [ ] S6 docs + acceptance walk
+- [x] S2 gestures — shift-click toggles; pressing a member KEEPS the set (so the
+      group can be dragged) and the RELEASE collapses to it; left-drag on empty
+      floor rubber-bands (fully enclosed only, Shift unions), so pan moved to
+      the middle/right buttons — except under a finger, where one touch still
+      pans; `selection.all` + Ctrl+A over the ACTIVE room; renderPlan highlights
+      every member but keeps the handles on the primary. e2e/multi-select.spec.ts.
+- [x] S3 multi move / rotate / delete / duplicate — the primary snaps and the
+      rest take its delta, measured against poses captured at PRESS time;
+      `src/editor/selectionOps.ts` is the pure half (`selectionCentre` =
+      bounding box of item CENTRES, `rotateAbout`, `withoutCarried` for an
+      appliance its host already carries). Delete and Ctrl+D act on the whole
+      set in one undo step, and the copies become the selection.
+- [x] S4 props panel + outline multi — `<ItemProps items>` (dimensions, off
+      floor, colour/accent/worktop, and configuration when every member is the
+      same part, apply to all; X/Y, mounting, light and the Workshop routes stay
+      single), PropsPanel's remount key gains the count, outline rows Shift-click.
+- [x] S5 3D tints + gizmo — `applyTints` loops the selection; the gizmo stays on
+      the PRIMARY and a body drag promotes whatever it pressed; both 3D move
+      paths already funnel through `snapMoveItem`, so the followers hang off
+      that one choke point and share `withoutCarried` with the plan.
+- [x] S6 docs + acceptance walk — CLAUDE.md gains the selection contract,
+      ROADMAP's M13 is marked shipped (with the three deliberate differences),
+      README/cheatsheet carry the gestures. Acceptance walk run on the DEMO
+      design (not the test fixture) **11/11, no page errors**: multi title,
+      shared width edit + one undo, a sink mounted on a moving host moving
+      EXACTLY once, a wall collapsing the set, 3D resolving every member,
+      Ctrl+A taking exactly the active room (28/28 items).
+
+Note on the local gates: the Playwright suite is CPU-bound through SwiftShader
+on this machine — `--workers=2` starves and times tests out that pass serially.
+Run `--workers=1` locally when in doubt (2.3 min for the 16 multi-select specs);
+CI's 2 workers on a dedicated runner are unaffected.
 
 Quick wins (independent commits): Q1 checks recompute throttled during drags ·
 Q2 corner/sink-base/oven-tower/end-panel presets · Q3 `findHost` hosting cache ·
