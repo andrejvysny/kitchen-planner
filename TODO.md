@@ -95,10 +95,27 @@ on this machine — `--workers=2` starves and times tests out that pass serially
 Run `--workers=1` locally when in doubt (2.3 min for the 16 multi-select specs);
 CI's 2 workers on a dedicated runner are unaffected.
 
-Quick wins (independent commits): Q1 checks recompute throttled during drags ·
-Q2 corner/sink-base/oven-tower/end-panel presets · Q3 `findHost` hosting cache ·
-Q4 manual file-load recovery stash · Q5 graphify excludes render/.blender ·
-Q6 `format:check` in CI.
+## Quick wins
+
+- [x] Q1 checks recompute — **MEASURED, then dropped.** `runChecks` runs once
+      per animation FRAME during a drag (not per pointermove: `requestDraw`
+      coalesces and `drawChecks` calls `warnings()` once per draw). Measured on
+      an M-series CPU: 0.75 ms at 34 items, 1.37 ms at 94, 3.08 ms at 154 —
+      5-18% of a frame at realistic sizes. Throttling would either show stale
+      warnings mid-drag (a feature loss: the red overlap IS the feedback) or
+      need an extra notify at gesture end, which risks the transient-perf
+      contract. Not worth it; revisit if a design ever gets big enough to hurt.
+- [x] Q2 the missing kitchen units — `sink-base` (door pair under a false
+      front, no drawer box behind it), `corner-base` (the `cornerL` footprint
+      that existed since the footprint union and no preset ever used),
+      `oven-tower` (drawer + oven niche + door, the niche sized to what
+      catalog.ts asks a zone-mounted oven for) and `end-panel` (a standing
+      freeform board; narrow it and the same part is a filler strip).
+      test/unit/kitchenPresets.test.ts asserts the SHAPE each one generates,
+      and e2e/sidebar.spec.ts's preset-row count now reads `PRESETS.length`
+      instead of a literal, so the next preset does not break it.
+- [ ] Q3 `findHost` hosting cache · Q4 manual file-load recovery stash ·
+      Q5 graphify excludes render/.blender · Q6 `format:check` in CI
 
 ---
 

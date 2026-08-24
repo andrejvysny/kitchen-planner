@@ -77,6 +77,39 @@ const wallShelf: FreeformPartDef = {
   ],
 };
 
+/**
+ * A finished END PANEL: one standing board, 18 mm thick. Freeform rather than
+ * `board`, because a `board` part is a HORIZONTAL slab (worktops, shelves) and
+ * this stands on its edge. Narrow it to 20-50 mm and the same part is a filler
+ * strip, which is why there is no second preset for one.
+ */
+const endPanel: FreeformPartDef = {
+  id: 'end-panel',
+  name: 'End panel',
+  type: 'freeform',
+  w: 0.018,
+  d: 0.6,
+  h: 0.9,
+  elevation: 0,
+  color: FRONT_COLORS[2],
+  accentColor: OAK,
+  boards: [
+    {
+      id: 'panel',
+      x: 0,
+      y: 0,
+      z: 0,
+      w: 0.018,
+      h: 0.9,
+      d: 0.6,
+      rotY: 0,
+      shape: 'box',
+      slot: 'front',
+      style: 'plain',
+    },
+  ],
+};
+
 const DESK_TOP_T = 0.035;
 
 /**
@@ -223,6 +256,57 @@ export const PRESETS: PresetEntry[] = [
       face: { kind: 'leaf', fill: 'drawers', drawers: 3 },
     }),
   },
+  { section: 'Kitchen · base units', part: endPanel },
+  {
+    section: 'Kitchen · base units',
+    part: cabinet({
+      id: 'sink-base',
+      name: 'Sink base',
+      // 800 is the standard sink-base width, and the top of it is a FALSE
+      // front: a sink bowl takes the space a drawer would use, so the panel is
+      // the honest zone fill (it emits a front board and no drawer box).
+      w: 0.8,
+      d: 0.6,
+      h: 0.9,
+      elevation: 0,
+      color: FRONT_COLORS[2],
+      accentColor: OAK,
+      footprint: { kind: 'rect' },
+      plinth: true,
+      worktop: true,
+      face: {
+        kind: 'split',
+        dir: 'h',
+        weights: [0.84, 0.16],
+        children: [
+          { kind: 'leaf', fill: 'doorPair' },
+          { kind: 'leaf', fill: 'panel' },
+        ],
+      },
+    }),
+  },
+  {
+    section: 'Kitchen · base units',
+    part: cabinet({
+      id: 'corner-base',
+      name: 'Blind corner base',
+      // The L footprint the model has always supported and no preset used: the
+      // unit fills the corner, and the notch is where the return run butts in.
+      // Polygon footprints keep a SOLID prism carcass and are excluded from
+      // continuous worktop runs (see CLAUDE.md), so this is right in the plan
+      // and in 3D but approximate in the cut list.
+      w: 0.9,
+      d: 0.9,
+      h: 0.9,
+      elevation: 0,
+      color: FRONT_COLORS[2],
+      accentColor: OAK,
+      footprint: { kind: 'cornerL', notch: 'left', nw: 0.3, nd: 0.3, face2: 'panel' },
+      plinth: true,
+      worktop: true,
+      face: door,
+    }),
+  },
   {
     section: 'Kitchen · base units',
     part: cabinet({
@@ -267,6 +351,35 @@ export const PRESETS: PresetEntry[] = [
       plinth: true,
       worktop: false,
       face: { kind: 'split', dir: 'h', weights: [0.62, 0.38], children: [door, door] },
+    }),
+  },
+  {
+    section: 'Kitchen · tall units',
+    part: cabinet({
+      id: 'oven-tower',
+      name: 'Oven housing',
+      // bottom→top: a deep drawer, the oven niche, then a door over it. The
+      // niche weight is what an oven needs (catalog.ts asks for 0.55 m of
+      // height); the appliance itself is a bought product that mounts INTO it.
+      w: 0.6,
+      d: 0.6,
+      h: 2.2,
+      elevation: 0,
+      color: FRONT_COLORS[2],
+      accentColor: OAK,
+      footprint: { kind: 'rect' },
+      plinth: true,
+      worktop: false,
+      face: {
+        kind: 'split',
+        dir: 'h',
+        weights: [0.17, 0.29, 0.54],
+        children: [
+          { kind: 'leaf', fill: 'drawers', drawers: 1 },
+          { kind: 'leaf', fill: 'appliance' },
+          door,
+        ],
+      },
     }),
   },
   {

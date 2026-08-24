@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
+import { PRESETS } from '../src/model/presets';
 
 /**
  * THE LEFT SIDEBAR — React owns the tabs and the Variables panel (T3).
@@ -256,7 +257,8 @@ test('the sidebar swaps per workspace', async ({ app }) => {
   await app.click('#ws-tab-workshop');
   await expect(app.locator('#workshop-parts')).toBeVisible();
   await expect(app.locator('#sidebar-tabs')).toHaveCount(0);
-  await expect(app.locator('.wsp-row.wsp-preset')).toHaveCount(14);
+  // one row per PRESETS entry — bump this deliberately when a preset is added
+  await expect(app.locator('.wsp-row.wsp-preset')).toHaveCount(PRESETS.length);
 
   // a design-local custom part shows up as its own (non-preset) row
   await app.evaluate(() => {
