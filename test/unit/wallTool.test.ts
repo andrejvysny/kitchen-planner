@@ -616,21 +616,33 @@ describe('commitRing composition — the two reported failures', () => {
   it('a ring drawn 8 mm off the neighbour still welds into ONE partition', () => {
     const store = new Store(design([]));
     const w = 0.1;
-    expect(commitRing(store, [
-      { x: 0, y: 0 },
-      { x: 4, y: 0 },
-      { x: 4, y: 3 },
-      { x: 0, y: 3 },
-    ], w)).toBe(true);
+    expect(
+      commitRing(
+        store,
+        [
+          { x: 0, y: 0 },
+          { x: 4, y: 0 },
+          { x: 4, y: 3 },
+          { x: 0, y: 3 },
+        ],
+        w
+      )
+    ).toBe(true);
     // the second ring's left edge misses the shared centreline by 8 mm —
     // far outside SHARE_EPS, so before regularize this committed as two
     // parallel slabs with no warning at all
-    expect(commitRing(store, [
-      { x: 4.008, y: 0 },
-      { x: 7, y: 0 },
-      { x: 7, y: 3 },
-      { x: 4.008, y: 3 },
-    ], w)).toBe(true);
+    expect(
+      commitRing(
+        store,
+        [
+          { x: 4.008, y: 0 },
+          { x: 7, y: 0 },
+          { x: 7, y: 3 },
+          { x: 4.008, y: 3 },
+        ],
+        w
+      )
+    ).toBe(true);
 
     const shared = store.allWalls().filter((x) => x.shared);
     expect(shared.length).toBe(2); // one partition, seen from both rooms
@@ -642,13 +654,19 @@ describe('commitRing composition — the two reported failures', () => {
     const store = new Store(design([]));
     // the last click landed near the first but not on it — the stub whose
     // mitre used to drag a whole wall off axis
-    expect(commitRing(store, [
-      { x: 0, y: 0 },
-      { x: 4, y: 0 },
-      { x: 4, y: 3 },
-      { x: 0, y: 3 },
-      { x: 0.03, y: 0.01 },
-    ], 0.1)).toBe(true);
+    expect(
+      commitRing(
+        store,
+        [
+          { x: 0, y: 0 },
+          { x: 4, y: 0 },
+          { x: 4, y: 3 },
+          { x: 0, y: 3 },
+          { x: 0.03, y: 0.01 },
+        ],
+        0.1
+      )
+    ).toBe(true);
     expect(store.design.rooms[0].corners.length).toBe(4);
     for (const g of store.allWalls()) {
       const axis = Math.min(Math.abs(g.dir.x), Math.abs(g.dir.y));
@@ -666,25 +684,39 @@ describe('commitRing composition — the two reported failures', () => {
     // one, and that is what the check is for.
     const store = new Store(design([]));
     const w = 0.1;
-    commitRing(store, [
-      { x: 0, y: 0 },
-      { x: 4, y: 0 },
-      { x: 4, y: 3 },
-      { x: 0, y: 3 },
-    ], w);
-    commitRing(store, [
-      { x: 4, y: 0 },
-      { x: 7, y: 0 },
-      { x: 7, y: 3 },
-      { x: 4, y: 3 },
-    ], w);
+    commitRing(
+      store,
+      [
+        { x: 0, y: 0 },
+        { x: 4, y: 0 },
+        { x: 4, y: 3 },
+        { x: 0, y: 3 },
+      ],
+      w
+    );
+    commitRing(
+      store,
+      [
+        { x: 4, y: 0 },
+        { x: 7, y: 0 },
+        { x: 7, y: 3 },
+        { x: 4, y: 3 },
+      ],
+      w
+    );
     const before = store.allWalls().length;
-    expect(commitRing(store, [
-      { x: 0, y: -3 },
-      { x: 4, y: -3 },
-      { x: 4, y: 0 },
-      { x: 0, y: 0 },
-    ], w)).toBe(true);
+    expect(
+      commitRing(
+        store,
+        [
+          { x: 0, y: -3 },
+          { x: 4, y: -3 },
+          { x: 4, y: 0 },
+          { x: 0, y: 0 },
+        ],
+        w
+      )
+    ).toBe(true);
     expect(store.allWalls().length).toBeGreaterThan(before);
 
     // the edge did NOT keep the 0 offset a successful promotion would have
@@ -727,12 +759,16 @@ describe('closeChainAgainstWalls — the end lands where the weld can use it', (
   ] as const)('commits ONE partition with the ends on the %s', (_name, y0, y1) => {
     const store = new Store(design([]));
     const w = 0.1;
-    commitRing(store, [
-      { x: 0, y: 0 },
-      { x: 4, y: 0 },
-      { x: 4, y: 3 },
-      { x: 0, y: 3 },
-    ], w);
+    commitRing(
+      store,
+      [
+        { x: 0, y: 0 },
+        { x: 4, y: 0 },
+        { x: 4, y: 3 },
+        { x: 0, y: 3 },
+      ],
+      w
+    );
     const ring = closeChainAgainstWalls(store.design.rooms, [
       { x: 4, y: y0 },
       { x: 7, y: y0 },
@@ -767,18 +803,26 @@ describe('closeChainAgainstWalls — the end lands where the weld can use it', (
 describe('closeChainAgainstWalls — topologies the ring walk could not reach', () => {
   const two = (): Store => {
     const store = new Store(design([]));
-    commitRing(store, [
-      { x: 0, y: 0 },
-      { x: 4, y: 0 },
-      { x: 4, y: 3 },
-      { x: 0, y: 3 },
-    ], 0.1);
-    commitRing(store, [
-      { x: 4, y: 0 },
-      { x: 7, y: 0 },
-      { x: 7, y: 3 },
-      { x: 4, y: 3 },
-    ], 0.1);
+    commitRing(
+      store,
+      [
+        { x: 0, y: 0 },
+        { x: 4, y: 0 },
+        { x: 4, y: 3 },
+        { x: 0, y: 3 },
+      ],
+      0.1
+    );
+    commitRing(
+      store,
+      [
+        { x: 4, y: 0 },
+        { x: 7, y: 0 },
+        { x: 7, y: 3 },
+        { x: 4, y: 3 },
+      ],
+      0.1
+    );
     return store;
   };
 
@@ -818,7 +862,10 @@ describe('closeChainAgainstWalls — topologies the ring walk could not reach', 
       store.design.walls
     )!;
     // both existing rooms stay OUTSIDE what was just drawn
-    for (const c of [{ x: 2, y: 1.5 }, { x: 5.5, y: 1.5 }]) {
+    for (const c of [
+      { x: 2, y: 1.5 },
+      { x: 5.5, y: 1.5 },
+    ]) {
       expect(pointInPolygon(c, ring)).toBe(false);
     }
     expect(Math.abs(signedArea(ring))).toBeCloseTo(7 * 2, 6);
@@ -826,14 +873,26 @@ describe('closeChainAgainstWalls — topologies the ring walk could not reach', 
 
   it('a chain closing against a FREE wall chain makes a room', () => {
     const store = new Store(design([]));
-    commitRing(store, [
-      { x: 0, y: 0 },
-      { x: 4, y: 0 },
-      { x: 4, y: 3 },
-      { x: 0, y: 3 },
-    ], 0.1);
+    commitRing(
+      store,
+      [
+        { x: 0, y: 0 },
+        { x: 4, y: 0 },
+        { x: 4, y: 3 },
+        { x: 0, y: 3 },
+      ],
+      0.1
+    );
     // a peninsula off the right wall, enclosing nothing on its own
-    expect(store.addFreeWall([{ x: 4, y: 0 }, { x: 6, y: 0 }], 0.1)).toBeTruthy();
+    expect(
+      store.addFreeWall(
+        [
+          { x: 4, y: 0 },
+          { x: 6, y: 0 },
+        ],
+        0.1
+      )
+    ).toBeTruthy();
     store.commit();
     const ring = closeChainAgainstWalls(
       store.design.rooms,

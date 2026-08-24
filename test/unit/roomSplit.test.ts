@@ -65,8 +65,14 @@ describe('splitRoomByChain', () => {
     expect(a.filter(onCut)).toHaveLength(2);
     expect(b.filter(onCut)).toHaveLength(2);
     // the same two points, to the millimetre the shared-edge test uses
-    const ya = a.filter(onCut).map((p) => p.y).sort((m, n) => m - n);
-    const yb = b.filter(onCut).map((p) => p.y).sort((m, n) => m - n);
+    const ya = a
+      .filter(onCut)
+      .map((p) => p.y)
+      .sort((m, n) => m - n);
+    const yb = b
+      .filter(onCut)
+      .map((p) => p.y)
+      .sort((m, n) => m - n);
     expect(ya[0]).toBeCloseTo(yb[0], 9);
     expect(ya[1]).toBeCloseTo(yb[1], 9);
   });

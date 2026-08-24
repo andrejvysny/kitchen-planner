@@ -32,6 +32,12 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Prettier was configured from the start and gated nowhere, so three test
+      # files had quietly drifted out of format. Cheap, and it keeps diffs about
+      # the change rather than about whitespace.
+      - name: Format check
+        run: npm run format:check
+
       - name: Typecheck (src + test/unit)
         run: npm run typecheck
 

@@ -122,13 +122,10 @@ describe('point candidates', () => {
   it('a mitred junction outranks the segment ends flanking it', () => {
     // the two ends sit half a thickness off along either axis; the junction is
     // where the centrelines actually meet, and is the only correct target
-    const c = ctx(
-      { junctions: [{ x: 4.05, y: -0.05 }] },
-      [
-        { a: { x: 4.05, y: 0 }, b: { x: 4.05, y: 3 } },
-        { a: { x: 0, y: -0.05 }, b: { x: 4, y: -0.05 } },
-      ]
-    );
+    const c = ctx({ junctions: [{ x: 4.05, y: -0.05 }] }, [
+      { a: { x: 4.05, y: 0 }, b: { x: 4.05, y: 3 } },
+      { a: { x: 0, y: -0.05 }, b: { x: 4, y: -0.05 } },
+    ]);
     const r = resolveSnap({ x: 4.04, y: -0.04 }, c, cfg());
     expect(r.kind).toBe('junction');
     near(r.p, { x: 4.05, y: -0.05 });

@@ -114,8 +114,28 @@ CI's 2 workers on a dedicated runner are unaffected.
       test/unit/kitchenPresets.test.ts asserts the SHAPE each one generates,
       and e2e/sidebar.spec.ts's preset-row count now reads `PRESETS.length`
       instead of a literal, so the next preset does not break it.
-- [ ] Q3 `findHost` hosting cache · Q4 manual file-load recovery stash ·
-      Q5 graphify excludes render/.blender · Q6 `format:check` in CI
+- [x] Q3 `findHost` hosting cache — **dropped on the same evidence as Q1.**
+      `applianceHosting` is O(n) and runs once per FRAME during an appliance
+      drag, next to a 0.75 ms O(n²) checks pass that stays. Caching it across a
+      gesture also risks a stale host list mid-drag. Not worth the correctness
+      surface.
+- [x] Q4 — the audit asked for a recovery stash on a failed file LOAD; that is
+      the wrong fix (the user's file is still on disk, nothing was lost, and
+      stashing it would make the next boot's recovery banner lie). What was
+      actually missing is WHY: `sanitizeDesign` returns null for three
+      different reasons and the hint said "is it an interior-design.json?" for
+      all of them. It now names the version and says whether the file is too
+      old to migrate or was written by a newer build.
+- [x] Q5 graphify — bigger than "noise": **89% of the graph's nodes and 92% of
+      its edges were Python's stdlib under `render/.blender`** (906 MB,
+      git-ignored — graphify does not read .gitignore), which is why a BFS
+      surfaced `ast.py` instead of this app. The checked-out graph is pruned
+      (46 514 → 4 793 nodes) and CLAUDE.md carries the re-prune snippet for
+      after the next full rebuild.
+- [x] Q6 `format:check` in CI — Prettier was configured from the start and
+      gated nowhere, so three test files had drifted; formatted, gate added
+      after Lint, and `.claude/` (which the tool rewrites itself) is now in
+      .prettierignore.
 
 ---
 

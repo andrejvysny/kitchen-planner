@@ -3,3 +3,6 @@ node_modules
 package-lock.json
 *.md
 render
+
+# editor-local settings, rewritten by the tool itself
+.claude/

@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useAppServices, useEditor, useStore } from './services';
 import { navInput, setNavInput } from '../../model/navPref';
+import { DESIGN_VERSION, MIN_MIGRATABLE_VERSION } from '../../model/migrate';
 import { emptyDesign, sanitizeDesign } from '../../model/store';
 import { isMac, NAV_INPUTS, type NavInput } from '../../view3d/wheelInput';
 import {
@@ -371,7 +372,26 @@ function FileGroup(): ReactElement {
     try {
       const raw: unknown = JSON.parse(await f.text());
       const d = sanitizeDesign(raw);
-      if (!d) throw new Error('bad file');
+      if (!d) {
+        // Say WHY. sanitizeDesign returns null for three different things, and
+        // "is it an interior-design.json?" is unhelpful advice for two of them:
+        // the file may be perfectly valid and simply out of migration range.
+        const v = (raw as { version?: unknown }).version;
+        if (typeof v === 'number' && v > DESIGN_VERSION) {
+          setHint(
+            `That design was saved by a newer version of the app (file v${v}, this build reads v${DESIGN_VERSION}) — update, then load it again`,
+            'error'
+          );
+        } else if (typeof v === 'number' && v < MIN_MIGRATABLE_VERSION) {
+          setHint(
+            `That design is too old to migrate (file v${v}; the oldest readable is v${MIN_MIGRATABLE_VERSION})`,
+            'error'
+          );
+        } else {
+          setHint('That file is not a readable design — is it an interior-design.json?', 'error');
+        }
+        return;
+      }
       // the reference photo rides ALONGSIDE the design (it is never part of
       // it, so sanitizeDesign drops the field) — reinstall it afterwards, and
       // never let a photo-less file resurrect the previous one

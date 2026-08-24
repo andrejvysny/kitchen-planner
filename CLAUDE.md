@@ -1047,8 +1047,29 @@ Keeping it current:
 - `graphify hook install` wires a post-commit AST rebuild if you want it
   automatic (not installed by default).
 
-Known limits of the current graph (1280 nodes / 4044 edges / 51 communities,
-built from 85 files):
+**The graph indexes `render/.blender/` unless you stop it.** That directory is
+a downloaded Blender build (906 MB, git-ignored) and graphify does NOT read
+.gitignore: a full run put **41 721 of 46 514 nodes (89%) and 92% of the edges**
+into Python's bundled stdlib, which is why a BFS used to surface `ast.py` and
+`argparse.py` instead of this app. The checked-out graph has been pruned; after
+any full `/graphify .` rebuild, prune it again:
+
+```bash
+python3 - <<'EOF'
+import json
+p = 'graphify-out/graph.json'
+g = json.load(open(p))
+keep = [n for n in g['nodes'] if not str(n.get('source_file','')).startswith('render/.blender')]
+ids = {n['id'] for n in keep}
+g['nodes'] = keep
+g['links'] = [l for l in g['links'] if l['source'] in ids and l['target'] in ids]
+json.dump(g, open(p, 'w'))
+EOF
+```
+
+Known limits of the current graph (4793 nodes / 7708 edges after that prune;
+the node/edge counts below predate it and are kept for their shape, not their
+arithmetic):
 
 - ~150 dangling edges point at `three` and other external symbols that were
   never extracted as nodes. Expected, not corruption.
