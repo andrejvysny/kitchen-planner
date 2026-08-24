@@ -4,6 +4,7 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { EditorState } from '../editor/editorState';
+import { withoutCarried } from '../editor/selectionOps';
 import { itemBaseY, SPOT_AIM, type CatalogDef } from '../model/catalog';
 import { polygonCentroid, wallPoint } from '../model/geometry';
 import { findHost } from '../model/attach';
@@ -140,6 +141,12 @@ const CAMERA_TARGET_FALLBACK_M = 3;
 export class View3D {
   private store: Store;
   private editor: EditorState;
+  /** the rest of a multi-selection during a 3D move, with the poses it started from */
+  private followers: {
+    ax: number;
+    ay: number;
+    rest: { id: string; x0: number; y0: number }[];
+  } | null = null;
   private renderer!: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
@@ -1186,8 +1193,9 @@ export class View3D {
       // an error outranks a warn on the same item, whatever order they arrive in
       for (const id of w.itemIds) if (color === TINT_ERROR || !want.has(id)) want.set(id, color);
     }
-    const sel = this.editor.selection;
-    if (sel.kind === 'item') want.set(sel.id, TINT_SELECTED);
+    // every member of the selection reads as selected; the gizmo below still
+    // belongs to the primary alone
+    for (const id of this.editor.selectedItemIds()) want.set(id, TINT_SELECTED);
 
     for (const id of this.appliedTints.keys()) if (!want.has(id)) this.setTint(id, null);
     for (const [id, color] of want) {
@@ -1219,7 +1227,13 @@ export class View3D {
     // let OrbitControls (and the body-drag) resume only when no handle is held
     g.addEventListener('dragging-changed', (e) => {
       this.controls.enabled = !e.value;
-      if (!e.value) this.store.commit(); // gesture end → one undo step
+      if (e.value) {
+        const id = this.gizmo.object?.userData.itemId as string | undefined;
+        if (id) this.beginFollowers(id);
+      } else {
+        this.followers = null;
+        this.store.commit(); // gesture end → one undo step
+      }
     });
     // handle move → write the group's world position back to the model
     g.addEventListener('objectChange', () => this.onGizmoChange());
@@ -1253,6 +1267,43 @@ export class View3D {
       { x: res.x, y: res.y, rotation: res.rotation, elevation, roomId: res.roomId },
       { structural: false, transient: true }
     );
+    this.moveFollowers(res.x, res.y);
+  }
+
+  /**
+   * Capture where the rest of the selection starts, so a 3D move can hand them
+   * the lead item's delta — the same rule the plan applies, from the same
+   * poses-at-press-time reasoning (the lead is re-snapped every frame).
+   * `withoutCarried` drops an appliance its host is already carrying.
+   */
+  private beginFollowers(leadId: string): void {
+    const lead = this.store.itemById(leadId);
+    const held = this.editor
+      .selectedItemIds()
+      .map((id) => this.store.itemById(id))
+      .filter((it): it is Item => !!it);
+    if (!lead || held.length < 2) {
+      this.followers = null;
+      return;
+    }
+    const rest = withoutCarried(held).filter((it) => it.id !== leadId);
+    this.followers = rest.length
+      ? { ax: lead.x, ay: lead.y, rest: rest.map((it) => ({ id: it.id, x0: it.x, y0: it.y })) }
+      : null;
+  }
+
+  private moveFollowers(x: number, y: number): void {
+    const f = this.followers;
+    if (!f) return;
+    const dx = x - f.ax;
+    const dy = y - f.ay;
+    for (const r of f.rest) {
+      this.store.updateItem(
+        r.id,
+        { x: r.x0 + dx, y: r.y0 + dy },
+        { structural: false, transient: true }
+      );
+    }
   }
 
   private onGizmoChange(): void {
@@ -1359,10 +1410,13 @@ export class View3D {
     // step and a click meant to select can never move anything. An attached
     // appliance derives its pose from its host and is refused here for the
     // same reason updateGizmo() refuses it a gizmo.
-    const sel = this.editor.selection;
-    if (sel.kind === 'item' && sel.id === item.id && !item.attach) {
+    const ref = { kind: 'item', id: item.id } as const;
+    if (this.editor.isSelected(ref) && !item.attach) {
       const p = this.floorPoint(e);
       if (p) {
+        // pressing a member of a group leads with it, so the gizmo and the
+        // snapper act on the item actually under the pointer
+        this.editor.setPrimary(ref);
         this.beginMoveDrag(e, item, p);
         return;
       }
@@ -1388,6 +1442,7 @@ export class View3D {
       moved: false,
     };
     this.controls.enabled = false;
+    this.beginFollowers(item.id);
     const canvas = this.boundCanvas;
     if (canvas && !canvas.hasPointerCapture(e.pointerId)) canvas.setPointerCapture(e.pointerId);
   }
@@ -1416,6 +1471,7 @@ export class View3D {
     const drag = this.moveDrag;
     if (!drag) return false;
     this.moveDrag = null;
+    this.followers = null;
     this.controls.enabled = drag.orbitWasEnabled;
     const canvas = this.boundCanvas;
     if (canvas?.hasPointerCapture(drag.pointerId)) canvas.releasePointerCapture(drag.pointerId);

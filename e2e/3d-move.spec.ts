@@ -227,3 +227,48 @@ test('a 3D move never re-renders the inspector, and commits once at the end', as
   // the gesture end commits, so exactly one rebuild is allowed to land
   await expect.poll(() => commits(app)).toBeGreaterThan(before);
 });
+
+test('a body drag carries the rest of the selection, in one undo step', async ({ app }) => {
+  test.slow();
+  // the fixture cabinet, plus a second one a metre to its right; both held
+  const cab = await placeCabinet(app, { select: true, preset: 'top' });
+  const otherId = await app.evaluate((c) => {
+    const st = window.__kp.store;
+    const it = st.addItem(st.defOf('base-cabinet'), c.x + 1.2, c.y, 0);
+    st.commit();
+    window.__kp.editor.selectRefs([
+      { kind: 'item', id: it.id },
+      { kind: 'item', id: c.id },
+    ]);
+    window.__kp.view.flushRebuild();
+    return it.id;
+  }, cab);
+
+  const before = await app.evaluate((id) => {
+    const it = window.__kp.store.itemById(id)!;
+    return { x: it.x, y: it.y };
+  }, otherId);
+  const historyBefore = await version(app, 'history');
+
+  const from = await floorPx(app, cab.x + GRAB.x, cab.y + GRAB.y);
+  const to = await floorPx(app, cab.x + GRAB.x + DELTA.x, cab.y + GRAB.y + DELTA.y);
+  await app.mouse.move(from.x, from.y);
+  await app.mouse.down();
+  await dragTo(app, from, to);
+  await app.mouse.up();
+
+  const lead = await app.evaluate((id) => {
+    const it = window.__kp.store.itemById(id)!;
+    return { x: it.x, y: it.y };
+  }, cab.id);
+  const after = await app.evaluate((id) => {
+    const it = window.__kp.store.itemById(id)!;
+    return { x: it.x, y: it.y };
+  }, otherId);
+
+  // the follower took the SAME delta the dragged one did
+  expect(after.x - before.x).toBeCloseTo(lead.x - cab.x, 2);
+  expect(after.y - before.y).toBeCloseTo(lead.y - cab.y, 2);
+  // and the whole gesture is one undo step
+  expect(await version(app, 'history')).toBe(historyBefore + 1);
+});
