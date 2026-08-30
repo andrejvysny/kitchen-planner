@@ -20,9 +20,13 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  // 2 workers on a 2-core runner meant two swiftshader chromiums fighting
+  // for the same CPU, which is how the heavy 3D-drag specs blew even a
+  // tripled (test.slow()) 180s timeout. 1 worker trades wall time for not
+  // starving itself.
+  workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
-  timeout: 60_000,
+  timeout: process.env.CI ? 90_000 : 60_000,
   expect: { timeout: 10_000 },
 
   use: {
