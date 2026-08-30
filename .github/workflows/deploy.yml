@@ -56,9 +56,13 @@ jobs:
 
       - name: E2E (serve build + interact)
         run: |
-          npm run preview -- --port 4173 --strictPort &
+          npx vite preview --port 4173 --strictPort &
           for i in $(seq 1 60); do curl -sf http://localhost:4173/ >/dev/null && break; sleep 1; done
           node test/interact.mjs
+          # kill the background preview or it keeps eating CPU on the
+          # 2-core runner through the whole next step, starving Playwright
+          # into mass 60s timeouts (all specs, not just the heavy ones).
+          kill $(jobs -p) 2>/dev/null || true
 
       - name: E2E (playwright specs)
         env:
