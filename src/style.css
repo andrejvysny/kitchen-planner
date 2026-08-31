@@ -1883,6 +1883,67 @@ body {
   touch-action: none;
 }
 
+/* the built-in wardrobe's column editor — same shape as the zone canvas, but
+   it also hosts the section popover, so it is the positioning context */
+.studio-wardrobe {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+#studio-wardrobe-canvas {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  touch-action: none;
+}
+
+/* The app's first floating layer, and NOT a dialog: no backdrop, nothing
+   blocked behind it, and any press outside dismisses it. Clamped into the
+   wrapper above by `positionPopover`. */
+.studio-wardrobe-pop {
+  position: absolute;
+  z-index: 4;
+  width: 232px;
+  max-height: calc(100% - 12px);
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.studio-wardrobe-kinds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.studio-wardrobe-kind {
+  justify-content: flex-start;
+  padding: 6px 8px;
+  font-size: 12px;
+  text-align: left;
+}
+
+.studio-wardrobe-pop .prop-row {
+  padding: 2px 0;
+}
+
+.studio-wardrobe-pop > .btn {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.studio-wardrobe-pop .studio-caption {
+  display: block;
+  padding: 4px 0;
+}
+
 .studio-preview canvas {
   position: absolute;
   inset: 0;

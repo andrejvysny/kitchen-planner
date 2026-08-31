@@ -24,6 +24,7 @@ import type { Guide } from '../model/snapping';
 import type { Store } from '../model/store';
 import type { CustomPartDef, Item, Point, Selection } from '../model/types';
 import { resolveColor } from '../model/variables';
+import { wardrobePlanSymbol, type WardrobePlanSymbol } from '../model/wardrobe';
 import { drawPlanSymbol, isOverhead } from './symbols';
 
 export const INK = '#3a3934';
@@ -280,6 +281,13 @@ export function footprintOf(store: Store, it: Item): Point[] | null {
   return part ? footprintPolygon(part, it.w, it.d) : null;
 }
 
+/** A wardrobe item's plan symbol (column ticks, door arcs, slide tracks), at
+ * the placed instance's own w/d — null for every other part. */
+export function planOf(store: Store, it: Item): WardrobePlanSymbol | null {
+  const part = store.partOf(it.defId);
+  return part && part.type === 'wardrobe' ? wardrobePlanSymbol(part, it.w, it.d) : null;
+}
+
 /** An item's plan outline in world coordinates (custom footprint or the bounding rect). */
 export function itemOutlineWorld(store: Store, it: Item): Point[] {
   const local = footprintOf(store, it) ?? [
@@ -511,6 +519,7 @@ export function renderPlan(
         def.kind === 'custom' ? (part?.type === 'board' ? false : it.elevation > 0.5) : undefined,
       bodyAlpha: part?.type === 'board' ? 0.5 : undefined,
       footprint: footprintOf(store, it) ?? undefined,
+      plan: planOf(store, it) ?? undefined,
       gangs: it.params?.gangs,
       seats: it.params?.seats,
     });
@@ -560,6 +569,10 @@ export function renderPlan(
       footprint: armedPart
         ? (footprintPolygon(armedPart, armed.w, armed.d) ?? undefined)
         : undefined,
+      plan:
+        armedPart?.type === 'wardrobe'
+          ? wardrobePlanSymbol(armedPart, armed.w, armed.d)
+          : undefined,
     });
     ctx.restore();
     ctx.globalAlpha = 1;

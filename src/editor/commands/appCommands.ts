@@ -1,5 +1,5 @@
 import { roomOfItem } from '../../model/rooms';
-import type { Item } from '../../model/types';
+import type { CustomPartDef, Item } from '../../model/types';
 import { rotateAbout, selectionCentre, withoutCarried } from '../selectionOps';
 import type { CommandDefinition, EditorContext, WorkspaceId } from './types';
 
@@ -68,6 +68,11 @@ function selectedItems(ctx: EditorContext): Item[] {
     .map((id) => ctx.store.itemById(id))
     .filter((it): it is Item => !!it);
   return withoutCarried(items);
+}
+
+/** A manufactured carcass — the only thing `store.setItemFit` means anything for. */
+function isFittablePart(part: CustomPartDef | undefined): boolean {
+  return !!part && (part.type === 'cabinet' || part.type === 'wardrobe');
 }
 
 /** Move the whole selection by (dx, dy) meters — non-structural, then commit. */
@@ -182,6 +187,24 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
       else if (sel.kind === 'wall') {
         const chain = ctx.store.freeWallOf(sel.id);
         if (chain) ctx.store.deleteFreeWall(chain.id);
+      }
+      ctx.store.commit();
+    },
+  },
+
+  {
+    id: 'item.fitToRoom',
+    label: 'Fit to alcove',
+    // menu-only today (no key binding), but gated like every other item
+    // command: onCanvas so it never touches a selection the Workshop/Output
+    // panes have covered, and at least one member has to be fittable
+    canExecute: (ctx) =>
+      itemSelected(ctx) &&
+      selectedItems(ctx).some((it) => isFittablePart(ctx.store.partOf(it.defId))),
+    execute: (ctx) => {
+      for (const it of selectedItems(ctx)) {
+        if (!isFittablePart(ctx.store.partOf(it.defId))) continue;
+        ctx.store.setItemFit(it.id, { width: 'walls', height: 'ceiling' });
       }
       ctx.store.commit();
     },

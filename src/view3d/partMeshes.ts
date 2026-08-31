@@ -45,6 +45,9 @@ interface UnitData {
   kind: PanelMotion['kind'];
   side?: PanelMotion['side'];
   travel: number;
+  /** slide only: which local axis it rides and which way ('z' / 1 = existing behaviour) */
+  axis: 'x' | 'z';
+  dir: 1 | -1;
   /** closed-pose transform of the pivot group */
   baseX: number;
   baseZ: number;
@@ -75,6 +78,18 @@ function panelMaterial(
     // the library's own glass entry is what a renderer should rebuild from
     return stampMaterial(glass, { kind: 'library', matId: 'glass', rot: false });
   }
+  if (p.slot === 'mirror') {
+    // scene.environment applies automatically (procedural PMREM, no extra
+    // wiring here); relight() scales environmentIntensity globally, so a
+    // mirror darkens at night by design, same as every other reflective surface.
+    const mirror = new THREE.MeshStandardMaterial({
+      color: '#e8ecee',
+      metalness: 1,
+      roughness: 0.04,
+      envMapIntensity: 1.6,
+    });
+    return stampMaterial(mirror, { kind: 'library', matId: 'mirror', rot: false });
+  }
   // 'counter' panels follow the room worktop style (per-item override wins),
   // the item's PBR material paints the 'front' slot; accent/plinth stay flat
   const fin: Finish =
@@ -94,6 +109,36 @@ function tag(o: THREE.Object3D, p: Panel): void {
   if (p.boardId) o.userData.boardId = p.boardId;
 }
 
+/**
+ * An LED strip is a light SOURCE, not a painted board: emissive box tagged
+ * `bulb`, so View3D's relight() drives its glow exactly like a catalog
+ * fixture's (emissive colour from warmth, brightness from the day/night fade).
+ * The actual RectAreaLight is ONE PER ITEM and is built in view3d.ts
+ * `buildItem` from `def.light.local` — never here, so a part emitting several
+ * strips still costs the scene a single light.
+ *
+ * Values are copied from the `strip` catalog builder (itemMeshes.ts) so a cove
+ * strip and a shelf strip read identically.
+ */
+function lightMesh(g: THREE.Group, p: Panel): void {
+  if (p.shape.kind !== 'box') return; // a strip is always a board
+  const { w, h, d } = p.shape;
+  const mat = stampMaterial(
+    new THREE.MeshStandardMaterial({
+      color: '#fff4da',
+      emissive: '#ffce7d',
+      emissiveIntensity: 1.8,
+    }),
+    { kind: 'product', product: 'bulb' }
+  );
+  const mesh = box(g, w, h, d, mat, p.x, p.y, p.z);
+  // no groove sibling to keep aligned, so the yaw rides the mesh itself —
+  // its centre is the panel anchor, the same point the rotY group pivots on
+  mesh.rotation.y = p.rotY;
+  mesh.userData.bulb = true;
+  tag(mesh, p);
+}
+
 function panelMesh(
   g: THREE.Group,
   p: Panel,
@@ -101,6 +146,10 @@ function panelMesh(
   accentColor: string,
   counter: Finish
 ): void {
+  if (p.role === 'light') {
+    lightMesh(g, p);
+    return;
+  }
   const mat = panelMaterial(p, front, accentColor, counter);
   if (p.shape.kind === 'prism') {
     tag(prism(g, p.shape.outline, p.shape.h, mat, p.y, p.shape.holes), p);
@@ -214,6 +263,8 @@ function motionUnit(
     kind: m.kind,
     side: m.side,
     travel: m.travel ?? 0.3,
+    axis: m.axis ?? 'z',
+    dir: m.dir ?? 1,
     baseX: px,
     baseZ: pz,
     baseRotY: ry,
@@ -305,6 +356,14 @@ function applyPoses(units: THREE.Group[]): void {
 
 function applyPose(u: THREE.Group, d: UnitData): void {
   if (d.kind === 'slide') {
+    if (d.axis === 'x') {
+      // slide sideways along the face (face-local +x), same rotation mapping
+      // motionUnit uses for pivots: world (+cos ry, −sin ry) per unit of lx.
+      const dist = d.travel * d.dir * d.openT;
+      u.position.x = d.baseX + Math.cos(d.baseRotY) * dist;
+      u.position.z = d.baseZ - Math.sin(d.baseRotY) * dist;
+      return;
+    }
     // slide out along the face normal (+z in face-local space)
     const dist = d.travel * d.openT;
     u.position.x = d.baseX + Math.sin(d.baseRotY) * dist;

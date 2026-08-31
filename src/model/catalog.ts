@@ -95,7 +95,11 @@ export interface CatalogDef {
   color: string;
   /** integer options like number of drawers or doors */
   params?: ParamDef[];
-  light?: LightProps & { kind: 'point' | 'spot' | 'bar' };
+  light?: LightProps & {
+    kind: 'point' | 'spot' | 'bar';
+    /** item-local source position; overrides lightLocalY (custom parts) */
+    local?: { y: number; z?: number };
+  };
   /** door/window pseudo-items are placed into walls, not on the floor */
   opening?: boolean;
   /** small utility markers (water, outlet) mounted on walls */
@@ -339,6 +343,8 @@ export const CATALOG: CatalogSection[] = [
       }),
     ],
   },
+  // hallway-unit preset (src/model/presets.ts) renders at the head of this section
+  { title: 'Hallway', items: [] },
   {
     title: 'Living room',
     items: [

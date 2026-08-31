@@ -102,8 +102,8 @@ interface SectionView {
   workspace?: 'plan' | 'furnish';
 }
 
-/** part type → the order its tiles appear in "My parts": cabinets, boards, freeform. */
-const PART_ORDER = { cabinet: 0, board: 1, freeform: 2 };
+/** part type → the order its tiles appear in "My parts": cabinets, wardrobes, boards, freeform. */
+const PART_ORDER = { cabinet: 0, wardrobe: 1, board: 2, freeform: 3 };
 
 function buildSections(parts: readonly CustomPartDef[]): SectionView[] {
   const out: SectionView[] = [];

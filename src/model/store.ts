@@ -60,6 +60,7 @@ import type {
 } from './types';
 import { uid } from './types';
 import { syncAttachments } from './attach';
+import { syncFits } from './fit';
 import { OpenFronts } from './openFronts';
 import {
   DESIGN_KEY,
@@ -123,6 +124,19 @@ export const MIN_WALL_W = 0.05;
 export const MAX_WALL_W = 0.4;
 /** Each pass consumes one seam; a room has far fewer neighbours than this. */
 const MAX_WELD_PASSES = 12;
+
+/**
+ * The `item.light` a fresh instance of `def` starts with — undefined when the
+ * def declares no fixture. ONE definition, because three paths seed it: two
+ * item factories (`addItem`, the demo's `add`) and `applyCustomPart`, which
+ * re-seeds every placed instance when a part def gains a light (a wardrobe's
+ * cove strip switched on after the wardrobes were placed).
+ */
+function seedLight(def: CatalogDef): Item['light'] {
+  return def.light
+    ? { on: def.light.on, intensity: def.light.intensity, warmth: def.light.warmth }
+    : undefined;
+}
 
 export class Store {
   design: Design;
@@ -538,6 +552,9 @@ export class Store {
       it.roomId = (roomContaining(made, { x: it.x, y: it.y }) ?? made[0]).id;
     }
     this.setActiveRoom(made[0].id);
+    // splitRoom rebuilds rings via the module normalizeRoom, not
+    // renormalizeRoom, so the derived sync does not come for free here
+    this.syncDerived();
     this.notify({ structural: true });
     return [made[0], made[1]];
   }
@@ -709,6 +726,7 @@ export class Store {
     this.design.rooms.push(room);
     this.weld(room.id);
     this.setActiveRoom(room.id);
+    this.syncDerived();
     this.notify({ structural: true });
     return room;
   }
@@ -888,6 +906,7 @@ export class Store {
       this.activeId = null;
       this.emit('activeRoom', this.activeRoomId);
     }
+    this.syncDerived();
     this.notify({ structural: true });
     return { items: doomed.size, openings: dropped.size };
   }
@@ -917,6 +936,7 @@ export class Store {
       this.design.openings.push({ ...o, id: uid('o'), wallId: remap.get(o.wallId) ?? o.wallId });
     }
     this.design.rooms.push(copy);
+    this.syncDerived();
     this.notify({ structural: true });
     return copy;
   }
@@ -951,11 +971,18 @@ export class Store {
 
   /* ---------------- room mutations ---------------- */
 
-  /** Re-establish the CCW invariant + opening bounds after a corner mutation. */
+  /**
+   * Re-establish the CCW invariant + opening bounds after a corner mutation,
+   * then resettle every derived pose. Every caller (moveCorner, splitWallRaw,
+   * deleteCorner, setWallLength, setRectangleSize, weld, alignWallsToCentreline)
+   * calls this before its own notify, so putting `syncDerived` here covers all
+   * of them for free — a fitted item's wall may have just moved.
+   */
   private renormalizeRoom(roomId: string): void {
     const room = roomById(this.design.rooms, roomId);
     if (room) normalizeRoom(this.design, room);
     this.clampAllOpenings();
+    this.syncDerived();
   }
 
   moveCorner(id: string, x: number, y: number, transient = true): void {
@@ -1122,6 +1149,7 @@ export class Store {
     reprojectOpeningsNearest(before, room.corners, affected);
     for (const o of affected) this.clampOpening(o);
     room.wallVisibility = {};
+    this.syncDerived();
     this.notify({ structural: true });
   }
 
@@ -1177,6 +1205,20 @@ export class Store {
 
   /* ---------------- item mutations ---------------- */
 
+  /**
+   * Settle every derived pose after a structural edit. `syncFits` runs FIRST:
+   * it grows/shrinks a fitted item against its wall, moving the item's own
+   * centre. `syncAttachments` runs second because a counter/zone anchor is
+   * host-LOCAL — resolving it against a pre-fit host centre would strand
+   * every appliance mounted on a fitted host. Both passes are idempotent, so
+   * calling this more than once for the same edit costs nothing but a no-op
+   * pass. Caller owns notify/commit.
+   */
+  syncDerived(): void {
+    syncFits(this.design);
+    syncAttachments(this.design);
+  }
+
   addItem(def: CatalogDef, x: number, y: number, rotation = 0): Item {
     const item: Item = {
       id: uid('i'),
@@ -1189,9 +1231,7 @@ export class Store {
       h: def.h,
       elevation: def.elevation,
       color: def.color,
-      light: def.light
-        ? { on: def.light.on, intensity: def.light.intensity, warmth: def.light.warmth }
-        : undefined,
+      light: seedLight(def),
       params: defaultParams(def),
       roomId: (this.roomContaining({ x, y }) ?? this.activeRoom())?.id,
     };
@@ -1207,6 +1247,7 @@ export class Store {
       item.accentColor = toVarRef(defaultAccentVar);
     }
     this.design.items.push(item);
+    this.syncDerived();
     this.notify({ structural: true });
     return item;
   }
@@ -1219,8 +1260,21 @@ export class Store {
     if (idx >= 0) this.design.customParts[idx] = part;
     else this.design.customParts.push(part);
     // a def edit can remove a worktop or an appliance niche — attachments
-    // that no longer resolve detach to the world instead of dangling
-    syncAttachments(this.design);
+    // that no longer resolve detach to the world instead of dangling. A def
+    // edit can also change a fitted item's own dims (part w/d/h), so fits
+    // resettle here too.
+    this.syncDerived();
+    // …and it can switch a fixture on or off (a wardrobe's cove light). The
+    // light is only LIVE while `item.light` exists, so every placed instance
+    // gains the def's defaults or loses the props with it — otherwise turning
+    // the cove on after placement would leave the wardrobes dark, and turning
+    // it off would strand a <LightSection/> for a fixture that is gone.
+    const def = toCatalogDef(part);
+    for (const it of this.design.items) {
+      if (it.defId !== part.id) continue;
+      if (!def.light) delete it.light;
+      else if (!it.light) it.light = seedLight(def);
+    }
     this.saveSharedLibrary();
   }
 
@@ -1372,12 +1426,22 @@ export class Store {
     // a param may drive item width (e.g. outlet gangs extend the box)
     const pd = this.defOf(it.defId).params?.find((p) => p.key === key);
     if (pd?.widthPer) it.w = value * pd.widthPer;
+    this.syncDerived();
     this.notify({ structural: true });
   }
 
   updateItem(id: string, patch: Partial<Item>, info: ChangeInfo = { structural: true }): void {
     const it = this.itemById(id);
     if (!it) return;
+    // an explicit w/h edit here is a manual override — the fit request no
+    // longer applies to that axis. `syncFits` itself writes an item's w/h
+    // directly (never through updateItem), so its own settling passes never
+    // trip this.
+    if (it.fit) {
+      if ('w' in patch) delete it.fit.width;
+      if ('h' in patch) delete it.fit.height;
+      if (!it.fit.width && !it.fit.height) delete it.fit;
+    }
     Object.assign(it, patch);
     const touchesPose = ['x', 'y', 'rotation', 'elevation', 'w', 'd', 'h'].some((k) => k in patch);
     if (touchesPose) {
@@ -1390,14 +1454,31 @@ export class Store {
           it.attach.v = local.y;
         }
       }
+      // fits/attachments resettle unconditionally — both passes are inert
+      // when nothing asked to be fitted or attached, so this costs nothing
+      // on the common unattached, unfitted drag
+      this.syncDerived();
       // moving a HOST carries its appliances; either way the caches resettle
       if (it.attach || this.design.items.some((o) => o.attach && o.attach.hostId === id)) {
-        syncAttachments(this.design);
         // a moved cutout changes the host's panel list — must rebuild
         info = { ...info, structural: true };
       }
     }
     this.notify(info);
+  }
+
+  /**
+   * Set or clear an item's fit-to-room flags (an object with neither key set
+   * clears it, matching the sanitizer's own empty-object rule). Poses
+   * resettle immediately. Caller commits.
+   */
+  setItemFit(id: string, fit: Item['fit']): void {
+    const it = this.itemById(id);
+    if (!it) return;
+    if (fit?.width || fit?.height) it.fit = fit;
+    else delete it.fit;
+    this.syncDerived();
+    this.notify({ structural: true });
   }
 
   /** Attach/detach an appliance; poses resettle immediately. */
@@ -1409,7 +1490,7 @@ export class Store {
     if (JSON.stringify(it.attach) === JSON.stringify(attach)) return;
     if (attach) it.attach = attach;
     else delete it.attach;
-    syncAttachments(this.design);
+    this.syncDerived();
     this.notify({ structural: true, transient: true });
   }
 
@@ -1437,6 +1518,7 @@ export class Store {
     // deleting a host takes its mounted appliances with it (one undo step)
     const doomed = this.withAttached(new Set([id]));
     this.design.items = this.design.items.filter((i) => !doomed.has(i.id));
+    this.syncDerived();
     this.notify({ structural: true });
   }
 
@@ -1459,7 +1541,7 @@ export class Store {
       cc.attach = { ...child.attach, hostId: copy.id } as Item['attach'];
       this.design.items.push(cc);
     }
-    syncAttachments(this.design);
+    this.syncDerived();
     this.notify({ structural: true });
     return copy;
   }
@@ -1482,6 +1564,7 @@ export class Store {
     if (!room) return;
     Object.assign(room.style, patch);
     this.clampAllOpenings();
+    this.syncDerived();
     this.notify({ structural: true });
   }
 
@@ -1756,6 +1839,7 @@ export class Store {
     const map = (holder.wallWidths ??= {});
     if (m === null) delete map[w.id];
     else map[w.id] = clamp(m, MIN_WALL_W, MAX_WALL_W);
+    this.syncDerived();
     this.notify({ structural: true });
   }
 
@@ -1997,6 +2081,18 @@ export function sanitizeDesign(raw: unknown): Design | null {
     if (i.materialRot !== true) delete i.materialRot;
     if (i.counterMaterialRot !== true) delete i.counterMaterialRot;
     if (typeof i.roomId !== 'string' || !roomIds.has(i.roomId)) delete i.roomId;
+    // fit flags are a two-key enum, not free data: anything else would send
+    // syncFits down a branch it has no rule for
+    const fitRaw = i.fit as { width?: unknown; height?: unknown } | undefined;
+    if (fitRaw && typeof fitRaw === 'object') {
+      const fit: NonNullable<Item['fit']> = {};
+      if (fitRaw.width === 'walls') fit.width = 'walls';
+      if (fitRaw.height === 'ceiling') fit.height = 'ceiling';
+      if (fit.width || fit.height) i.fit = fit;
+      else delete i.fit;
+    } else if (i.fit !== undefined) {
+      delete i.fit;
+    }
   }
 
   // detach dangling `var:` refs so no slot points at a removed variable
@@ -2037,6 +2133,11 @@ export function sanitizeDesign(raw: unknown): Design | null {
   // every item carries the room it sits in, so per-room finishes resolve O(1)
   for (const it of design.items) it.roomId = (roomOfItem(design, it) ?? design.rooms[0])?.id;
   sanitizeAttachments(design);
+  // fits settle against the now-clean geometry, then attachments resettle
+  // once more — a fitted host's centre can move, and a counter/zone anchor
+  // is host-local
+  syncFits(design);
+  syncAttachments(design);
   return design;
 }
 
@@ -2300,9 +2401,7 @@ export function demoDesign(): Design {
       h: def.h,
       elevation: def.elevation,
       color: def.color,
-      light: def.light
-        ? { on: def.light.on, intensity: def.light.intensity, warmth: def.light.warmth }
-        : undefined,
+      light: seedLight(def),
       params: defaultParams(def),
       roomId,
       ...patch,
@@ -2410,6 +2509,7 @@ export function demoDesign(): Design {
     variables: [],
     scene: defaultScene(),
   });
+  syncFits(demo); // no-op today — no demo item carries `fit`
   syncAttachments(demo); // settle the sink/hob poses onto their hosts
   return demo;
 }

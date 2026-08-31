@@ -128,6 +128,17 @@ describe('contextMenu — the entries themselves', () => {
     expect(addCorner?.hint).toBe('double-click');
   });
 
+  it('offers "Fit to alcove" only when the hit item resolves to a fittable part, before Duplicate', () => {
+    expect(ids(ITEM)).not.toContain('fit-room');
+    expect(ids(ITEM, 'plan', opts({ itemFittable: true }))).toEqual([
+      'edit-workshop',
+      'fit-room',
+      'duplicate',
+      'rotate90',
+      'delete',
+    ]);
+  });
+
   it('marks exactly one destructive entry per menu, never more', () => {
     for (const hit of ALL_HITS) {
       const danger = contextMenu(hit, 'plan', opts({ multiRoom: true })).filter((e) => e.danger);

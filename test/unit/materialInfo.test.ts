@@ -62,8 +62,8 @@ describe('materialInfo', () => {
     }
   });
 
-  it('names and captions the whole registry (all 19 built-in materials)', () => {
-    expect(MATERIALS.length).toBe(19);
+  it('names and captions the whole registry (all 20 built-in materials)', () => {
+    expect(MATERIALS.length).toBe(20);
     for (const def of MATERIALS) {
       const info = materialInfo(def.id);
       expect(info.name).toBe(def.label);

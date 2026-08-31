@@ -13,6 +13,7 @@ import { useChannel } from './hooks/useStore';
  */
 const TYPE_LABELS: Record<CustomPartDef['type'], string> = {
   cabinet: 'Cabinet',
+  wardrobe: 'Built-in wardrobe',
   board: 'Worktop / board',
   freeform: 'Free boards',
 };

@@ -60,6 +60,20 @@ export function ItemProps({ items }: { items: Item[] }): ReactElement {
     for (const it of items) store.updateItem(it.id, patch(it));
   };
   const sameDef = items.every((it) => it.defId === item.defId);
+  // fit-to-room only makes sense for a manufactured carcass, alone, unattached
+  // (an attached appliance's size follows its host, not its wall)
+  const fittable = !!part && (part.type === 'cabinet' || part.type === 'wardrobe');
+  const setFit = (key: 'width' | 'height', on: boolean): void => {
+    const next: NonNullable<Item['fit']> = { ...item.fit };
+    if (key === 'width') {
+      if (on) next.width = 'walls';
+      else delete next.width;
+    } else {
+      if (on) next.height = 'ceiling';
+      else delete next.height;
+    }
+    store.setItemFit(item.id, next);
+  };
 
   return (
     <>
@@ -116,6 +130,20 @@ export function ItemProps({ items }: { items: Item[] }): ReactElement {
             min={0}
           />
         )}
+        {fittable && !many && !item.attach ? (
+          <>
+            <ToggleRow
+              label="Width to walls"
+              value={item.fit?.width === 'walls'}
+              onChange={(v) => setFit('width', v)}
+            />
+            <ToggleRow
+              label="Height to ceiling"
+              value={item.fit?.height === 'ceiling'}
+              onChange={(v) => setFit('height', v)}
+            />
+          </>
+        ) : null}
       </div>
 
       {many || item.attach ? null : <PositionSection item={item} />}

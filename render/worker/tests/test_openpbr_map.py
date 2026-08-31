@@ -114,8 +114,8 @@ class TestPrincipledParams:
 
 
 class TestLibraryLoad:
-    def test_all_nineteen_entries(self, library, raw_library):
-        assert len(library) == 19 == len(raw_library["materials"])
+    def test_all_twenty_entries(self, library, raw_library):
+        assert len(library) == 20 == len(raw_library["materials"])
         assert set(library) == {entry["id"] for entry in raw_library["materials"]}
 
     def test_texture_sets(self, library):
@@ -144,7 +144,7 @@ class TestLibraryLoad:
     def test_default_path_points_at_the_real_library(self):
         assert O.LIBRARY_PATH.name == "openpbr.materials.json"
         assert O.LIBRARY_PATH.is_file()
-        assert len(O.load_library()) == 19
+        assert len(O.load_library()) == 20
 
 
 class TestTextureLockParity:

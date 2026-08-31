@@ -20,7 +20,9 @@ import type {
   Opening,
   Point,
   Room,
+  WardrobePartDef,
 } from '../../src/model/types';
+import { newWardrobePart, sanitizeWardrobeFields } from '../../src/model/wardrobe';
 
 /* ---------------- fixtures ---------------- */
 
@@ -70,6 +72,23 @@ function item(defId: string, x: number, y: number, patch: Partial<Item> = {}): I
 /** an item of a design-local custom part */
 const partItem = (part: CustomPartDef, x: number, y: number, patch: Partial<Item> = {}): Item =>
   makeItem(toCatalogDef(part), x, y, patch);
+
+/** a single-column, single-door wardrobe — front is the only thing that varies */
+function wardrobePart(over: Partial<WardrobePartDef> = {}): WardrobePartDef {
+  const part: WardrobePartDef = {
+    ...newWardrobePart(),
+    name: 'Wardrobe',
+    w: 1.0,
+    d: 0.6,
+    h: 2.2,
+    columns: [
+      { id: 'c1', w: 'fill', sections: [{ kind: 'shelves', h: 'fill', count: 3 }], door: 'auto' },
+    ],
+    ...over,
+  };
+  sanitizeWardrobeFields(part);
+  return part;
+}
 
 function design(o: {
   rooms?: Room[];
@@ -427,6 +446,20 @@ describe('front clearance', () => {
     const w = runChecks(design({ items: [a, b] })).filter((x) => x.kind === 'frontClearance');
     expect(w).toHaveLength(2);
     expect(w[0].limit).toBe(w[1].limit);
+  });
+
+  it('a sliding wardrobe door only needs its own thickness to clear', () => {
+    const part = wardrobePart({ front: { kind: 'sliding', panels: 2 } });
+    const tight = partItem(part, 2, 0.35, { rotation: Math.PI }); // 5 cm to the wall
+    expect(kinds(runChecks(design({ items: [tight], parts: [part] })))).not.toContain(
+      'frontClearance'
+    );
+  });
+
+  it('the same wardrobe with hinged doors needs the leaf width instead', () => {
+    const part = wardrobePart({ front: { kind: 'hinged' } });
+    const tight = partItem(part, 2, 0.35, { rotation: Math.PI }); // same 5 cm gap
+    expect(kinds(runChecks(design({ items: [tight], parts: [part] })))).toContain('frontClearance');
   });
 });
 

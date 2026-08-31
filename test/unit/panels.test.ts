@@ -1,15 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { CARCASS_T, RAIL_DIA } from '../../src/model/interior';
-import {
-  cabinetPanels,
-  partPanels,
-  PLINTH_H,
-  type Panel,
-  type PartDims,
-} from '../../src/model/panels';
+import { cabinetPanels, partPanels, PLINTH_H, type PartDims } from '../../src/model/panels';
 import { newBoardPart, newCabinetPart, newFreeformPart, samplePart } from '../../src/model/parts';
 import type { CabinetPartDef } from '../../src/model/types';
-import { deskBoards } from './fixtures';
+import { bboxOf, deskBoards } from './fixtures';
 
 const dimsOf = (p: { w: number; d: number; h: number; elevation: number }): PartDims => ({
   w: p.w,
@@ -17,30 +11,6 @@ const dimsOf = (p: { w: number; d: number; h: number; elevation: number }): Part
   h: p.h,
   elevation: p.elevation,
 });
-
-function bboxOf(panels: Panel[]): { maxX: number; maxY: number; maxZ: number } {
-  let maxX = 0;
-  let maxY = 0;
-  let maxZ = 0;
-  for (const p of panels) {
-    if (p.shape.kind === 'prism') {
-      for (const q of p.shape.outline) {
-        maxX = Math.max(maxX, Math.abs(q.x));
-        maxZ = Math.max(maxZ, Math.abs(q.y));
-      }
-      maxY = Math.max(maxY, p.y + p.shape.h);
-    } else {
-      const c = Math.abs(Math.cos(p.rotY));
-      const s = Math.abs(Math.sin(p.rotY));
-      const w = p.shape.kind === 'cyl' ? p.shape.dia : p.shape.w;
-      const d = p.shape.kind === 'cyl' ? p.shape.dia : p.shape.d;
-      maxX = Math.max(maxX, Math.abs(p.x) + (w * c + d * s) / 2);
-      maxZ = Math.max(maxZ, Math.abs(p.z) + (w * s + d * c) / 2);
-      maxY = Math.max(maxY, p.y + p.shape.h);
-    }
-  }
-  return { maxX, maxY, maxZ };
-}
 
 describe('partPanels (manufacturing IR)', () => {
   it('sample sideboard: roles, counts and cut-list dimensions line up', () => {

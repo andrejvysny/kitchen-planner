@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { presetPart } from '../../src/model/presets';
 import { demoDesign, emptyDesign, Store } from '../../src/model/store';
-import type { CabinetPartDef, ChangeInfo, CustomPartDef } from '../../src/model/types';
+import { newWardrobePart } from '../../src/model/wardrobe';
+import type {
+  CabinetPartDef,
+  ChangeInfo,
+  CustomPartDef,
+  WardrobePartDef,
+} from '../../src/model/types';
 
 /**
  * The three store mutations behind the Part Studio's LIVE-APPLY mode
@@ -107,6 +113,68 @@ describe('Store.updateCustomPart', () => {
 
     store.updateCustomPart(part.id, (p) => (p.h = 1.1));
     expect(store.partOf(store.itemById(item.id)!.defId)!.h).toBeCloseTo(1.1, 12);
+  });
+});
+
+describe('applyCustomPart — light reseed', () => {
+  /** A design-local wardrobe plus one placed instance of it. */
+  function placedWardrobe(): { store: Store; partId: string; itemId: string } {
+    const store = new Store(demoDesign());
+    const part = newWardrobePart();
+    store.upsertCustomPart(part);
+    const item = store.addItem(store.defOf(part.id), 1, 1);
+    return { store, partId: part.id, itemId: item.id };
+  }
+
+  it('seeds `item.light` on every instance when the def GAINS a cove light', () => {
+    const { store, partId, itemId } = placedWardrobe();
+    expect(store.itemById(itemId)!.light).toBeUndefined();
+
+    store.updateCustomPart(
+      partId,
+      (p) => ((p as WardrobePartDef).light = { cove: true, shelves: false })
+    );
+
+    // else switching the cove on after placement would leave the wardrobes dark
+    expect(store.itemById(itemId)!.light).toEqual({ on: true, intensity: 0.5, warmth: 0.75 });
+  });
+
+  it('drops `item.light` again when the def LOSES it', () => {
+    const { store, partId, itemId } = placedWardrobe();
+    store.updateCustomPart(
+      partId,
+      (p) => ((p as WardrobePartDef).light = { cove: true, shelves: false })
+    );
+    store.updateCustomPart(
+      partId,
+      (p) => ((p as WardrobePartDef).light = { cove: false, shelves: false })
+    );
+
+    // no stranded <LightSection/> for a fixture that is gone
+    expect(store.itemById(itemId)!.light).toBeUndefined();
+  });
+
+  it('keeps a per-instance light the user has already tuned', () => {
+    const { store, partId, itemId } = placedWardrobe();
+    store.updateCustomPart(
+      partId,
+      (p) => ((p as WardrobePartDef).light = { cove: true, shelves: false })
+    );
+    store.updateItem(itemId, { light: { on: false, intensity: 0.9, warmth: 0.2 } });
+
+    store.updateCustomPart(partId, (p) => (p.name = 'Alcove run'));
+    expect(store.itemById(itemId)!.light).toEqual({ on: false, intensity: 0.9, warmth: 0.2 });
+  });
+
+  it('leaves instances of OTHER parts alone', () => {
+    const { store, partId } = placedWardrobe();
+    const other = store.addItem(store.defOf(PRESET_ID), 2, 2);
+
+    store.updateCustomPart(
+      partId,
+      (p) => ((p as WardrobePartDef).light = { cove: true, shelves: false })
+    );
+    expect(store.itemById(other.id)!.light).toBeUndefined();
   });
 });
 

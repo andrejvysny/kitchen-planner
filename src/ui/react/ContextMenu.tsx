@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { catalogDef } from '../../model/catalog';
 import { hasPreset } from '../../model/presets';
+import type { Store } from '../../model/store';
 import { contextMenu, type ContextHit, type MenuEntry } from '../contextMenuModel';
 import { openInWorkshop, workspace } from '../workspaceState';
 import { useMenuDismiss } from './hooks/useMenuDismiss';
@@ -36,6 +37,18 @@ import { useAppServices } from './services';
  * gives — it must stay stateless and never reconcile, so anything holding state
  * arrives as a child, exactly like <WorkshopPane/> and the canvas overlays.
  */
+
+/**
+ * Does this item's part support fit-to-room? `store.partOf` never throws (it
+ * falls back to the preset table, then undefined) — only `defOf`'s
+ * `catalogDef()` tail can, and this never calls that.
+ */
+function isFittable(store: Store, itemId: string): boolean {
+  const it = store.itemById(itemId);
+  if (!it) return false;
+  const part = store.partOf(it.defId);
+  return !!part && (part.type === 'cabinet' || part.type === 'wardrobe');
+}
 
 interface OpenMenu {
   /** viewport coordinates of the press; clamped to the window on layout */
@@ -70,6 +83,7 @@ export function ContextMenu(): ReactElement | null {
       const entries = contextMenu(hit, workspace(), {
         multiRoom: store.design.rooms.length > 1,
         activeRoomId: store.activeRoomId,
+        itemFittable: hit.kind === 'item' ? isFittable(store, hit.itemId) : false,
       });
       // no entries = no popup. An empty menu is worse than no menu.
       if (!entries.length) {
@@ -228,17 +242,20 @@ export function ContextMenu(): ReactElement | null {
         openInWorkshop(fork.id, item.id);
         return;
       }
+      case 'fit-room':
       case 'duplicate':
       case 'rotate90':
       case 'delete': {
         if (hit.kind !== 'item') return;
         editor.select({ kind: 'item', id: hit.itemId });
         commands.execute(
-          id === 'duplicate'
-            ? 'selection.duplicate'
-            : id === 'rotate90'
-              ? 'transform.rotate90'
-              : 'selection.delete'
+          id === 'fit-room'
+            ? 'item.fitToRoom'
+            : id === 'duplicate'
+              ? 'selection.duplicate'
+              : id === 'rotate90'
+                ? 'transform.rotate90'
+                : 'selection.delete'
         );
         return;
       }

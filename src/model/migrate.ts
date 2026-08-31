@@ -9,13 +9,17 @@ import { clamp, insetPolygon, projectOnWall, wallPoint } from './geometry';
 import { defaultRoomStyle, ringWalls } from './rooms';
 import { uid, type Corner, type Item, type Opening, type RoomStyle } from './types';
 
-export const DESIGN_VERSION = 7;
+export const DESIGN_VERSION = 8;
 /** Designs older than this predate the preset cut and cannot be migrated. */
 export const MIN_MIGRATABLE_VERSION = 5;
 
 type Raw = Record<string, unknown>;
 
-const MIGRATIONS: Record<number, (d: Raw) => Raw> = { 5: migrate5to6, 6: migrate6to7 };
+const MIGRATIONS: Record<number, (d: Raw) => Raw> = {
+  5: migrate5to6,
+  6: migrate6to7,
+  7: migrate7to8,
+};
 
 /**
  * v6 → v7: `walls` (free-standing wall chains) joins the design. Nothing to
@@ -26,6 +30,18 @@ const MIGRATIONS: Record<number, (d: Raw) => Raw> = { 5: migrate5to6, 6: migrate
 function migrate6to7(d: Raw): Raw {
   d.walls = [];
   d.version = 7;
+  return d;
+}
+
+/**
+ * v7 → v8: the `wardrobe` part type joins `CustomPartDef`. Identity step —
+ * nothing to convert, a v7 design simply had none — but the version gates it:
+ * an older build's `sanitizePart` doesn't know the type string and would
+ * drop every wardrobe part, and `sanitizeDesign` then drops every item whose
+ * defId resolves nowhere, so an unversioned load would silently delete both.
+ */
+function migrate7to8(d: Raw): Raw {
+  d.version = 8;
   return d;
 }
 

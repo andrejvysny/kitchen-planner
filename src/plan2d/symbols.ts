@@ -1,5 +1,6 @@
 import { sofaSeats, type ItemKind } from '../model/catalog';
 import type { Point } from '../model/types';
+import type { WardrobePlanSymbol } from '../model/wardrobe';
 
 /**
  * Architectural plan symbols, drawn in meter-space centered on the item.
@@ -25,6 +26,9 @@ export interface SymbolStyle {
   gangs?: number;
   /** sofas only: the `seats` param, when the def carries one */
   seats?: number;
+  /** wardrobe parts only: column ticks + door/slide symbols, from
+   * `wardrobePlanSymbol`. Absent → the plain rect + centre split line. */
+  plan?: WardrobePlanSymbol;
 }
 
 const INK = '#3a3934';
@@ -109,9 +113,48 @@ export function drawPlanSymbol(
   ctx.lineWidth = hair;
   switch (kind) {
     case 'custom': {
-      // front stripe + door split
-      line(ctx, -hw, hd - 0.05, hw, hd - 0.05);
-      line(ctx, 0, -hd, 0, hd);
+      const plan = style.plan;
+      if (!plan) {
+        // front stripe + door split
+        line(ctx, -hw, hd - 0.05, hw, hd - 0.05);
+        line(ctx, 0, -hd, 0, hd);
+        break;
+      }
+      // `plan`'s ticks/doors/slides are item-local metres for the SAME w/d this
+      // case already works in (wardrobePlanSymbol is called with the placed
+      // item's own w/d, exactly like drawPlanSymbol's caller) — no rescale.
+      for (const t of plan.ticks) line(ctx, t, -hd, t, hd);
+      if (plan.open) {
+        // no front system: ticks are the whole story, plus the plain stripe
+        // every other custom part uses to mark the front edge
+        line(ctx, -hw, hd - 0.05, hw, hd - 0.05);
+        break;
+      }
+      // sliding tracks: layer 1 (outer, nearer the front face) draws closer to
+      // hd than layer 0 (inner, set back a slab thickness + gap) — mirrors
+      // WardrobeSlidingPanel.layer's own "0 = inner, 1 = outer" doc
+      for (const s of plan.slides) {
+        const y = hd - (s.layer === 1 ? 0.03 : 0.06);
+        line(ctx, s.x0, y, s.x1, y);
+      }
+      // hinged leaves: dashed 90° sweep + solid open leaf, same construction as
+      // the wall-door symbol below — pivot at the leaf's hinged edge, on the
+      // FRONT face (y = hd)
+      for (const dr of plan.doors) {
+        const lw = dr.x1 - dr.x0;
+        const fxc = (dr.x0 + dr.x1) / 2;
+        ctx.save();
+        ctx.translate(fxc, 0);
+        ctx.scale(dr.hinge === 'right' ? -1 : 1, 1);
+        ctx.setLineDash([hair * 4, hair * 3]);
+        ctx.beginPath();
+        ctx.arc(-lw / 2, hd, lw, 0, Math.PI / 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineWidth = hair * 2;
+        line(ctx, -lw / 2, hd, -lw / 2, hd + lw);
+        ctx.restore();
+      }
       break;
     }
     case 'sink': {
@@ -349,7 +392,8 @@ export function renderThumbnail(
   w: number,
   d: number,
   color: string,
-  footprint?: Point[]
+  footprint?: Point[],
+  plan?: WardrobePlanSymbol
 ): void {
   const px = 54;
   const dpr = window.devicePixelRatio || 1;
@@ -365,5 +409,5 @@ export function renderThumbnail(
   ctx.translate(px / 2, px / 2);
   ctx.scale(scale, scale);
   if (kind === 'door') ctx.translate(0, -w * 0.35);
-  drawPlanSymbol(ctx, kind, w, d, { color, selected: false, pxPerM: scale, footprint });
+  drawPlanSymbol(ctx, kind, w, d, { color, selected: false, pxPerM: scale, footprint, plan });
 }

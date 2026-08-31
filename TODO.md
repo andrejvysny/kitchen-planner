@@ -660,3 +660,26 @@ Playwright (`npm run test:e2e`) is still blocked by the pre-existing
 `e2e/fixtures.ts` `bootReady` mismatch with the zero-room `#btn-new` flow, so
 `e2e/tools.spec.ts`'s updated Escape walk is written and typechecked but not
 executed.
+
+---
+
+# M19 — Built-in wardrobes (fitted furniture) (active)
+
+Plan: `~/.claude/plans/act-as-senior-software-robust-willow.md` (design D1-D6,
+phases, verification). New part type `wardrobe` (columns + section stacks +
+front system), fit-to-room item flags, sliding/mirror fronts, cove light,
+Workshop column editor, elevation front drawing, BOM hardware.
+
+- [x] P0.1 panels.ts refactor: export boxPanel/cylPanel/splitFronts/AT/Place,
+      lift drawerBoxPanels, exhaustive partPanels switch (zero behaviour change)
+- [x] P0.2 interiorEditor.ts extraction from zoneCanvas (shared drill-in)
+- [x] P1.1 types + IR extensions + version 8 + union compile-fixes
+- [x] P1.2 wardrobe.ts: sanitize + layout + sectionInterior (+tests)
+- [x] P1.3 wardrobe.ts: wardrobePanels + wardrobePlanSymbol (+tests)
+- [x] P1.4 export/checks touch points (+tests)
+- [x] P1.5 presets ×4 + Hallway section (+tests)
+- [x] P2.1 axis-x slide pose · P2.2 mirror material · P2.3 cove light
+- [x] P2.4 plan symbol · P2.5 elevation fronts
+- [x] P3.1 fit.ts (+tests) · P3.2 store syncDerived · P3.3 inspector/menu/command
+- [x] P4.1 wardrobeCanvas · P4.2 wardrobePanel · P4.3 e2e wardrobe + dom-contract
+- [x] P5 docs (CLAUDE.md, TODO) + full green gate

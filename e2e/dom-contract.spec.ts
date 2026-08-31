@@ -255,6 +255,7 @@ const STUDIO_PICKER: readonly ContractEntry[] = [
   vis('.studio-body'),
   vis('.studio-cards'),
   vis('.studio-card[data-type="cabinet"]'),
+  vis('.studio-card[data-type="wardrobe"]'),
   vis('.studio-card[data-type="board"]'),
   vis('.studio-card[data-type="freeform"]'),
 ];
@@ -289,6 +290,20 @@ const STUDIO_EDITOR_ADVANCED: readonly ContractEntry[] = [
   vis('.studio-canvas'),
   vis('.zone-canvas'),
   vis('.choice-btn'), // footprint picker (rect / chamfer / corner-L)
+];
+
+/**
+ * src/ui/partstudio/wardrobeCanvas.ts + wardrobePanel.ts — the wardrobe
+ * editor as it opens. Unlike the cabinet, the column canvas is on BOTH
+ * sub-tabs (there is no canned front-layout tile to stand in for it), so
+ * `#studio-wardrobe-canvas` is asserted 'present' rather than tied to a tab.
+ */
+const WARDROBE_EDITOR: readonly ContractEntry[] = [
+  vis('.studio-wardrobe'),
+  present('#studio-wardrobe-canvas'),
+  vis('.studio-wardrobe .zone-toolbar'),
+  vis('.studio-wardrobe-front'),
+  vis('.studio-tabs'),
 ];
 
 /**
@@ -614,4 +629,36 @@ test('DOM contract: selector table stays present across every pinned app state',
   // intermediate assertions is a visible unused-variable, not silent drift.
   void itemId;
   void openingId;
+});
+
+/**
+ * A separate test, deliberately not folded into the tour above: the wardrobe
+ * editor is its own selector surface (WardrobeCanvas + wardrobePanel), and
+ * e2e/wardrobe.spec.ts is the behavioural coverage for it — this just pins
+ * the DOM the two suites reach into.
+ */
+test('DOM contract: wardrobe editor selectors', async ({ app }) => {
+  await app.click('.cat-new');
+  await app.click('.studio-card[data-type="wardrobe"]');
+  await assertContract(app, WARDROBE_EDITOR);
+
+  // a section popover — click the centre of the first section rect the
+  // canvas' own e2e dataset seam reports (see wardrobeCanvas.ts's writeSeams)
+  const center = await app.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('#studio-wardrobe-canvas')!;
+    const r = canvas.getBoundingClientRect();
+    const secs = JSON.parse(canvas.dataset.sections ?? '[]') as {
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+    }[];
+    const s = secs[0];
+    return { x: r.left + s.x + s.w / 2, y: r.top + s.y + s.h / 2 };
+  });
+  await app.mouse.click(center.x, center.y);
+  await assertContract(app, [vis('.studio-wardrobe-pop'), vis('.studio-wardrobe-kind')]);
+
+  await app.keyboard.press('Escape');
+  await expect(app.locator('.studio-wardrobe-pop')).toHaveCount(0);
 });

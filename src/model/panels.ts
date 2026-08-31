@@ -18,6 +18,7 @@ import type {
   WorktopOverhang,
   Zone,
 } from './types';
+import { wardrobePanels } from './wardrobe';
 import { walkSplits, walkZones, type ZoneRect } from './zones';
 
 /**
@@ -65,7 +66,8 @@ export type PanelRole =
   | 'shelf'
   | 'rail'
   | 'drawerBox'
-  | 'board';
+  | 'board'
+  | 'light';
 
 /**
  * How a panel moves for the open-preview — and which hardware it implies.
@@ -81,6 +83,11 @@ export interface PanelMotion {
   side?: 'left' | 'right' | 'top' | 'bottom';
   /** slide only: extension in meters (≈ cavity depth × 0.9) */
   travel?: number;
+  /** slide axis; absent = 'z' (existing drawers stay byte-identical) */
+  axis?: 'x' | 'z';
+  /** axis 'x' only: which way the panel travels. Travel itself stays
+   * non-negative (export.ts's motionUnits takes Math.max on it). */
+  dir?: 1 | -1;
 }
 
 export interface Panel {
@@ -94,7 +101,7 @@ export interface Panel {
   rotY: number;
   /** colour slot — the renderer/exporter resolves it against the part/item;
    * 'counter' follows the room worktop style (per-item override wins) */
-  slot: 'front' | 'accent' | 'plinth' | 'glass' | 'counter';
+  slot: 'front' | 'accent' | 'plinth' | 'glass' | 'counter' | 'mirror';
   finish: 'matte' | 'wood';
   /** shade factor on the resolved colour (carcass darkening, leg tint) */
   tint?: number;
@@ -104,6 +111,10 @@ export interface Panel {
   motion?: PanelMotion;
   /** freeform only: the source board, for preview picking */
   boardId?: string;
+  /** bought fitting, not a cut board (e.g. track, LED strip, pull-down rail):
+   * excluded from the cut list, billed by export.ts's hardwareRows under this
+   * label */
+  bought?: string;
 }
 
 export interface PartDims {
@@ -129,11 +140,11 @@ export function cabinetFaceSize(part: CabinetPartDef): { faceW: number; faceH: n
   return { faceW: Math.max(0.1, faceW), faceH: Math.max(0.1, part.h - y0 - topT) };
 }
 
-type Place = (lx: number, lz: number) => { x: number; z: number };
+export type Place = (lx: number, lz: number) => { x: number; z: number };
 
-const AT: Place = (lx, lz) => ({ x: lx, z: lz });
+export const AT: Place = (lx, lz) => ({ x: lx, z: lz });
 
-function boxPanel(
+export function boxPanel(
   id: string,
   role: PanelRole,
   w: number,
@@ -161,7 +172,7 @@ function boxPanel(
 
 /** Same placement routing as boxPanel, for rods (rails, legs). `y` is the
  * panel bottom — for an 'x' rod that is the underside of the tube. */
-function cylPanel(
+export function cylPanel(
   id: string,
   role: PanelRole,
   dia: number,
@@ -188,11 +199,92 @@ function cylPanel(
 }
 
 /** Split a width into n fronts with small gaps; calls fn(centerX, frontW). */
-function splitFronts(w: number, n: number, fn: (x: number, fw: number) => void): void {
+export function splitFronts(w: number, n: number, fn: (x: number, fw: number) => void): void {
   const fw = (w - GAP * (n + 1)) / n;
   for (let i = 0; i < n; i++) {
     fn(-w / 2 + GAP + fw / 2 + i * (fw + GAP), fw);
   }
+}
+
+/**
+ * One physical drawer box (sides/back/bottom), face-local.
+ * `cavX` is the box centre across the face, `boxY` its bottom in the part's
+ * own y, `carcassFrontZ` the plane the fronts sit behind. Shared by every
+ * generator that emits a drawer, so the boards a shop cuts are written once.
+ */
+export function drawerBoxPanels(
+  out: Panel[],
+  id: string,
+  unit: string,
+  cavX: number,
+  cavW: number,
+  boxY: number,
+  boxH: number,
+  cavD: number,
+  carcassFrontZ: number,
+  place: Place,
+  rotY: number
+): { boxW: number; boxD: number; travel: number } | null {
+  const dims = drawerBoxDims(cavW, boxH, cavD);
+  if (!dims) return null;
+  const motion: PanelMotion = { unit, kind: 'slide', travel: dims.travel };
+  const zBoxC = carcassFrontZ - 0.005 - dims.boxD / 2;
+  const rest: Partial<Panel> = { slot: 'accent', finish: 'wood', motion };
+  out.push(
+    boxPanel(
+      `${id}.side-l`,
+      'drawerBox',
+      DRAWER_SIDE_T,
+      dims.sideH,
+      dims.boxD,
+      cavX - dims.boxW / 2 + DRAWER_SIDE_T / 2,
+      boxY,
+      zBoxC,
+      place,
+      rotY,
+      rest
+    ),
+    boxPanel(
+      `${id}.side-r`,
+      'drawerBox',
+      DRAWER_SIDE_T,
+      dims.sideH,
+      dims.boxD,
+      cavX + dims.boxW / 2 - DRAWER_SIDE_T / 2,
+      boxY,
+      zBoxC,
+      place,
+      rotY,
+      rest
+    ),
+    boxPanel(
+      `${id}.back`,
+      'drawerBox',
+      dims.boxW - DRAWER_SIDE_T * 2,
+      dims.sideH,
+      DRAWER_SIDE_T,
+      cavX,
+      boxY,
+      zBoxC - dims.boxD / 2 + DRAWER_SIDE_T / 2,
+      place,
+      rotY,
+      rest
+    ),
+    boxPanel(
+      `${id}.bottom`,
+      'drawerBox',
+      dims.boxW,
+      DRAWER_BOTTOM_T,
+      dims.boxD,
+      cavX,
+      boxY,
+      zBoxC,
+      place,
+      rotY,
+      rest
+    )
+  );
+  return dims;
 }
 
 interface FaceOpts {
@@ -281,77 +373,6 @@ function facePanels(
       })
     );
   };
-  /** one physical drawer box (sides/back/bottom) at cavity coords */
-  const drawerBox = (
-    id: string,
-    cav: Cavity,
-    boxY: number,
-    boxH: number,
-    unit: string
-  ): { boxW: number; boxD: number; travel: number } | null => {
-    const dims = drawerBoxDims(cav.w, boxH, cavD);
-    if (!dims) return null;
-    const motion: PanelMotion = { unit, kind: 'slide', travel: dims.travel };
-    const xc = cav.x0 + cav.w / 2 - faceW / 2;
-    const zBoxC = zFront - FRONT_T - 0.005 - dims.boxD / 2;
-    const y = y0 + boxY;
-    const rest: Partial<Panel> = { ...acc, motion };
-    out.push(
-      boxPanel(
-        `${id}.side-l`,
-        'drawerBox',
-        DRAWER_SIDE_T,
-        dims.sideH,
-        dims.boxD,
-        xc - dims.boxW / 2 + DRAWER_SIDE_T / 2,
-        y,
-        zBoxC,
-        place,
-        rotY,
-        rest
-      ),
-      boxPanel(
-        `${id}.side-r`,
-        'drawerBox',
-        DRAWER_SIDE_T,
-        dims.sideH,
-        dims.boxD,
-        xc + dims.boxW / 2 - DRAWER_SIDE_T / 2,
-        y,
-        zBoxC,
-        place,
-        rotY,
-        rest
-      ),
-      boxPanel(
-        `${id}.back`,
-        'drawerBox',
-        dims.boxW - DRAWER_SIDE_T * 2,
-        dims.sideH,
-        DRAWER_SIDE_T,
-        xc,
-        y,
-        zBoxC - dims.boxD / 2 + DRAWER_SIDE_T / 2,
-        place,
-        rotY,
-        rest
-      ),
-      boxPanel(
-        `${id}.bottom`,
-        'drawerBox',
-        dims.boxW,
-        DRAWER_BOTTOM_T,
-        dims.boxD,
-        xc,
-        y,
-        zBoxC,
-        place,
-        rotY,
-        rest
-      )
-    );
-    return dims;
-  };
   for (const r of walkZones(face, faceW, faceH)) {
     const zid = `z${r.path.join('-') || 'r'}`;
     const xc = r.x + r.w / 2 - faceW / 2;
@@ -365,12 +386,18 @@ function facePanels(
         const fy = yb + GAP + i * (fh + GAP);
         const unit = `${zid}.front${i}`;
         // every drawer front pulls a real box — the cut list needs its boards
-        const dims = drawerBox(
+        const dims = drawerBoxPanels(
+          out,
           `${zid}.dbox${i}`,
-          cav,
-          fy - y0 + 0.01,
+          unit,
+          cav.x0 + cav.w / 2 - faceW / 2,
+          cav.w,
+          y0 + (fy - y0 + 0.01),
           Math.max(0.05, fh - 0.03),
-          unit
+          cavD,
+          zFront - FRONT_T,
+          place,
+          rotY
         );
         front(unit, r.w - GAP * 2, fh, xc, fy, {
           unit,
@@ -618,7 +645,19 @@ function facePanels(
           );
         } else {
           const id = `${zid}.ib${bi++}`;
-          const dims = drawerBox(id, box, box.y0 + e.y, e.h, id);
+          const dims = drawerBoxPanels(
+            out,
+            id,
+            id,
+            box.x0 + box.w / 2 - faceW / 2,
+            box.w,
+            y0 + (box.y0 + e.y),
+            e.h,
+            cavD,
+            zFront - FRONT_T,
+            place,
+            rotY
+          );
           if (dims) {
             // internal drawers carry their own small front board
             out.push(
@@ -1074,7 +1113,14 @@ export interface HostContext {
 
 /** Every physical panel of a custom part, at the given instance dimensions. */
 export function partPanels(part: CustomPartDef, dims: PartDims, ctx?: HostContext): Panel[] {
-  if (part.type === 'cabinet') return cabinetPanels(part, dims, ctx);
-  if (part.type === 'board') return boardPanels(part, dims, ctx);
-  return freeformPanels(part, dims);
+  switch (part.type) {
+    case 'cabinet':
+      return cabinetPanels(part, dims, ctx);
+    case 'board':
+      return boardPanels(part, dims, ctx);
+    case 'freeform':
+      return freeformPanels(part, dims);
+    case 'wardrobe':
+      return wardrobePanels(part, dims, ctx);
+  }
 }

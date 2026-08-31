@@ -1,16 +1,27 @@
 import { clamp, fmtCm } from '../model/geometry';
-import { wallElevation, type WallElevation, type WallElevationItem } from '../model/elevation';
+import {
+  wallElevation,
+  type ElevationFront,
+  type WallElevation,
+  type WallElevationItem,
+} from '../model/elevation';
 import type { RoomWall } from '../model/rooms';
 import type { EditorState } from '../editor/editorState';
 import type { Store } from '../model/store';
 import type { Point } from '../model/types';
 import { resolveColor } from '../model/variables';
+import { drawHingeTick } from './hingeTick';
 import { coarsePointer, hitRadius, PinchGesture } from './pinch';
 
 const INK = '#3a3934';
 const ACCENT = '#2f6f5e';
 const WALL_FILL = '#eceae4';
 const FLOOR = '#d8d5ce';
+/** front-layout strokes sit UNDER the body outline in weight, not over it */
+const FRONT_INK = 'rgba(58, 57, 52, 0.55)';
+const NICHE_FILL = 'rgba(0, 0, 0, 0.06)';
+/** below this many px a front rectangle is noise, not information */
+const FRONT_MIN = 6;
 
 /**
  * Straight-on front view of one wall. Renders only the furniture attached to
@@ -195,6 +206,16 @@ export class ElevationView {
     return this.wallId ? wallElevation(this.store.design, this.wallId) : null;
   }
 
+  /**
+   * Same, plus each custom part's projected front layout. Only `draw()` calls
+   * it: fronts cost a `partPanels` run per cabinet, and `hitItem` re-reads the
+   * elevation on every pointer move (see `WallElevationOpts`).
+   */
+  private drawData(): WallElevation | null {
+    this.ensureWall();
+    return this.wallId ? wallElevation(this.store.design, this.wallId, { fronts: true }) : null;
+  }
+
   /* ---------------- activation ---------------- */
 
   setActive(on: boolean): void {
@@ -353,7 +374,7 @@ export class ElevationView {
     ctx.fillStyle = '#f4f3f0';
     ctx.fillRect(0, 0, this.cssW, this.cssH);
 
-    const data = this.data();
+    const data = this.drawData();
     if (!data) {
       this.drawEmpty('Add a wall to see its elevation');
       return;
@@ -409,6 +430,8 @@ export class ElevationView {
       ctx.lineWidth = selected ? 2.4 : 1.1;
       ctx.strokeRect(a.x, a.y, w, h);
 
+      if (it.front?.length) this.drawFronts(it.front, a, w, h);
+
       const label = this.store.defOf(it.defId).label;
       if (w > 44) this.drawItemLabel(a.x + w / 2, a.y + h / 2, label, selected);
     }
@@ -422,6 +445,47 @@ export class ElevationView {
     ctx.stroke();
 
     this.drawDimension(p0, data);
+  }
+
+  /**
+   * The part's own doors / drawer fronts / panes / niches inside its body
+   * rectangle, projected from the panel IR (src/model/elevation.ts). Clipped to
+   * the body, so a worktop overhang or a chamfer's wider shadow can never bleed
+   * over a neighbour, and anything under FRONT_MIN px is dropped rather than
+   * drawn as a smudge — a carcass side reads as a line at any useful zoom.
+   */
+  private drawFronts(fronts: ElevationFront[], a: Point, w: number, h: number): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(a.x, a.y, w, h);
+    ctx.clip();
+    ctx.lineWidth = 0.9;
+    ctx.strokeStyle = FRONT_INK;
+    for (const f of fronts) {
+      const p = this.toScreen(f.t0, f.z1);
+      const fw = (f.t1 - f.t0) * this.zoom;
+      const fh = (f.z1 - f.z0) * this.zoom;
+      if (fw < FRONT_MIN || fh < FRONT_MIN) continue;
+      if (f.kind === 'niche') {
+        ctx.fillStyle = NICHE_FILL;
+        ctx.fillRect(p.x, p.y, fw, fh);
+      }
+      // the inner sliding lane sits BEHIND the outer one — fade it back
+      ctx.globalAlpha = f.slide === 0 ? 0.85 : 1;
+      ctx.strokeRect(p.x, p.y, fw, fh);
+      if (f.kind === 'glass') {
+        ctx.beginPath();
+        ctx.moveTo(p.x + 3, p.y + 3);
+        ctx.lineTo(p.x + fw - 3, p.y + fh - 3);
+        ctx.moveTo(p.x + fw - 3, p.y + 3);
+        ctx.lineTo(p.x + 3, p.y + fh - 3);
+        ctx.stroke();
+      }
+      if (f.hinge) drawHingeTick(ctx, p.x, p.y, fw, fh, f.hinge);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
   }
 
   private drawItemLabel(cx: number, cy: number, text: string, selected: boolean): void {

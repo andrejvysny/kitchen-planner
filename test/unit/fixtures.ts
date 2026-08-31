@@ -1,4 +1,41 @@
+import type { Panel } from '../../src/model/panels';
 import type { Board } from '../../src/model/types';
+
+/**
+ * Half-extents of a panel list about the part origin: `maxX`/`maxZ` are the
+ * furthest any board reaches sideways/front-to-back, `maxY` the highest top.
+ * The bbox invariant every part generator holds — nothing pokes outside the
+ * instance's own w × d × h — so this is shared by the cabinet and wardrobe
+ * suites rather than re-derived in each.
+ */
+export function bboxOf(panels: Panel[]): { maxX: number; maxY: number; maxZ: number } {
+  let maxX = 0;
+  let maxY = 0;
+  let maxZ = 0;
+  for (const p of panels) {
+    if (p.shape.kind === 'prism') {
+      for (const q of p.shape.outline) {
+        maxX = Math.max(maxX, Math.abs(q.x));
+        maxZ = Math.max(maxZ, Math.abs(q.y));
+      }
+      maxY = Math.max(maxY, p.y + p.shape.h);
+    } else {
+      const c = Math.abs(Math.cos(p.rotY));
+      const s = Math.abs(Math.sin(p.rotY));
+      // a cyl's `h` is its length along `axis`: upright for the default 'y'
+      // (legs, posts), but ACROSS the part for 'x' (hanging rails), where the
+      // vertical extent is only the tube's diameter
+      const flat = p.shape.kind === 'cyl' && p.shape.axis === 'x';
+      const w = p.shape.kind === 'cyl' ? (flat ? p.shape.h : p.shape.dia) : p.shape.w;
+      const d = p.shape.kind === 'cyl' ? p.shape.dia : p.shape.d;
+      const up = p.shape.kind === 'cyl' && flat ? p.shape.dia : p.shape.h;
+      maxX = Math.max(maxX, Math.abs(p.x) + (w * c + d * s) / 2);
+      maxZ = Math.max(maxZ, Math.abs(p.z) + (w * s + d * c) / 2);
+      maxY = Math.max(maxY, p.y + up);
+    }
+  }
+  return { maxX, maxY, maxZ };
+}
 
 /**
  * Desk-shaped freeform board list (top + 4 cylinder legs + drawer pedestal)

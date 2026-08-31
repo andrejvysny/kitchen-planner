@@ -1,6 +1,6 @@
 /**
  * Human names + one-clause captions for every value that can appear in a
- * swatch/material row: the 19 built-in material ids (src/model/materials.ts)
+ * swatch/material row: the 20 built-in material ids (src/model/materials.ts)
  * and the plain colour hexes used by the built-in palettes (src/model/
  * catalog.ts FRONT_COLORS/FLOOR_COLORS/WALL_COLORS/COUNTER_COLORS/
  * LIGHT_COLORS). Pure model code — no three.js, no DOM.
@@ -60,6 +60,7 @@ const MATERIAL_META: Record<string, MatMeta> = {
   'tiles-grey': { caption: 'Grey ceramic tile — clean and practical', group: 'tile' },
   'tiles-terracotta': { caption: 'Terracotta tile — earthy and warm', group: 'tile' },
   glass: { caption: 'Clear and translucent — doors and splashbacks', group: 'glass' },
+  mirror: { caption: 'Silvered glass — doubles a room and bounces light', group: 'glass' },
   'plastic-matte': { caption: 'Smooth matte finish — freely recolourable', group: 'plastic' },
   'plastic-gloss': { caption: 'High-gloss finish — freely recolourable', group: 'plastic' },
 };

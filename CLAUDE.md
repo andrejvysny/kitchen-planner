@@ -69,6 +69,30 @@ Custom parts (Part Studio, src/ui/partstudio/) are a discriminated union on
   parametric→explicit bridge — or `{mode:'custom', elements}` edited in the
   zone canvas drill-in) and `hinge?` on doors (drilling datum). Every drawer
   front emits a real drawer box (sides/back/bottom) into the panel list.
+- `wardrobe` — a fitted RUN OF COLUMNS (built-in wardrobes, walk-in shelving,
+  hallway units): `columns` carry ABSOLUTE widths with exactly one `'fill'`
+  per run, each column a bottom-to-top stack of typed `sections`
+  (`hanging | hangingDouble | shelves | drawers | open | seat | shoes |
+  custom` — one `'fill'` height per column), plus a run-level `front`
+  (`none | hinged | sliding {panels: 2|3, mirror?}`), `sides`
+  (`panel | wall` — alcove mode omits end panels), `filler` scribe strips,
+  `top: panel | ceiling`, `back`, `plinthH`, `topRow` (small doors above every
+  column), `cornice` and `light` (cove/shelf LED strips). ALL math lives in
+  src/model/wardrobe.ts: `wardrobeLayout` is the SINGLE layout source (panel
+  generator, studio wardrobe canvas, plan symbol and elevation drawing all
+  read it — the `walkZones` rule again), `sectionInterior` maps a typed
+  section onto `resolveInterior`'s vocabulary (so interior clamps stay
+  single-source), `sanitizeWardrobeFields` repairs IN PLACE and never
+  reorders (the editor holds indices mid-gesture). Sliding fronts ride
+  `PanelMotion {kind:'slide', axis:'x', dir}` (travel stays non-negative —
+  export.ts's `Math.max` would destroy a signed one); bought fittings (LED
+  strips, tracks, pull-down rails) carry `Panel.bought` — excluded from the
+  cut list, billed as hardware BuyRows. `open` sections emit NO 15 mm niche
+  lining (a column already has real boards on all four sides). Extending a
+  wardrobe means: a new `WardrobeSectionKind` in types.ts + the
+  `sanitizeWardrobeFields` kind list + a `sectionInterior` branch (or a
+  bespoke emitter in `wardrobePanels`) + a popover tile in
+  src/ui/partstudio/wardrobeCanvas.ts.
 - `board` — a horizontal slab extruded from a free CCW polygon `outline`
   (+ rectangular `holes`); worktops, floating shelves. Rendered via `prism()`
   (ExtrudeGeometry) in src/view3d/meshKit.ts.
@@ -113,9 +137,33 @@ applianceHosting + worktopRuns is THE per-item context: computed once per
 View3D rebuild and once per BOM export — call it, not applianceHosting.
 Polygon footprints (chamfer/cornerL) and L-corner runs are out of scope.
 
+**Fit-to-room** makes an item BUILT-IN: `item.fit = {width?: 'walls',
+height?: 'ceiling'}` are persistent flags recomputed by `syncFits`
+(src/model/fit.ts, pure) — width probes both ways along the hugged wall
+against other walls' room-side FACES (`slabQuad`, never the corner ring — a
+partition's ring is its centreline) and other items' OBBs; height reads
+`styleOfItem().wallHeight`. `store.syncDerived()` = `syncFits` THEN
+`syncAttachments` (a fitted host's centre moves, and counter anchors are
+host-local from the centre) and runs from every mutator that used to call
+syncAttachments plus the room/wall/item mutators; the load-time pass sits in
+`sanitizeDesign` after `sanitizeAttachments`, deliberately NOT in
+`normalizeDesign` (that one runs on the undo-restore path, where a
+non-idempotent write mints spurious undo steps). A manual w/h edit CLEARS the
+matching flag inside `store.updateItem` — the only w/h write path. Entry
+points: two toggles in the inspector's Dimensions section and the context
+menu's "Fit to alcove" (`item.fitToRoom` command).
+
+The elevation view draws every custom part's FRONT LAYOUT (doors, drawer
+fronts, glass, niches, hinge ticks, sliding lanes): `wallElevation(design,
+wallId, {fronts: true})` projects `partPanels` front-plane roles onto the
+wall — OPT-IN, because `hitItem` runs `wallElevation` at pointer rate and
+must stay panel-free. The hinge-tick notation lives in
+src/plan2d/hingeTick.ts, shared by the studio tiles, the wardrobe canvas and
+the elevation.
+
 Zone trees live on the part def only — placed instances override just
 w/d/h/color/elevation ("Duplicate part" in the studio and "Customize part…"
-in the props panel cover variants). `DESIGN_VERSION` is 7; sanitizeDesign
+in the props panel cover variants). `DESIGN_VERSION` is 8; sanitizeDesign
 migrates v5 forward (src/model/migrate.ts) and returns null for anything
 older or unknown (callers fall back to a fresh/demo design).
 
@@ -431,7 +479,7 @@ already went through, which is why a divider needed no code of its own in any
 of them — it arrives as one more `RoomWall` carrying `roomId === NO_ROOM` and a
 `freeWallId`. The weld/shared-edge machinery deliberately does NOT see them
 (`store.roomWalls()`): a chain that encloses nothing can never be half of a
-partition. `DESIGN_VERSION` is **7**; v6→v7 only adds the empty list, and the
+partition. `DESIGN_VERSION` is **8**; v6→v7 only adds the empty list, and the
 bump exists so an older build refuses the file instead of dropping every
 divider on the next save.
 
@@ -645,12 +693,18 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
     self-crossing outline from its bounding box, so `changed()` holds the write
     back while `validate()` reports anything — the live-apply spelling of the old
     disabled Save button, and what `.studio-validation` is still for.
-  - **Cabinet rails are filtered by a session `studioTab` flag** (Simple /
-    Advanced, src/ui/partstudio/studioTab.ts — module `let`, never persisted).
-    Every section declares its tab AT ITS RENDER SITE in cabinetPanel.ts (no
-    parallel list to drift), and the zone canvas is not built at all on Simple.
-    Board/freeform parts get no tab strip. `#studio-front-layouts` is the
-    Simple tab's front-layout slot (filled by WP 3.4).
+  - **Cabinet AND wardrobe rails are filtered by a session `studioTab` flag**
+    (Simple / Advanced, src/ui/partstudio/studioTab.ts — module `let`, never
+    persisted). Every section declares its tab AT ITS RENDER SITE in
+    cabinetPanel.ts / wardrobePanel.ts (no parallel list to drift), and the
+    cabinet zone canvas is not built at all on Simple. The WARDROBE column
+    canvas (src/ui/partstudio/wardrobeCanvas.ts) is on BOTH tabs — it has no
+    faceLayouts-style stand-in, so hiding it would leave no way to add a
+    column; the tab strip filters its rail only. Its 'custom' sections reuse
+    the SAME `InteriorEditor` (src/ui/partstudio/interiorEditor.ts, extracted
+    from the zone canvas — one drill-in, two hosts). Board/freeform parts get
+    no tab strip. `#studio-front-layouts` is the Simple tab's front-layout
+    slot (filled by WP 3.4).
   - **Undo REPLACES the design's objects**, so the studio subscribes to
     'history' and re-opens on whatever its id resolves to now (resident part,
     the preset it shadowed, or the picker). Its OWN commits are told apart by
@@ -974,7 +1028,7 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   postdate the rename and have no legacy twin. `NUDGE_KEY` (the Furnish
   nudge's dismissal) is the one key there in **sessionStorage**: "for the rest
   of the session" is the tab's lifetime, so a reload must keep it hidden and a
-  new tab must not. `DESIGN_VERSION` is 7.
+  new tab must not. `DESIGN_VERSION` is 8.
   `sanitizeDesign()` (store.ts) is the single validation/repair gate for
   autosave and file import: it runs `migrateDesign()` first (versioned step
   map, `MIN_MIGRATABLE_VERSION` 5) and returns null when there is no path.
@@ -1001,7 +1055,7 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   interpretation. The plan and elevation CANVASES still label in cm (wall
   lengths, dimension lines): they draw their own text and were deliberately
   left alone.
-- The `kp:` material-name grammar and the 19 material ids are a cross-language
+- The `kp:` material-name grammar and the 20 material ids are a cross-language
   contract spanning three files that must move together: src/model/
   materialName.ts (TS), render/worker/kprender/matnames.py (Python) and
   render/materials/openpbr.materials.json (data). test/unit/materialName.test.ts

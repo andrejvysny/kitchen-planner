@@ -958,8 +958,20 @@ export class View3D {
       } else if (def.light.kind === 'bar') {
         // area light spanning the whole strip → even wash instead of a point hotspot
         const r = new THREE.RectAreaLight('#ffffff', 0, item.w, 0.06);
-        r.position.y = lightLocalY(def, item);
+        // `local` is the custom-part discriminator (a wardrobe's cove strip
+        // sits at the top front edge, not at the item origin); the catalog
+        // strip has none and keeps `lightLocalY` byte for byte.
+        const local = def.light.local;
+        // `local` is authored against the DEF's dims; a placed instance may be
+        // resized (fit-to-ceiling), so keep the strip a fixed inset from the
+        // item's own top/front edges rather than at the def's absolute height.
+        if (local)
+          r.position.set(0, item.h - (def.h - local.y), item.d / 2 - (def.d / 2 - (local.z ?? 0)));
+        else r.position.y = lightLocalY(def, item);
         r.rotation.x = -Math.PI / 2; // emit downward along the strip's length
+        // relight() drives every bar through the same branch and its
+        // `instanceof RectAreaLight` guard keeps area lights out of
+        // SHADOW_LIGHT_BUDGET — a cove strip costs no shadow map.
         light = r;
       } else {
         const p = new THREE.PointLight('#ffffff', 0, 8, 1.8);

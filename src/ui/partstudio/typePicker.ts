@@ -15,6 +15,12 @@ const CARDS: Card[] = [
     icon: `<svg viewBox="0 0 64 64"><rect x="8" y="10" width="48" height="44" rx="2"/><line x1="8" y1="26" x2="56" y2="26"/><line x1="32" y1="26" x2="32" y2="54"/><line x1="14" y1="18" x2="50" y2="18"/></svg>`,
   },
   {
+    type: 'wardrobe',
+    title: 'Built-in wardrobe',
+    blurb: 'A fitted run of columns, wall to wall — sliding or hinged fronts, or open shelving.',
+    icon: `<svg viewBox="0 0 64 64"><rect x="6" y="8" width="52" height="48" rx="2"/><line x1="23" y1="8" x2="23" y2="56"/><line x1="41" y1="8" x2="41" y2="56"/><line x1="41" y1="28" x2="58" y2="28"/><line x1="41" y1="40" x2="58" y2="40"/><line x1="14" y1="22" x2="14" y2="26"/></svg>`,
+  },
+  {
     type: 'board',
     title: 'Worktop / board',
     blurb: 'Draw any outline and extrude a slab — L-shaped worktops, shelves.',

@@ -1,4 +1,5 @@
 import { FACE_LAYOUTS, type FaceLayout } from '../../model/faceLayouts';
+import { drawHingeTick } from '../../plan2d/hingeTick';
 import { presetPart } from '../../model/presets';
 import type { CabinetPartDef, LeafZone, Zone } from '../../model/types';
 import { walkZones } from '../../model/zones';
@@ -34,32 +35,9 @@ function isCustomizedFace(part: CabinetPartDef): boolean {
   return !(preset?.type === 'cabinet' && JSON.stringify(preset.face) === current);
 }
 
-/** A short diagonal near one corner — the plan-elevation convention for a door's swing/hinge side. */
-function drawHingeTick(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  side: 'left' | 'right' | 'top' | 'bottom'
-): void {
-  const len = Math.min(w, h) * 0.4;
-  ctx.beginPath();
-  if (side === 'left') {
-    ctx.moveTo(x + 3, y + 3);
-    ctx.lineTo(x + 3 + len, y + 3 + len);
-  } else if (side === 'right') {
-    ctx.moveTo(x + w - 3, y + 3);
-    ctx.lineTo(x + w - 3 - len, y + 3 + len);
-  } else if (side === 'top') {
-    ctx.moveTo(x + 3, y + 3);
-    ctx.lineTo(x + 3 + len, y + 3 + len);
-  } else {
-    ctx.moveTo(x + 3, y + h - 3);
-    ctx.lineTo(x + 3 + len, y + h - 3 - len);
-  }
-  ctx.stroke();
-}
+/** Kept exported here for the studio's own callers — the implementation moved
+ * to src/plan2d/hingeTick.ts so the wall elevation draws the SAME notation. */
+export { drawHingeTick };
 
 /** Diagonal hatch inside a clipped rect — the "open"/void schematic. */
 function drawHatch(

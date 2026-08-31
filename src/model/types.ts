@@ -71,6 +71,8 @@ export interface Item {
   params?: Record<string, number>;
   /** appliances only: host-local mounting anchor */
   attach?: Attachment;
+  /** persistent fit-to-room flags; recomputed by syncFits (src/model/fit.ts) */
+  fit?: { width?: 'walls'; height?: 'ceiling' };
   /**
    * Room this item belongs to. Authoritative when set; re-inferred from the
    * item centre's containment when absent or dangling (see rooms.ts
@@ -284,8 +286,48 @@ export interface FreeformPartDef extends PartBase {
   boards: Board[];
 }
 
+export type WardrobeSectionKind =
+  'hanging' | 'hangingDouble' | 'shelves' | 'drawers' | 'open' | 'seat' | 'shoes' | 'custom';
+export interface WardrobeSection {
+  kind: WardrobeSectionKind;
+  h: number | 'fill'; // exactly one 'fill' per column
+  count?: number; // shelves 1..6 | drawers 1..8 (1..4 when behind a door) | shoes 1..8
+  pullDown?: boolean; // hanging*: bought lift rail
+  exposed?: boolean; // hinged front only: sits OUTSIDE the column door
+  interior?: Interior; // kind 'custom' only
+}
+export interface WardrobeColumn {
+  id: string; // unique (sanitizer); panel ids + editor selection key on it
+  w: number | 'fill'; // exactly one 'fill' per run; fixed 0.2..1.5
+  sections: WardrobeSection[]; // bottom → top, 1..6
+  door: 'auto' | 'none' | 'left' | 'right' | 'pair';
+}
+export type WardrobeFront =
+  { kind: 'none' } | { kind: 'hinged' } | { kind: 'sliding'; panels: 2 | 3; mirror?: boolean };
+/**
+ * A fitted run of columns, left → right; each column is a stack of sections,
+ * bottom → top. Pure layout math lives in `wardrobeLayout` (src/model/
+ * wardrobe.ts) — the SINGLE layout source shared by the panel generator, the
+ * studio canvas, the plan symbol and the elevation drawing, exactly like
+ * `walkZones` is for a cabinet's zone tree.
+ */
+export interface WardrobePartDef extends PartBase {
+  type: 'wardrobe';
+  columns: WardrobeColumn[]; // 1..8
+  front: WardrobeFront;
+  sides: { left: 'panel' | 'wall'; right: 'panel' | 'wall' };
+  filler: { left: number; right: number }; // 0..0.1, forced 0 on a 'wall' side
+  top: 'panel' | 'ceiling';
+  back: boolean;
+  plinthH: number; // 0..0.2
+  topRow?: { h: number; doors: boolean }; // 0.25..0.8
+  cornice?: number; // 0..0.3
+  light?: { cove: boolean; shelves: boolean };
+  mirror?: boolean; // hinged only
+}
+
 /** A user-created part, built in the Part Studio. */
-export type CustomPartDef = CabinetPartDef | BoardPartDef | FreeformPartDef;
+export type CustomPartDef = CabinetPartDef | BoardPartDef | FreeformPartDef | WardrobePartDef;
 
 /**
  * A named, reusable finish token ("design variable"). Colour slots bind to it
@@ -351,7 +393,7 @@ export interface FreeWall {
 }
 
 export interface Design {
-  version: 7;
+  version: 8;
   /** ≥1 room; rooms[0] is the fallback active room and the shared-edge owner tiebreak */
   rooms: Room[];
   /** design-global; `wallId` (a globally unique corner id) alone names the wall */

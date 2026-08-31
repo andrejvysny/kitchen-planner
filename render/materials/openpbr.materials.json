@@ -2,7 +2,7 @@
   "schema": "kp.openpbr.library/1",
   "openpbrVersion": "1.1",
   "_comment": [
-    "Mirrors the 19 MaterialDefs in src/model/materials.ts (never rename an id",
+    "Mirrors the 20 MaterialDefs in src/model/materials.ts (never rename an id",
     "— it is persisted in designs). `appColor` is the def's own `color` hex;",
     "`tileMeters` mirrors src/view3d/textures.ts TILE_M (null for pattern",
     "'none'). `openpbr` lists only params that deviate from the OpenPBR 1.1",
@@ -337,6 +337,21 @@
         "specular_roughness": 0.02,
         "transmission_weight": 1.0,
         "geometry_thin_walled": true
+      },
+      "textureSet": null
+    },
+    {
+      "id": "mirror",
+      "label": "Mirror",
+      "appColor": "#e8ecee",
+      "tintable": false,
+      "tileMeters": null,
+      "openpbr": {
+        "base_color": [0.910, 0.925, 0.933],
+        "base_metalness": 1.0,
+        "specular_roughness": 0.04,
+        "specular_weight": 1.0,
+        "specular_ior": 2.5
       },
       "textureSet": null
     },

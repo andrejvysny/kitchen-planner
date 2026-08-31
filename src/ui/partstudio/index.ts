@@ -11,6 +11,7 @@ import type { Store } from '../../model/store';
 import { confirmDialog } from '../dialogService';
 import type { CustomPartDef } from '../../model/types';
 import { uid } from '../../model/types';
+import { newWardrobePart } from '../../model/wardrobe';
 import { clearWorkshopTarget, openInWorkshop, workshopTarget } from '../workspaceState';
 import { BoardPanel } from './boardPanel';
 import { renderCabinetPanel } from './cabinetPanel';
@@ -19,15 +20,25 @@ import { PolygonCanvas } from './polygonCanvas';
 import { StudioPreview } from './preview';
 import { setStudioTab, studioTab, type StudioTab } from './studioTab';
 import { renderTypePicker } from './typePicker';
+import { WardrobeCanvas } from './wardrobeCanvas';
+import { renderWardrobePanel } from './wardrobePanel';
 import { ZoneCanvas } from './zoneCanvas';
 
 const TYPE_LABELS: Record<CustomPartDef['type'], string> = {
   cabinet: 'Cabinet',
+  wardrobe: 'Built-in wardrobe',
   board: 'Worktop / board',
   freeform: 'Free boards',
 };
 
-const CREATABLE: CustomPartDef['type'][] = ['cabinet', 'board', 'freeform'];
+const CREATABLE: CustomPartDef['type'][] = ['cabinet', 'wardrobe', 'board', 'freeform'];
+
+const FACTORIES: Record<CustomPartDef['type'], () => CustomPartDef> = {
+  cabinet: newCabinetPart,
+  wardrobe: newWardrobePart,
+  board: newBoardPart,
+  freeform: newFreeformPart,
+};
 
 /**
  * Part Studio: the part editor — a form rail, a zone/polygon canvas and a live
@@ -79,6 +90,7 @@ export class PartStudio {
   private board: BoardPanel | null = null;
   private polyCanvas: PolygonCanvas | null = null;
   private zoneCanvas: ZoneCanvas | null = null;
+  private wardrobeCanvas: WardrobeCanvas | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private offHistory: (() => void) | null = null;
 
@@ -120,8 +132,8 @@ export class PartStudio {
           <button class="btn studio-fork" title="Copies this part for just this cabinet — the other copies keep the original">Fork for this item only</button>
         </div>
         <div class="studio-tabs" role="tablist">
-          <button class="btn studio-tab" data-tab="simple" role="tab" title="Size, front layout, body and colours">Simple</button>
-          <button class="btn studio-tab" data-tab="advanced" role="tab" title="Everything: zone tree, interiors, footprint">Advanced</button>
+          <button class="btn studio-tab" data-tab="simple" role="tab" title="Size, layout, body and colours">Simple</button>
+          <button class="btn studio-tab" data-tab="advanced" role="tab" title="Everything: layout details, interiors and how it meets the room">Advanced</button>
         </div>
         <div class="studio-body"></div>
         <div class="studio-foot">
@@ -154,7 +166,8 @@ export class PartStudio {
     if (
       this.freeform?.handleEscape() ||
       this.board?.handleEscape() ||
-      this.zoneCanvas?.handleEscape()
+      this.zoneCanvas?.handleEscape() ||
+      this.wardrobeCanvas?.handleEscape()
     ) {
       this.refreshPreview();
     }
@@ -199,6 +212,8 @@ export class PartStudio {
     this.polyCanvas = null;
     this.zoneCanvas?.dispose();
     this.zoneCanvas = null;
+    this.wardrobeCanvas?.dispose();
+    this.wardrobeCanvas = null;
   }
 
   /* ---------------- states ---------------- */
@@ -215,12 +230,7 @@ export class PartStudio {
     (this.overlay!.querySelector('.studio-tabs') as HTMLElement).style.display = 'none';
     (this.overlay!.querySelector('.studio-type-badge') as HTMLElement).textContent = 'New part';
     renderTypePicker(body, CREATABLE, (type) => {
-      const fresh =
-        type === 'cabinet'
-          ? newCabinetPart()
-          : type === 'board'
-            ? newBoardPart()
-            : newFreeformPart();
+      const fresh = FACTORIES[type]();
       // Picking a type IS the creation now, so unlike materializing a preset
       // shadow this one commits: the user asked for a new part and it must
       // survive a reload (autosave runs on commit) and be undoable as one step.
@@ -273,7 +283,7 @@ export class PartStudio {
     this.renderTabs();
 
     this.preview = new StudioPreview(body.querySelector('.studio-preview') as HTMLElement);
-    if (part.type === 'cabinet') {
+    if (part.type === 'cabinet' || part.type === 'wardrobe') {
       // studio-local open toggle so interiors can be inspected while editing
       const holder = body.querySelector('.studio-preview') as HTMLElement;
       const toggle = document.createElement('label');
@@ -295,9 +305,10 @@ export class PartStudio {
   }
 
   /**
-   * The Simple / Advanced strip (WS-SPEC WP 3.3). CABINETS ONLY: a board is a
-   * polygon and a freeform part is a list of boards — neither has a novice half
-   * and an expert half to split, so they get no strip and their whole rail.
+   * The Simple / Advanced strip (WS-SPEC WP 3.3). CABINETS AND WARDROBES ONLY:
+   * a board is a polygon and a freeform part is a list of boards — neither has
+   * a novice half and an expert half to split, so they get no strip and their
+   * whole rail.
    *
    * The choice itself lives in the session module (`studioTab`), not on this
    * object, because `open` tears the studio down and builds a new one every
@@ -307,9 +318,10 @@ export class PartStudio {
   private renderTabs(): void {
     const overlay = this.overlay!;
     const strip = overlay.querySelector('.studio-tabs') as HTMLElement;
-    const cabinet = this.part?.type === 'cabinet';
-    strip.style.display = cabinet ? '' : 'none';
-    if (!cabinet) return;
+    const type = this.part?.type;
+    const tabbed = type === 'cabinet' || type === 'wardrobe';
+    strip.style.display = tabbed ? '' : 'none';
+    if (!tabbed) return;
     for (const b of strip.querySelectorAll<HTMLButtonElement>('.studio-tab')) {
       const tab = b.dataset.tab as StudioTab;
       b.classList.toggle('active', tab === studioTab());
@@ -359,6 +371,25 @@ export class PartStudio {
     } else if (part.type === 'freeform') {
       this.freeform = new FreeformPanel(rail, part, (transient) => this.changed(transient));
       this.preview!.onPick = (id) => this.freeform?.select(id);
+    } else if (part.type === 'wardrobe') {
+      const mid = this.overlay!.querySelector('.studio-canvas') as HTMLElement;
+      // a tab switch re-enters this method against a live editor
+      mid.innerHTML = '';
+      // The column canvas is on BOTH tabs, unlike the cabinet's zone canvas:
+      // a wardrobe has no canned front-layout tiles to stand in for it, and a
+      // run of columns with no columns on screen is not a Simple wardrobe, it
+      // is an unusable one.
+      mid.hidden = false;
+      this.wardrobeCanvas = new WardrobeCanvas(mid, part, (transient) => this.changed(transient));
+      renderWardrobePanel(
+        rail,
+        part,
+        (transient) => {
+          this.wardrobeCanvas?.draw();
+          this.changed(transient);
+        },
+        studioTab()
+      );
     } else {
       const mid = this.overlay!.querySelector('.studio-canvas') as HTMLElement;
       this.polyCanvas = new PolygonCanvas(mid, part, (transient) => this.changed(transient));
@@ -493,7 +524,8 @@ export class PartStudio {
       if (
         this.freeform?.handleDelete() ||
         this.board?.handleDelete() ||
-        this.zoneCanvas?.handleDelete()
+        this.zoneCanvas?.handleDelete() ||
+        this.wardrobeCanvas?.handleDelete()
       ) {
         e.preventDefault();
         this.changed();

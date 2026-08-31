@@ -171,6 +171,14 @@ export const MATERIALS: MaterialDef[] = [
     opacity: 0.35,
   }),
   m({
+    id: 'mirror',
+    label: 'Mirror',
+    pattern: 'none',
+    color: '#e8ecee',
+    roughness: 0.04,
+    metalness: 1.0,
+  }),
+  m({
     id: 'plastic-matte',
     label: 'Matte plastic',
     pattern: 'none',

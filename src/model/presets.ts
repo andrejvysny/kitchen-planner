@@ -5,6 +5,9 @@ import type {
   CustomPartDef,
   FreeformPartDef,
   Interior,
+  WardrobeColumn,
+  WardrobePartDef,
+  WardrobeSection,
   Zone,
 } from './types';
 
@@ -25,6 +28,19 @@ export interface PresetEntry {
 const door: Zone = { kind: 'leaf', fill: 'door' };
 
 const cabinet = (p: Omit<CabinetPartDef, 'type'>): CabinetPartDef => ({ type: 'cabinet', ...p });
+
+const wardrobe = (p: Omit<WardrobePartDef, 'type'>): WardrobePartDef => ({
+  type: 'wardrobe',
+  ...p,
+});
+
+/** One wardrobe column; `door` defaults to 'auto' (single vs. pair decided by width). */
+const col = (
+  id: string,
+  w: number | 'fill',
+  sections: WardrobeSection[],
+  door: WardrobeColumn['door'] = 'auto'
+): WardrobeColumn => ({ id, w, sections, door });
 
 const SHELF_T = 0.028;
 
@@ -489,6 +505,148 @@ export const PRESETS: PresetEntry[] = [
           { kind: 'leaf', fill: 'drawers', drawers: 3 },
         ],
       },
+    }),
+  },
+  {
+    section: 'Bedroom',
+    part: wardrobe({
+      id: 'wardrobe-sliding',
+      name: 'Sliding wardrobe 200',
+      w: 2.0,
+      d: 0.65,
+      h: 2.4,
+      elevation: 0,
+      color: FRONT_COLORS[0],
+      accentColor: OAK,
+      front: { kind: 'sliding', panels: 2 },
+      sides: { left: 'panel', right: 'panel' },
+      filler: { left: 0, right: 0 },
+      top: 'panel',
+      back: true,
+      plinthH: 0.1,
+      columns: [
+        col('c1', 'fill', [{ kind: 'hanging', h: 'fill' }]),
+        col('c2', 0.9, [
+          { kind: 'drawers', h: 0.7, count: 3 },
+          { kind: 'shelves', h: 'fill', count: 4 },
+        ]),
+      ],
+    }),
+  },
+  {
+    section: 'Bedroom',
+    part: wardrobe({
+      id: 'wardrobe-fitted',
+      name: 'Fitted wardrobe 300',
+      w: 3.0,
+      d: 0.6,
+      h: 2.4,
+      elevation: 0,
+      color: FRONT_COLORS[0],
+      accentColor: OAK,
+      front: { kind: 'hinged' },
+      sides: { left: 'panel', right: 'panel' },
+      filler: { left: 0, right: 0 },
+      top: 'panel',
+      back: true,
+      plinthH: 0.1,
+      topRow: { h: 0.4, doors: true },
+      columns: [
+        col('c1', 0.75, [{ kind: 'hanging', h: 'fill' }], 'left'),
+        col('c2', 'fill', [{ kind: 'hangingDouble', h: 'fill' }], 'left'),
+        col('c3', 0.75, [{ kind: 'shelves', h: 'fill', count: 5 }], 'right'),
+        col(
+          'c4',
+          0.5,
+          [
+            { kind: 'drawers', h: 0.8, count: 4 },
+            { kind: 'shelves', h: 'fill', count: 2 },
+          ],
+          'right'
+        ),
+      ],
+    }),
+  },
+  {
+    section: 'Bedroom',
+    part: wardrobe({
+      id: 'walk-in-shelving',
+      name: 'Walk-in shelving',
+      w: 2.4,
+      d: 0.5,
+      h: 2.5,
+      elevation: 0,
+      color: FRONT_COLORS[3],
+      accentColor: OAK,
+      front: { kind: 'none' },
+      sides: { left: 'wall', right: 'wall' },
+      filler: { left: 0, right: 0 },
+      top: 'ceiling',
+      back: false,
+      plinthH: 0.06,
+      light: { cove: true, shelves: false },
+      columns: [
+        col(
+          'c1',
+          0.8,
+          [
+            { kind: 'shelves', h: 0.9, count: 2 },
+            { kind: 'hanging', h: 'fill' },
+          ],
+          'none'
+        ),
+        col(
+          'c2',
+          'fill',
+          [
+            { kind: 'drawers', h: 0.6, count: 3 },
+            { kind: 'shelves', h: 'fill', count: 5 },
+          ],
+          'none'
+        ),
+        col(
+          'c3',
+          0.8,
+          [
+            { kind: 'shoes', h: 0.7, count: 4 },
+            { kind: 'hangingDouble', h: 'fill' },
+          ],
+          'none'
+        ),
+      ],
+    }),
+  },
+  {
+    // hallway units get their own catalog section (catalog.ts, after Bedroom)
+    section: 'Hallway',
+    part: wardrobe({
+      id: 'hallway-unit',
+      name: 'Hallway unit',
+      w: 1.6,
+      d: 0.4,
+      h: 2.3,
+      elevation: 0,
+      color: FRONT_COLORS[4],
+      accentColor: OAK,
+      front: { kind: 'hinged' },
+      sides: { left: 'panel', right: 'panel' },
+      filler: { left: 0, right: 0 },
+      top: 'panel',
+      back: true,
+      plinthH: 0.1,
+      columns: [
+        col(
+          'c1',
+          0.5,
+          [
+            { kind: 'shoes', h: 0.8, count: 4, exposed: true },
+            { kind: 'hanging', h: 'fill' },
+          ],
+          'left'
+        ),
+        col('c2', 'fill', [{ kind: 'seat', h: 'fill', exposed: true }], 'none'),
+        col('c3', 0.5, [{ kind: 'shelves', h: 'fill', count: 6 }], 'right'),
+      ],
     }),
   },
   {

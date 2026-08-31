@@ -40,6 +40,8 @@ export interface MenuOpts {
   /** More than one room exists, so `deleteRoom` will not refuse. */
   multiRoom: boolean;
   activeRoomId: string;
+  /** The hit item resolves to a cabinet or wardrobe part — fit-to-room applies. */
+  itemFittable?: boolean;
 }
 
 /** Workspaces whose canvases are visible; the other two are covered by a pane. */
@@ -60,6 +62,7 @@ export function contextMenu(hit: ContextHit, ws: WorkspaceId, opts: MenuOpts): M
     case 'item':
       return [
         { id: 'edit-workshop', label: 'Edit in Workshop' },
+        ...(opts.itemFittable ? [{ id: 'fit-room', label: 'Fit to alcove' }] : []),
         { id: 'duplicate', label: 'Duplicate', hint: 'Ctrl+D' },
         { id: 'rotate90', label: 'Rotate 90°', hint: 'R' },
         { id: 'delete', label: 'Delete', hint: 'Delete', danger: true },

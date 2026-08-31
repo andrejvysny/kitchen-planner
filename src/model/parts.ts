@@ -10,6 +10,7 @@ import type {
   WorktopOverhang,
 } from './types';
 import { uid } from './types';
+import { sanitizeWardrobeFields } from './wardrobe';
 import { cabinetTreeFromCounts, sanitizeZone } from './zones';
 
 /**
@@ -23,6 +24,22 @@ import { cabinetTreeFromCounts, sanitizeZone } from './zones';
 
 export const MAX_BOARDS = 40;
 export const MAX_OUTLINE_POINTS = 16;
+
+/**
+ * Per-type instance-dimension bounds, `[min, max]` in metres. A fitted
+ * wardrobe is a different object from a cabinet — it runs to the ceiling and
+ * across a whole alcove — so one flat clamp cannot serve both. The other three
+ * types keep the numbers they were clamped to before this table existed.
+ */
+export const DIM_LIMITS: Record<
+  CustomPartDef['type'],
+  { w: [number, number]; d: [number, number]; h: [number, number]; e: [number, number] }
+> = {
+  cabinet: { w: [0.05, 4.0], d: [0.02, 2.0], h: [0.012, 2.6], e: [0, 2.2] },
+  board: { w: [0.05, 4.0], d: [0.02, 2.0], h: [0.012, 2.6], e: [0, 2.2] },
+  freeform: { w: [0.05, 4.0], d: [0.02, 2.0], h: [0.012, 2.6], e: [0, 2.2] },
+  wardrobe: { w: [0.3, 6.0], d: [0.3, 1.0], h: [0.4, 4.0], e: [0, 0.2] },
+};
 
 export function newCabinetPart(): CabinetPartDef {
   return {
@@ -91,6 +108,22 @@ export function toCatalogDef(part: CustomPartDef): CatalogDef {
     elevation: part.elevation,
     color: part.color,
     placement: part.placement,
+    // A cove strip is a REAL fixture, not a painted board: declaring it on the
+    // def is what makes `addItem` seed `item.light`, `<LightSection/>` appear
+    // in the inspector and View3D build a source. `local` puts that source
+    // under the top front edge (the strip's own line), because `lightLocalY`
+    // only knows the catalog kinds. Off unless the def asks for it.
+    ...(part.type === 'wardrobe' && part.light?.cove
+      ? {
+          light: {
+            kind: 'bar' as const,
+            on: true,
+            intensity: 0.5,
+            warmth: 0.75,
+            local: { y: part.h - 0.06, z: part.d / 2 - 0.06 },
+          },
+        }
+      : {}),
   };
 }
 
@@ -213,15 +246,19 @@ export function normalizeFreeform(part: FreeformPartDef): void {
 export function sanitizePart(raw: unknown): CustomPartDef | null {
   if (!raw || typeof raw !== 'object') return null;
   const p = raw as Record<string, unknown>;
-  if (typeof p.id !== 'string' || !['cabinet', 'board', 'freeform'].includes(p.type as string)) {
+  if (
+    typeof p.id !== 'string' ||
+    !['cabinet', 'board', 'freeform', 'wardrobe'].includes(p.type as string)
+  ) {
     return null;
   }
   const part = p as unknown as CustomPartDef;
   part.name = typeof part.name === 'string' ? part.name.slice(0, 32) : 'Part';
-  part.w = clamp(Number(part.w) || 0.6, 0.05, 4.0);
-  part.d = clamp(Number(part.d) || 0.5, 0.02, 2.0);
-  part.h = clamp(Number(part.h) || 0.8, 0.012, 2.6);
-  part.elevation = clamp(Number(part.elevation) || 0, 0, 2.2);
+  const lim = DIM_LIMITS[part.type];
+  part.w = clamp(Number(part.w) || 0.6, lim.w[0], lim.w[1]);
+  part.d = clamp(Number(part.d) || 0.5, lim.d[0], lim.d[1]);
+  part.h = clamp(Number(part.h) || 0.8, lim.h[0], lim.h[1]);
+  part.elevation = clamp(Number(part.elevation) || 0, lim.e[0], lim.e[1]);
   if (typeof part.color !== 'string') part.color = FRONT_COLORS[2];
   if (typeof part.accentColor !== 'string') part.accentColor = OAK;
   if (part.placement !== 'free') delete part.placement;
@@ -261,7 +298,9 @@ export function sanitizePart(raw: unknown): CustomPartDef | null {
     if (!Array.isArray(part.holes)) part.holes = [];
     part.holes = part.holes.filter((hle) => typeof hle?.x === 'number' && hle.w > 0 && hle.d > 0);
     if (part.material !== 'matte') part.material = 'wood';
-  } else {
+  } else if (part.type === 'wardrobe') {
+    sanitizeWardrobeFields(part);
+  } else if (part.type === 'freeform') {
     if (!Array.isArray(part.boards)) part.boards = [];
     part.boards = part.boards
       .filter((b) => b && typeof b.x === 'number' && typeof b.w === 'number')

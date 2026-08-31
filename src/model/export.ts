@@ -34,8 +34,9 @@ import { hostContexts } from './worktops';
 const HINGE_STEPS: readonly (readonly [number, number])[] = [
   [1.0, 2],
   [1.6, 3],
+  [2.0, 4],
 ];
-const HINGE_MAX = 4;
+const HINGE_MAX = 5;
 
 /** Nominal drawer-slide lengths (mm) every supplier stocks. */
 const SLIDE_LENGTHS: readonly number[] = [250, 300, 350, 400, 450, 500, 550];
@@ -173,7 +174,11 @@ function panelNotes(p: Panel): string {
   const bits: string[] = [];
   if (p.shape.kind === 'cyl') bits.push(`Ø${mm(p.shape.dia)} mm`);
   if (p.motion?.kind === 'hinge') bits.push(`Hinge ${p.motion.side ?? 'left'}`);
-  if (p.motion?.kind === 'slide') bits.push(`Slide travel ${mm(p.motion.travel ?? 0)} mm`);
+  if (p.motion?.kind === 'slide') {
+    bits.push(
+      p.motion.axis === 'x' ? 'Sliding door' : `Slide travel ${mm(p.motion.travel ?? 0)} mm`
+    );
+  }
   if (p.shape.kind === 'prism') {
     for (const hole of p.shape.holes ?? []) {
       const b = polygonBounds(hole);
@@ -193,14 +198,20 @@ const labelOf = (materialId: string | undefined): string =>
 
 /**
  * The resolved finish of one panel slot. Mirrors partMeshes.ts `panelMaterial`
- * line for line — glass first, then counter/worktop, accent, plinth, front.
- * `Panel.tint` is deliberately ignored: it is renderer-only darkening of a
- * carcass board, not a different material to order.
+ * line for line — glass/mirror first, then counter/worktop, accent, plinth,
+ * front. `Panel.tint` is deliberately ignored: it is renderer-only darkening
+ * of a carcass board, not a different material to order.
  */
 function panelFinish(design: Design, item: Item, part: CustomPartDef, p: Panel): Fin {
   if (p.slot === 'glass') {
     const glass = materialDef('glass');
     return { colorHex: glass?.color ?? '#bcd2d8', materialLabel: glass?.label ?? 'Glass' };
+  }
+  if (p.slot === 'mirror') {
+    return {
+      colorHex: materialDef('mirror')?.color ?? '#e8ecee',
+      materialLabel: materialDef('mirror')?.label ?? 'Mirror',
+    };
   }
   if (p.slot === 'counter' || p.role === 'worktop') {
     const fin = counterFin(design, styleOfItem(design, item), item);
@@ -267,6 +278,7 @@ export function cutRows(design: Design): CutRow[] {
     if (!part) continue; // bought product — it belongs in the shopping list
     const room = roomOfItem(design, item);
     for (const p of partPanels(part, itemDims(item), hosting.get(item.id))) {
+      if (p.bought) continue; // a bought fitting (track, LED strip, rail) is never cut
       collect(out, byKey, cutRow(design, item, part, room, p), item.id);
     }
   }
@@ -438,6 +450,9 @@ interface MotionUnit {
   travel: number;
   /** hinged leaf: the length of the hinged EDGE (m) */
   leaf: number;
+  /** slide axis; absent = 'z' (a drawer). 'x' = a sliding wardrobe door,
+   * which rides a track set (`boughtHardwareRows`), never a drawer slide. */
+  axis?: 'x' | 'z';
 }
 
 /** One entry per moving unit; box boards share their front's unit id. */
@@ -448,7 +463,7 @@ function motionUnits(panels: Panel[]): Map<string, MotionUnit> {
     if (!m) continue;
     let u = units.get(m.unit);
     if (!u) {
-      u = { kind: m.kind, side: m.side, travel: m.travel ?? 0, leaf: 0 };
+      u = { kind: m.kind, side: m.side, travel: m.travel ?? 0, leaf: 0, axis: m.axis };
       units.set(m.unit, u);
     }
     if (m.travel !== undefined) u.travel = Math.max(u.travel, m.travel);
@@ -458,6 +473,62 @@ function motionUnits(panels: Panel[]): Map<string, MotionUnit> {
     }
   }
   return units;
+}
+
+/** The long dimension of a bought fitting (billing only — a bought fitting
+ * never reaches `panelDims`, which needs a real L/W/T sort for a cut list). */
+function boughtLength(p: Panel): number {
+  if (p.shape.kind === 'box') return Math.max(p.shape.w, p.shape.h, p.shape.d);
+  if (p.shape.kind === 'cyl') return Math.max(p.shape.h, p.shape.dia);
+  const b = polygonBounds(p.shape.outline);
+  return Math.max(b.maxX - b.minX, b.maxY - b.minY, p.shape.h);
+}
+
+/**
+ * Bought fittings the panel generator marks with `Panel.bought` (track, LED
+ * strips, a pull-down lift rail) — everything except the track set groups by
+ * (label, length), so two differently-sized strips on one item bill as two
+ * rows. The track set is ONE row per item no matter how many rail panels it
+ * emits (top + bottom track share a single set); its option string names how
+ * many door panels it carries, from the axis-x slide units already computed.
+ */
+function boughtHardwareRows(
+  item: Item,
+  room: Room | undefined,
+  panels: Panel[],
+  units: Map<string, MotionUnit>,
+  row: (
+    item: Item,
+    room: Room | undefined,
+    label: string,
+    qty: number,
+    options: string,
+    dMm: number
+  ) => void
+): void {
+  const grouped = new Map<string, { label: string; length: number; qty: number }>();
+  let trackW = 0;
+  let hasTrack = false;
+  for (const p of panels) {
+    if (!p.bought) continue;
+    if (p.bought === 'Sliding door track set') {
+      hasTrack = true;
+      if (p.shape.kind === 'box') trackW = p.shape.w;
+      continue;
+    }
+    const length = boughtLength(p);
+    const key = `${p.bought}|${mm(length)}`;
+    const hit = grouped.get(key);
+    if (hit) hit.qty += 1;
+    else grouped.set(key, { label: p.bought, length, qty: 1 });
+  }
+  for (const g of grouped.values()) {
+    row(item, room, g.label, g.qty, `${mm(g.length)} mm`, mm(g.length));
+  }
+  if (hasTrack) {
+    const n = [...units.values()].filter((u) => u.kind === 'slide' && u.axis === 'x').length;
+    row(item, room, 'Sliding door track set', 1, `${n} panels · ${mm(trackW)} mm`, mm(trackW));
+  }
 }
 
 function hingeCount(leaf: number): number {
@@ -517,13 +588,21 @@ export function hardwareRows(design: Design): BuyRow[] {
     const part = partOfDesign(design, item.defId);
     if (!part) continue;
     const room = roomOfItem(design, item);
-    for (const u of motionUnits(partPanels(part, itemDims(item))).values()) {
+    const panels = partPanels(part, itemDims(item));
+    const units = motionUnits(panels);
+    for (const u of units.values()) {
       if (u.kind === 'hinge') row(item, room, 'Concealed hinge', hingeCount(u.leaf), '', 0);
-      else {
+      else if (u.axis !== 'x') {
+        // an axis-x slide is a wardrobe door on a track set, billed below —
+        // never a drawer slide pair
         const len = slideLength(u.travel);
         row(item, room, 'Drawer slide pair', 1, `${len} mm`, len);
       }
     }
+    boughtHardwareRows(item, room, panels, units, row);
+    // a pull-down rail bills itself above; a plain rail needs a bracket pair
+    const plainRails = panels.filter((p) => p.role === 'rail' && !p.bought).length;
+    if (plainRails > 0) row(item, room, 'Rail bracket pair', plainRails, '', 0);
   }
   return out;
 }

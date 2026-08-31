@@ -45,7 +45,7 @@ import {
   wallPoint,
   type Obb,
 } from './geometry';
-import { partPanels, type Panel } from './panels';
+import { FRONT_T, partPanels, type Panel } from './panels';
 import { footprintPolygon } from './parts';
 import {
   allWalls,
@@ -655,13 +655,18 @@ function passageChecks(faces: Face[], out: Warning[]): void {
   }
 }
 
-/** The deepest any front travels when opened: hinge leaf width, slide travel. */
+/**
+ * The deepest any front travels when opened: hinge leaf width, slide travel
+ * — except an axis-x slide (a sliding wardrobe door), which rides sideways
+ * on a track and only needs to clear its own thickness.
+ */
 function openingDepth(panels: Panel[]): number {
   let need = 0;
   for (const p of panels) {
     if (!p.motion) continue;
-    if (p.motion.kind === 'slide') need = Math.max(need, p.motion.travel ?? 0);
-    else if (p.shape.kind === 'box') need = Math.max(need, p.shape.w);
+    if (p.motion.kind === 'slide') {
+      need = Math.max(need, p.motion.axis === 'x' ? FRONT_T : (p.motion.travel ?? 0));
+    } else if (p.shape.kind === 'box') need = Math.max(need, p.shape.w);
   }
   return need;
 }
@@ -685,7 +690,7 @@ function frontChecks(
     const it = s.item;
     if (it.attach) continue; // an appliance in a niche has no fronts of its own
     const part = partOfDesign(design, it.defId);
-    if (!part || part.type !== 'cabinet') continue;
+    if (!part || (part.type !== 'cabinet' && part.type !== 'wardrobe')) continue;
     const key = `${it.defId}|${it.w}|${it.d}|${it.h}|${it.elevation}`;
     let panels = memo.get(key);
     if (!panels) {

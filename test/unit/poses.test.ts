@@ -46,6 +46,24 @@ function slideUnit(unit = 'z0.drawer0'): THREE.Group {
   return g;
 }
 
+/** a sliding-DOOR pivot group (axis 'x'): travels sideways along the face */
+function slideXUnit(opts: { baseRotY?: number; dir?: 1 | -1 } = {}): THREE.Group {
+  const g = new THREE.Group();
+  g.userData = {
+    motionUnit: 'z0.slidingDoor0',
+    kind: 'slide',
+    travel: 0.4,
+    axis: 'x',
+    dir: opts.dir ?? 1,
+    baseX: 0,
+    baseZ: 0,
+    baseRotY: opts.baseRotY ?? 0,
+    openT: 0,
+    targetT: 0,
+  };
+  return g;
+}
+
 const openAll = () => true;
 const t = (u: THREE.Group): number => (u.userData as { openT: number }).openT;
 
@@ -114,6 +132,35 @@ describe('front-pose animation', () => {
     stepFrontPoses(fast, 10 / 60);
     expect(slow[0].position.z).toBeCloseTo(fast[0].position.z, 3);
     expect(slow[0].position.z).toBeGreaterThan(0);
+  });
+
+  it('drives an axis "x" slide sideways along the face, rotated with the unit and flippable by dir', () => {
+    // baseRotY = 0: face-local +x is world +x
+    const straight = [slideXUnit()];
+    setFrontPoses(straight, openAll);
+    snapFrontPoses(straight);
+    expect(straight[0].position.x).toBeCloseTo(0.4, 6);
+    expect(straight[0].position.z).toBeCloseTo(0, 6);
+
+    // baseRotY = pi/2: same face-local +x maps to world -z (the rotation
+    // mapping motionUnit already uses for pivots: (+cos ry, -sin ry))
+    const rotated = [slideXUnit({ baseRotY: Math.PI / 2 })];
+    setFrontPoses(rotated, openAll);
+    snapFrontPoses(rotated);
+    expect(rotated[0].position.x).toBeCloseTo(0, 6);
+    expect(rotated[0].position.z).toBeCloseTo(-0.4, 6);
+
+    // dir -1 flips the travel direction
+    const reversed = [slideXUnit({ dir: -1 })];
+    setFrontPoses(reversed, openAll);
+    snapFrontPoses(reversed);
+    expect(reversed[0].position.x).toBeCloseTo(-0.4, 6);
+    expect(reversed[0].position.z).toBeCloseTo(0, 6);
+
+    // withClosedPoses closes to the base position, then restores the live one
+    const seenX = withClosedPoses(straight, () => straight[0].position.x);
+    expect(seenX).toBeCloseTo(0, 6);
+    expect(straight[0].position.x).toBeCloseTo(0.4, 6);
   });
 
   it('snapFrontPoses jumps straight to the target', () => {

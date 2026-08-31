@@ -28,7 +28,7 @@ function v5Design(): Raw {
 
 describe('DESIGN_VERSION / MIN_MIGRATABLE_VERSION', () => {
   it('pins the current constants', () => {
-    expect(DESIGN_VERSION).toBe(7);
+    expect(DESIGN_VERSION).toBe(8);
     expect(MIN_MIGRATABLE_VERSION).toBe(5);
   });
 });
@@ -109,7 +109,22 @@ describe('migrateDesign', () => {
   it('v6 → v7 only adds the empty free-wall list', () => {
     const v6: Raw = { version: 6, rooms: [], openings: [], items: [], customParts: [] };
     const out = migrateDesign({ ...v6 })!;
-    expect(out).toEqual({ ...v6, version: 7, walls: [] });
+    // migrateDesign runs the full chain to DESIGN_VERSION (now 8, via the v7→v8
+    // identity step), so only `walls` is a real addition from this step.
+    expect(out).toEqual({ ...v6, version: DESIGN_VERSION, walls: [] });
+  });
+
+  it('v7 → v8 is the identity step', () => {
+    const v7: Raw = {
+      version: 7,
+      rooms: [],
+      openings: [],
+      items: [],
+      customParts: [],
+      walls: [],
+    };
+    const out = migrateDesign({ ...v7 })!;
+    expect(out).toEqual({ ...v7, version: 8 });
   });
 
   it('passes a current payload through unchanged', () => {

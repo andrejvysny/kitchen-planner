@@ -5,7 +5,7 @@ round trips, same rejection list — because the two parsers are a contract
 across a language boundary with no shared code to keep them honest. A change on
 either side that is not mirrored fails here.
 
-The 19 library ids are read out of ``render/materials/openpbr.materials.json``
+The 20 library ids are read out of ``render/materials/openpbr.materials.json``
 rather than re-typed, so an id renamed in the library sweeps through this test
 automatically (renaming one is forbidden anyway — the id is persisted in user
 designs — but the sweep is free).
@@ -64,7 +64,7 @@ def test_name_cap_matches_the_ts_constant():
 
 class TestLibrary:
     def test_every_library_id_times_rot(self, library_ids):
-        assert len(library_ids) == 19
+        assert len(library_ids) == 20
         for mat_id in library_ids:
             assert parse(f"kp:m:{mat_id}:c9a87c") == MatDesc(
                 kind="library", mat_id=mat_id, hex6="c9a87c", rot=False

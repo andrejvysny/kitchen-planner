@@ -113,7 +113,7 @@ COLOR_KEYS: frozenset[str] = frozenset(
     }
 )
 
-#: ``render/materials/openpbr.materials.json`` — the app's 19 MaterialDefs in
+#: ``render/materials/openpbr.materials.json`` — the app's 20 MaterialDefs in
 #: OpenPBR terms.  Resolved relative to this file so ``render.sh`` works from
 #: any cwd.
 LIBRARY_PATH = Path(__file__).resolve().parents[2] / "materials" / "openpbr.materials.json"
@@ -193,7 +193,7 @@ class TextureSet:
 
 @dataclass(frozen=True)
 class LibraryEntry:
-    """One of the app's 19 ``MaterialDef``s, in OpenPBR terms."""
+    """One of the app's 20 ``MaterialDef``s, in OpenPBR terms."""
 
     id: str
     label: str

@@ -9,6 +9,7 @@ import {
 import { useAppServices } from './services';
 import type { CatalogDef } from '../../model/catalog';
 import { footprintPolygon } from '../../model/parts';
+import { wardrobePlanSymbol } from '../../model/wardrobe';
 import { renderThumbnail } from '../../plan2d/symbols';
 import { openInWorkshop } from '../workspaceState';
 
@@ -50,7 +51,8 @@ export const CatalogTile = memo(function CatalogTile({
       def.w,
       def.d,
       def.color,
-      part ? (footprintPolygon(part, def.w, def.d) ?? undefined) : undefined
+      part ? (footprintPolygon(part, def.w, def.d) ?? undefined) : undefined,
+      part?.type === 'wardrobe' ? wardrobePlanSymbol(part, def.w, def.d) : undefined
     );
   }, [def, store]);
 

@@ -20,8 +20,16 @@ import { partPanels } from '../../src/model/panels';
 import { PRESETS } from '../../src/model/presets';
 import { allWalls, makeRoom, openingsOfWall } from '../../src/model/rooms';
 import { emptyDesign } from '../../src/model/store';
-import type { CabinetPartDef, Design, FreeformPartDef, Item, Opening } from '../../src/model/types';
+import type {
+  CabinetPartDef,
+  Design,
+  FreeformPartDef,
+  Item,
+  Opening,
+  WardrobePartDef,
+} from '../../src/model/types';
 import { uid } from '../../src/model/types';
+import { newWardrobePart, sanitizeWardrobeFields } from '../../src/model/wardrobe';
 import { deskBoards } from './fixtures';
 
 /* ---------------- fixtures ---------------- */
@@ -69,6 +77,32 @@ function doorPart(name: string, h: number): CabinetPartDef {
 
 function drawerPart(name: string, d: number, drawers: number): CabinetPartDef {
   return { ...doorPart(name, 0.9), name, d, face: { kind: 'leaf', fill: 'drawers', drawers } };
+}
+
+/** A sliding-door wardrobe with cove light, one plain hanging rail and one
+ * pull-down rail — enough to exercise every `Panel.bought` label at once. */
+function wardrobePart(over: Partial<WardrobePartDef> = {}): WardrobePartDef {
+  const part: WardrobePartDef = {
+    ...newWardrobePart(),
+    name: 'Wardrobe',
+    w: 2.0,
+    d: 0.6,
+    h: 2.4,
+    columns: [
+      { id: 'colA', w: 'fill', sections: [{ kind: 'hanging', h: 'fill' }], door: 'none' },
+      {
+        id: 'colB',
+        w: 0.9,
+        sections: [{ kind: 'hanging', h: 'fill', pullDown: true }],
+        door: 'none',
+      },
+    ],
+    front: { kind: 'sliding', panels: 2 },
+    light: { cove: true, shelves: false },
+    ...over,
+  };
+  sanitizeWardrobeFields(part);
+  return part;
 }
 
 /** A 4×3 room at the origin — the fixture `emptyDesign()` used to ship inline. */
@@ -350,6 +384,48 @@ describe('cutRows', () => {
     expect(rails[0].lengthMm).toBe(964); // cavity width: 1000 − 2 × 18 mm
   });
 
+  it('a sliding wardrobe keeps bought fittings out of the cut list', () => {
+    const design = oneRoomDesign();
+    const part = wardrobePart();
+    design.customParts.push(part);
+    place(design, part.id);
+    const rows = cutRows(design);
+    expect(rows.some((r) => r.role === 'light')).toBe(false);
+    expect(rows.some((r) => r.panelId.startsWith('track.'))).toBe(false);
+    expect(rows.some((r) => r.panelId.includes('pulldown'))).toBe(false);
+    // the plain hanging rail and its shelf are still real boards to cut
+    expect(rows.some((r) => r.panelId === 'colA-0.rail0')).toBe(true);
+    expect(rows.some((r) => r.panelId === 'colA-0.shelf0')).toBe(true);
+    // the sliding fronts themselves are cut boards, just not their track
+    expect(rows.filter((r) => r.panelId.startsWith('slide')).map((r) => r.notes)).toEqual([
+      'Sliding door',
+      'Sliding door',
+    ]);
+  });
+
+  it('a mirrored wardrobe front keeps the Mirror material label', () => {
+    const design = oneRoomDesign();
+    const part: WardrobePartDef = {
+      ...newWardrobePart(),
+      name: 'Mirror wardrobe',
+      w: 1.0,
+      d: 0.6,
+      h: 2.2,
+      columns: [
+        { id: 'c1', w: 'fill', sections: [{ kind: 'shelves', h: 'fill', count: 3 }], door: 'auto' },
+      ],
+      front: { kind: 'hinged' },
+      mirror: true,
+    };
+    sanitizeWardrobeFields(part);
+    design.customParts.push(part);
+    place(design, part.id);
+    const fronts = cutRows(design).filter((r) => r.role === 'front');
+    expect(fronts.length).toBeGreaterThan(0);
+    expect(fronts.every((r) => r.slot === 'mirror')).toBe(true);
+    expect(fronts.every((r) => r.materialLabel === 'Mirror')).toBe(true);
+  });
+
   it('dimension invariants hold for every preset: L ≥ W ≥ T ≥ 1 mm', () => {
     const design = oneRoomDesign();
     for (const entry of PRESETS) place(design, entry.part.id);
@@ -455,16 +531,16 @@ describe('buyRows', () => {
 });
 
 describe('hardwareRows', () => {
-  it('hinge counts step 2 / 3 / 4 with the leaf height', () => {
+  it('hinge counts step 2 / 3 / 4 / 5 with the leaf height', () => {
     const design = oneRoomDesign();
-    for (const h of [0.7, 1.2, 2.0]) {
+    for (const h of [0.7, 1.2, 2.0, 2.4]) {
       const part = doorPart(`Door ${h}`, h);
       design.customParts.push(part);
       place(design, part.id);
     }
     const rows = hardwareRows(design).filter((r) => r.label === 'Concealed hinge');
     expect(rows).toHaveLength(1); // one room, one hardware line
-    expect(rows[0].qty).toBe(2 + 3 + 4);
+    expect(rows[0].qty).toBe(2 + 3 + 4 + 5);
     expect(rows[0].category).toBe('Hardware');
   });
 
@@ -481,6 +557,36 @@ describe('hardwareRows', () => {
     expect(byOption.get('550 mm')!.qty).toBe(3);
     expect(byOption.get('300 mm')!.qty).toBe(2);
     expect(byOption.get('300 mm')!.dMm).toBe(300);
+  });
+
+  it('bills a sliding wardrobe: track set, LED strip, pull-down rail, rail bracket — no drawer slide', () => {
+    const design = oneRoomDesign();
+    const part = wardrobePart();
+    design.customParts.push(part);
+    place(design, part.id);
+    const rows = hardwareRows(design);
+
+    const led = rows.find((r) => r.label === 'LED strip')!;
+    expect(led).toBeDefined();
+    expect(led.qty).toBe(1);
+    expect(led.options).toBe('1944 mm');
+
+    const track = rows.find((r) => r.label === 'Sliding door track set')!;
+    expect(track).toBeDefined();
+    expect(track.qty).toBe(1);
+    expect(track.options).toBe('2 panels · 2000 mm');
+
+    const pulldown = rows.find((r) => r.label === 'Pull-down rail')!;
+    expect(pulldown).toBeDefined();
+    expect(pulldown.qty).toBe(1);
+    expect(pulldown.options).toBe('900 mm');
+
+    const bracket = rows.find((r) => r.label === 'Rail bracket pair')!;
+    expect(bracket).toBeDefined();
+    // one plain hanging rail (colA) — the pull-down rail bills itself
+    expect(bracket.qty).toBe(1);
+
+    expect(rows.some((r) => r.label === 'Drawer slide pair')).toBe(false);
   });
 });
 
