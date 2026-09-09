@@ -27,7 +27,12 @@
     "   coincidence, not a fluke.",
     "",
     "Note that the Sky Texture's sun_rotation (0.785398 = 45 deg) is a DIFFERENT number",
-    "for a different convention: bearing CCW from +X, i.e. azimuth - 90."
+    "for a different convention: bearing CCW from +X, i.e. azimuth - 90.",
+    "",
+    "The window portal's Blender Y (0.0575) is half the wall thickness -- the slab of an",
+    "exterior wall lies outside the room polygon, so the opening's mid-plane sits t/2",
+    "out. It therefore tracks src/model/rooms.ts DEFAULT_WALL_W and must be re-derived",
+    "whenever that constant moves; it was missed once already, at 0.1 -> 0.115."
   ],
   "camera": {
     "position": [5.2, -4.8, 1.65],
@@ -75,7 +80,7 @@
   "portals": [
     {
       "openingId": "op-window",
-      "center": [2.0, 0.05, 1.55],
+      "center": [2.0, 0.0575, 1.55],
       "normalInward": [0.0, -1.0, 0.0],
       "tangent": [1.0, 0.0, 0.0],
       "localX": [1.0, 0.0, 0.0],
@@ -83,7 +88,7 @@
       "localZ": [0.0, 1.0, 0.0],
       "matrixWorld": [
         [1.0, 0.0, 0.0, 2.0],
-        [0.0, 0.0, 1.0, 0.05],
+        [0.0, 0.0, 1.0, 0.0575],
         [0.0, -1.0, 0.0, 1.55],
         [0.0, 0.0, 0.0, 1.0]
       ],

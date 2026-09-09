@@ -50,7 +50,7 @@ class TestVersionGate:
 class TestGoldenStructure:
     def test_scalars(self, golden_manifest):
         m = M.load(golden_manifest)
-        assert m.design_version == 6
+        assert m.design_version == 8
         assert m.app_version == "0.0.0-golden"
         assert m.exported_at == "2026-08-18T00:00:00.000Z"
         assert m.units == "m"
@@ -103,7 +103,7 @@ class TestGoldenStructure:
         assert (portal.width, portal.height) == (1.4, 1.2)
         assert portal.normal.as_tuple() == (0.0, 0.0, 1.0)
         assert portal.tangent.as_tuple() == (1.0, 0.0, 0.0)
-        assert portal.wall_thickness == 0.1
+        assert portal.wall_thickness == 0.115
         assert portal.sill == 0.95
 
     def test_materials(self, golden_manifest):
@@ -130,7 +130,7 @@ class TestGoldenStructure:
         assert len(m.rooms) == 1
         room = m.rooms[0]
         assert (room.id, room.name) == ("room-kitchen", "Kitchen")
-        assert (room.wall_height, room.wall_thickness) == (2.6, 0.1)
+        assert (room.wall_height, room.wall_thickness) == (2.6, 0.115)
         assert room.floor_area_m2 == 12.0
         assert room.centroid.as_tuple() == (2.0, 0.0, 1.5)
 

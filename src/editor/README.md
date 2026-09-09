@@ -34,7 +34,7 @@ calibration and the underlay. Tools come out of it one at a time, easiest
 first, so the contracts above get exercised before they meet anything hard:
 
 ```
-Measure  →  Calibrate  →  DrawRoom  →  AddRoom  →  Place  →  Select
+Measure  →  Calibrate  →  DrawRoom  →  Place  →  Select
 ```
 
 - **Measure** first because it is already the closest to the target shape: two
@@ -43,7 +43,6 @@ Measure  →  Calibrate  →  DrawRoom  →  AddRoom  →  Place  →  Select
 - **Calibrate** is measure's twin with a different commit.
 - **DrawRoom** adds accumulated gesture state (the ring) and a two-stage
   cancel — the first real test of `cancel(): ToolResult`.
-- **AddRoom** adds a ghost and wall attachment.
 - **Place** adds catalog arming, snapping and the opening/item split.
 - **Select LAST**, and not for schedule reasons: it carries stacked-item
   cycling, corners, walls, openings, the rotate handle, underlay hit-testing,
