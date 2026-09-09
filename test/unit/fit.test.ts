@@ -5,7 +5,7 @@ import { toCatalogDef } from '../../src/model/parts';
 import { presetPart } from '../../src/model/presets';
 import { defaultRoomStyle } from '../../src/model/rooms';
 import { DESIGN_VERSION, defaultScene, normalizeDesign } from '../../src/model/store';
-import type { Corner, CustomPartDef, Design, Item, Room } from '../../src/model/types';
+import type { Corner, CustomPartDef, Design, Item, Opening, Room } from '../../src/model/types';
 
 /* ---------------- fixtures (same shape as checks.test.ts) ---------------- */
 
@@ -56,23 +56,53 @@ function item(defId: string, x: number, y: number, patch: Partial<Item> = {}): I
  * its back on y = 0 (the exterior wall's face, faceOffset 0), so its centre
  * sits d/2 into the room.
  */
-function onTopWall(x: number, patch: Partial<Item> = {}): Item {
+function onTopWall(x: number, patch: Partial<Item> = {}, defId = 'wardrobe'): Item {
   const d = patch.d ?? 0.6;
-  return item('wardrobe', x, d / 2, { w: 0.8, d, h: 2, elevation: 0, rotation: 0, ...patch });
+  return item(defId, x, d / 2, { w: 0.8, d, h: 2, elevation: 0, rotation: 0, ...patch });
 }
 
-function design(o: { rooms?: Room[]; items?: Item[]; parts?: CustomPartDef[] }): Design {
+let oseq = 0;
+function opening(wallId: string, patch: Partial<Opening> = {}): Opening {
+  return {
+    id: `o${++oseq}`,
+    wallId,
+    type: 'door',
+    offset: 1,
+    width: 0.9,
+    height: 2.02,
+    sill: 0,
+    ...patch,
+  };
+}
+
+function design(o: {
+  rooms?: Room[];
+  items?: Item[];
+  parts?: CustomPartDef[];
+  openings?: Opening[];
+}): Design {
   const rooms = o.rooms ?? [rectRoom()];
   return normalizeDesign({
     version: DESIGN_VERSION,
     rooms,
-    openings: [],
+    openings: o.openings ?? [],
     items: (o.items ?? []).map((it) => ({ roomId: rooms[0].id, ...it })),
     customParts: o.parts ?? [],
     variables: [],
     scene: defaultScene(),
   } as Design);
 }
+
+/** A + B, sharing A's right edge reversed, so Ac1 is a partition. */
+const twoRooms = (): Room[] => [
+  rectRoom('A'),
+  room('B', [
+    [4, 3],
+    [4, 0],
+    [8, 0],
+    [8, 3],
+  ]),
+];
 
 /** exact key SET, values to 1 µm */
 function expectPatch(p: FitPatch | null, want: FitPatch): void {
@@ -120,19 +150,109 @@ describe('fitItem — width', () => {
   it('reads a partition at its FACE, not at the ring edge that is its centreline', () => {
     // room B shares A's right edge reversed, so that wall becomes a partition:
     // its face sits thickness/2 inside A's ring.
-    const a = rectRoom('A');
-    const b = room('B', [
-      [4, 3],
-      [4, 0],
-      [8, 0],
-      [8, 3],
-    ]);
-    const d = design({ rooms: [a, b], items: [onTopWall(1, { fit: { width: 'walls' } })] });
+    const d = design({
+      rooms: twoRooms(),
+      items: [onTopWall(1, { fit: { width: 'walls' } })],
+    });
     const patch = fitItem(d, d.items[0]);
     expect(patch?.w).toBeCloseTo(3.95, 6);
     expect(patch?.x).toBeCloseTo(1.975, 6);
     // the naive corner-ring answer would be 4 — exactly half a thickness more
     expect(4 - (patch?.w ?? 0)).toBeCloseTo(0.1 / 2, 6);
+  });
+});
+
+/* ---------------- openings ---------------- */
+
+describe('fitItem — openings', () => {
+  it('stops at a door jamb', () => {
+    const d = design({
+      openings: [opening('Ac0', { offset: 1, width: 0.9 })],
+      items: [onTopWall(0.3, { fit: { width: 'walls' } })],
+    });
+    // the swing of an in-swinging door covers exactly its own opening on its
+    // own wall, so the run ends at the near jamb either way
+    expectPatch(fitItem(d, d.items[0]), { w: 0.55, x: 0.275 });
+  });
+
+  it('a window splits the run in two', () => {
+    const win = opening('Ac0', {
+      type: 'window',
+      offset: 2,
+      width: 1.3,
+      height: 1.2,
+      sill: 0.95,
+    });
+    const left = design({ openings: [win], items: [onTopWall(1, { fit: { width: 'walls' } })] });
+    expectPatch(fitItem(left, left.items[0]), { w: 1.35, x: 0.675 });
+
+    const right = design({ openings: [win], items: [onTopWall(3, { fit: { width: 'walls' } })] });
+    expectPatch(fitItem(right, right.items[0]), { w: 1.35, x: 3.325 });
+  });
+
+  it('a fitted base cabinet stops at a window jamb, high sill or not', () => {
+    // DECIDED behaviour change: windows always cut a run, whatever its
+    // vertical band. A worktop run under a window used to span the whole wall.
+    const d = design({
+      openings: [
+        opening('Ac0', { type: 'window', offset: 2, width: 1.3, height: 1.2, sill: 0.95 }),
+      ],
+      items: [
+        onTopWall(1, { w: 0.6, h: 0.87, elevation: 0, fit: { width: 'walls' } }, 'base-cabinet'),
+      ],
+    });
+    expectPatch(fitItem(d, d.items[0]), { w: 1.35, x: 0.675 });
+  });
+
+  it('an item standing over a doorway lands in the NEAREST segment', () => {
+    // door [0.55, 1.45]; t = 1.2 is 0.65 from the left run and 0.25 from the right
+    const d = design({
+      openings: [opening('Ac0', { offset: 1, width: 0.9 })],
+      items: [onTopWall(1.2, { fit: { width: 'walls' } })],
+    });
+    expectPatch(fitItem(d, d.items[0]), { w: 2.55, x: 2.725 });
+  });
+
+  it('breaks an equidistant tie towards the WIDER segment', () => {
+    // t = 1.0 is the door centre: 0.45 either way, 0.55 m left vs 2.55 m right
+    const d = design({
+      openings: [opening('Ac0', { offset: 1, width: 0.9 })],
+      items: [onTopWall(1, { fit: { width: 'walls' } })],
+    });
+    expectPatch(fitItem(d, d.items[0]), { w: 2.55, x: 2.725 });
+  });
+
+  it('breaks an equidistant tie of EQUAL widths towards the lower t', () => {
+    // a centred door leaves 1.55 m either side, and t = 2.0 is 0.45 from both
+    const d = design({
+      openings: [opening('Ac0', { offset: 2, width: 0.9 })],
+      items: [onTopWall(2, { fit: { width: 'walls' } })],
+    });
+    expectPatch(fitItem(d, d.items[0]), { w: 1.55, x: 0.775 });
+  });
+
+  it('reads a partition twin door from the far room, mirrored', () => {
+    // the door is stored once, on A's side of the shared wall; the item stands
+    // in B, hugging the same partition from the other face
+    const cx = 4 + (0.1 / 2 + 0.6 / 2);
+    const d = design({
+      rooms: twoRooms(),
+      openings: [opening('Ac1', { offset: 1, width: 0.8 })],
+      items: [
+        item('wardrobe', cx, 2, {
+          roomId: 'B',
+          w: 0.8,
+          d: 0.6,
+          h: 2,
+          elevation: 0,
+          rotation: -Math.PI / 2,
+          fit: { width: 'walls' },
+        }),
+      ],
+    });
+    // offset 1.0 on the 3 m wall reads as 2.0 from B's end, so B's near run is
+    // [0, 1.6] — measured from (4,3), which puts the centre at y = 2.2
+    expectPatch(fitItem(d, d.items[0]), { w: 1.6, y: 2.2 });
   });
 });
 
@@ -199,5 +319,24 @@ describe('syncFits', () => {
     expect(l1).toBeCloseTo(r0, 6);
     expect(r1).toBeCloseTo(4, 6);
     expect(left.w + right.w).toBeCloseTo(4, 6);
+  });
+
+  it('converges with a door in the wall: each item tiles its own segment', () => {
+    const d = design({
+      openings: [opening('Ac0', { offset: 2, width: 0.9 })],
+      items: [
+        onTopWall(0.5, { fit: { width: 'walls' } }),
+        onTopWall(3, { fit: { width: 'walls' } }),
+      ],
+    });
+    expect(syncFits(d)).toBe(true);
+    expect(syncFits(d)).toBe(false);
+
+    const [l0, l1] = span(d.items[0]);
+    const [r0, r1] = span(d.items[1]);
+    expect(l0).toBeCloseTo(0, 6);
+    expect(l1).toBeCloseTo(1.55, 6);
+    expect(r0).toBeCloseTo(2.45, 6);
+    expect(r1).toBeCloseTo(4, 6);
   });
 });

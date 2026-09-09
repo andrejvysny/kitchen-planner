@@ -140,6 +140,84 @@ export function box(
   return m;
 }
 
+/**
+ * Curved primitives for set dressing (src/view3d/decorMeshes.ts).
+ *
+ * Same contract as `box`/`cyl`/`prism`: they take a material and MINT NONE, so
+ * they stay outside test/unit/materialStamping.test.ts's sweep by construction
+ * — the stamping rule lives in the builders that call them.
+ *
+ * `y` is the BOTTOM of the shape, matching every other primitive here. They
+ * ship three's stock 0..1 UVs rather than the metre-space rescaling `box` and
+ * `cyl` do: decor is plain-coloured, and a body of revolution has no natural
+ * metre parameterisation to rescale to.
+ */
+
+/** A ball resting on `y`. `squash` < 1 flattens it (a pebble, a bun, a leaf mass). */
+export function sphere(
+  g: THREE.Group,
+  r: number,
+  mat: THREE.Material,
+  x = 0,
+  y = 0,
+  z = 0,
+  squash = 1
+): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 18, 12), mat);
+  m.scale.y = squash;
+  m.position.set(x, y + r * squash, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  g.add(m);
+  return m;
+}
+
+/** A ring lying flat (axis +y): a bowl rim, a basket hoop, a pot lip. */
+export function torus(
+  g: THREE.Group,
+  ringR: number,
+  tubeR: number,
+  mat: THREE.Material,
+  x = 0,
+  y = 0,
+  z = 0
+): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.TorusGeometry(ringR, tubeR, 8, 24), mat);
+  m.rotation.x = Math.PI / 2; // three builds it in the xy plane
+  m.position.set(x, y + tubeR, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  g.add(m);
+  return m;
+}
+
+/**
+ * A body of revolution about +y from a `(radius, height)` profile — the one
+ * primitive behind every kettle, jar, vase, bottle and bowl, which is why the
+ * `vessel` form covers so many products from a per-def profile constant.
+ *
+ * `profile` reuses the `Point` shape `prism` already takes: `x` is the radius
+ * at that station, `y` the height above the piece's own base. It must be
+ * ordered bottom-to-top.
+ */
+export function lathe(
+  g: THREE.Group,
+  profile: Point[],
+  mat: THREE.Material,
+  x = 0,
+  y = 0,
+  z = 0,
+  seg = 20
+): THREE.Mesh {
+  const pts = profile.map((p) => new THREE.Vector2(Math.max(1e-4, p.x), p.y));
+  const m = new THREE.Mesh(new THREE.LatheGeometry(pts, seg), mat);
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  g.add(m);
+  return m;
+}
+
 export function cyl(
   g: THREE.Group,
   r: number,

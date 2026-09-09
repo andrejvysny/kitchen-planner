@@ -1,4 +1,4 @@
-import { sofaSeats, type ItemKind } from '../model/catalog';
+import { sofaSeats, type DecorForm, type ItemKind } from '../model/catalog';
 import type { Point } from '../model/types';
 import type { WardrobePlanSymbol } from '../model/wardrobe';
 
@@ -29,6 +29,10 @@ export interface SymbolStyle {
   /** wardrobe parts only: column ticks + door/slide symbols, from
    * `wardrobePlanSymbol`. Absent → the plain rect + centre split line. */
   plan?: WardrobePlanSymbol;
+  /** decor only: which silhouette to glyph. `drawPlanSymbol` takes a KIND, not
+   * a def, so per-kind extra data is threaded through named fields like this
+   * one (see `gangs`, `seats`) and filled in at renderPlan's call site. */
+  decorForm?: DecorForm;
 }
 
 const INK = '#3a3934';
@@ -66,6 +70,71 @@ export function isOverhead(kind: ItemKind): boolean {
   return ['hood', 'pendant', 'spot', 'strip', 'tv'].includes(kind);
 }
 
+/**
+ * One glyph per `DecorForm`. Deliberately schematic — at plan scale a mug is
+ * six pixels across, so the job is "something round sits here", not likeness.
+ */
+const DECOR_GLYPH: Record<
+  DecorForm,
+  (ctx: CanvasRenderingContext2D, w: number, d: number, hair: number) => void
+> = {
+  vessel: (ctx, w, d) => {
+    circle(ctx, 0, 0, Math.min(w, d) / 2, true);
+    circle(ctx, 0, 0, Math.min(w, d) / 2);
+  },
+  bowl: (ctx, w, d) => {
+    const r = Math.min(w, d) / 2;
+    circle(ctx, 0, 0, r, true);
+    circle(ctx, 0, 0, r);
+    circle(ctx, 0, 0, r * 0.62);
+  },
+  plant: (ctx, w, d) => {
+    const r = Math.min(w, d) / 2;
+    circle(ctx, 0, 0, r, true);
+    circle(ctx, 0, 0, r);
+    // three lobes, so it is not just another circle at a glance
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 - Math.PI / 2;
+      circle(ctx, Math.cos(a) * r * 0.42, Math.sin(a) * r * 0.42, r * 0.34);
+    }
+  },
+  stack: (ctx, w, d, hair) => {
+    roundRect(ctx, -w / 2, -d / 2, w, d, Math.min(w, d) * 0.12);
+    ctx.fill();
+    ctx.stroke();
+    ctx.lineWidth = hair;
+    line(ctx, -w / 2 + w * 0.24, -d / 2, -w / 2 + w * 0.24, d / 2);
+  },
+  frame: (ctx, w, d, hair) => {
+    roundRect(ctx, -w / 2, -d / 2, w, d, Math.min(w, d) * 0.1);
+    ctx.fill();
+    ctx.stroke();
+    ctx.lineWidth = hair;
+    line(ctx, -w / 2, -d / 2, w / 2, d / 2);
+  },
+  cloth: (ctx, w, d, hair) => {
+    roundRect(ctx, -w / 2, -d / 2, w, d, Math.min(w, d) * 0.3);
+    ctx.fill();
+    ctx.stroke();
+    ctx.lineWidth = hair;
+    for (const t of [-0.2, 0.2]) line(ctx, -w / 2, d * t, w / 2, d * t);
+  },
+  rack: (ctx, w, d, hair) => {
+    ctx.strokeRect(-w / 2, -d / 2, w, d);
+    ctx.lineWidth = hair;
+    for (let i = 1; i < 4; i++)
+      line(ctx, -w / 2 + (w * i) / 4, -d / 2, -w / 2 + (w * i) / 4, d / 2);
+  },
+  basket: (ctx, w, d, hair) => {
+    roundRect(ctx, -w / 2, -d / 2, w, d, Math.min(w, d) * 0.16);
+    ctx.fill();
+    ctx.stroke();
+    ctx.lineWidth = hair;
+    roundRect(ctx, -w * 0.36, -d * 0.36, w * 0.72, d * 0.72, Math.min(w, d) * 0.12);
+    ctx.stroke();
+  },
+};
+
 export function drawPlanSymbol(
   ctx: CanvasRenderingContext2D,
   kind: ItemKind,
@@ -102,7 +171,11 @@ export function drawPlanSymbol(
     ctx.setLineDash([]);
     return;
   }
-  if (!['pendant', 'spot', 'water', 'outlet', 'stool', 'door', 'window', 'rug'].includes(kind)) {
+  if (
+    !['pendant', 'spot', 'water', 'outlet', 'stool', 'door', 'window', 'rug', 'decor'].includes(
+      kind
+    )
+  ) {
     ctx.globalAlpha = bodyAlpha;
     ctx.fillRect(-hw, -hd, w, d);
     ctx.globalAlpha = 1;
@@ -358,6 +431,14 @@ export function drawPlanSymbol(
       line(ctx, hw, -hd / 2, hw, hd / 2);
       break;
     }
+    case 'decor': {
+      // Set dressing reads as TEXTURE, not as furniture: a hairline glyph at
+      // half alpha, so a staged worktop does not bury the cabinets under it.
+      ctx.globalAlpha = style.bodyAlpha ?? 0.5;
+      DECOR_GLYPH[style.decorForm ?? 'vessel'](ctx, w, d, hair);
+      ctx.globalAlpha = 1;
+      break;
+    }
     default:
       break;
   }
@@ -376,6 +457,7 @@ export function drawPlanSymbol(
       'backsplash',
       'woodPlane',
       'rug',
+      'decor',
     ].includes(kind)
   ) {
     ctx.strokeStyle = ink;
@@ -393,7 +475,8 @@ export function renderThumbnail(
   d: number,
   color: string,
   footprint?: Point[],
-  plan?: WardrobePlanSymbol
+  plan?: WardrobePlanSymbol,
+  decorForm?: DecorForm
 ): void {
   const px = 54;
   const dpr = window.devicePixelRatio || 1;
@@ -404,10 +487,19 @@ export function renderThumbnail(
   const ctx = canvas.getContext('2d')!;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, px, px);
-  const extent = Math.max(w, d, kind === 'door' ? w * 1.6 : 0.3) * 1.35;
+  // decor is deliberately exempt from the 0.3 m floor: it is the only family
+  // small enough that the floor would render every tile as the same dot
+  const extent = Math.max(w, d, kind === 'door' ? w * 1.6 : kind === 'decor' ? 0 : 0.3) * 1.35;
   const scale = px / extent;
   ctx.translate(px / 2, px / 2);
   ctx.scale(scale, scale);
   if (kind === 'door') ctx.translate(0, -w * 0.35);
-  drawPlanSymbol(ctx, kind, w, d, { color, selected: false, pxPerM: scale, footprint, plan });
+  drawPlanSymbol(ctx, kind, w, d, {
+    color,
+    selected: false,
+    pxPerM: scale,
+    footprint,
+    plan,
+    decorForm,
+  });
 }

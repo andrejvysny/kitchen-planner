@@ -41,7 +41,6 @@ import {
   polygonsOverlap,
   projectOnWall,
   rot,
-  sectorPolygon,
   wallPoint,
   type Obb,
 } from './geometry';
@@ -54,6 +53,7 @@ import {
   MIN_SEAM,
   openingsOfWall,
   roomOfItem,
+  swingSector,
   type RoomWall,
   type WallOpening,
 } from './rooms';
@@ -120,8 +120,6 @@ const THROUGH_TOL = 0.02;
 const ALONG_TOL = 0.05;
 /** clear floor a door needs in front of it (m) — NKBA-ish minimum landing */
 export const DOOR_LANDING = 0.9;
-/** arc segments per door swing sector */
-const SWING_SEGS = 8;
 
 /**
  * Ergonomic minima (m).
@@ -280,8 +278,10 @@ function overlapChecks(shapes: Shape[], out: Warning[]): void {
 function throughWallChecks(shapes: Shape[], byRoom: Map<string, RoomWall[]>, out: Warning[]): void {
   for (const s of shapes) {
     // attached appliances follow their host; wall-mounted things (markers,
-    // backsplash, TV) are SUPPOSED to sit in the wall face
-    if (s.item.attach || isWallMounted(s.def)) continue;
+    // backsplash, TV) are SUPPOSED to sit in the wall face; and a decorative
+    // item is exempt from every OTHER check here, so exempting it from this
+    // one too is what makes `noCollide` mean what its doc comment says
+    if (s.item.attach || isWallMounted(s.def) || isDecorative(s.def)) continue;
     for (const g of byRoom.get(s.roomId) ?? []) {
       const outside = s.corners.some((p) => {
         const pr = projectOnWall(g, p);
@@ -304,28 +304,6 @@ function throughWallChecks(shapes: Shape[], byRoom: Map<string, RoomWall[]>, out
       break; // one warning per item; the geom names the wall it left through
     }
   }
-}
-
-/**
- * The door leaf's quarter-disc, mirroring the plan symbol exactly (symbols.ts
- * case 'door': hinge at the jamb, `arc(-hw, 0, w, 0, π/2)`, flipped in x for a
- * right hinge and in y for an outward swing). Local +x is the wall direction
- * and local +y its inward normal, so the sweep runs from the opposite jamb
- * round to the fully-open leaf. Radius = the door WIDTH, exactly as drawn.
- *
- * The hinge sits on the room-side wall face rather than the plan's slab band
- * centre: half a wall thickness nearer the room is where items actually are.
- */
-function swingSector(g: RoomWall, o: WallOpening): Point[] {
-  const sx = (o.hinge ?? 'left') === 'right' ? -1 : 1;
-  const sy = (o.swing ?? 'in') === 'out' ? -1 : 1;
-  const jamb = wallPoint(g, o.offset - (sx * o.width) / 2);
-  const hinge = {
-    x: jamb.x + g.inward.x * g.faceOffset,
-    y: jamb.y + g.inward.y * g.faceOffset,
-  };
-  const a0 = g.angle + (sx > 0 ? 0 : Math.PI);
-  return sectorPolygon(hinge, o.width, a0, a0 + (sx * sy * Math.PI) / 2, SWING_SEGS);
 }
 
 /** The clear floor rectangle a door needs on this side of the wall. */

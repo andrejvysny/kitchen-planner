@@ -132,6 +132,8 @@ describe('PRINT_OPTS', () => {
       measure: false,
       checks: false,
       roomEmphasis: false,
+      // set dressing is staging, not construction
+      decor: false,
     });
   });
 });

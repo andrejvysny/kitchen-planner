@@ -66,6 +66,10 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   // it has to sit ABOVE the plain row, which does not care about shift.
   { key: 'enter', shift: true, commandId: 'tool.finishOpen' },
   { key: 'enter', commandId: 'tool.finish' },
+  // The wardrobe placement HUD's Enter (P3), below the wall tool's own two
+  // rows: `place.commit`'s canExecute only fires once an armed def has
+  // landed on a free segment, so it can never shadow finishing a room.
+  { key: 'enter', commandId: 'place.commit' },
 
   { key: 'z', mod: true, shift: true, commandId: 'history.redo' },
   { key: 'z', mod: true, shift: false, commandId: 'history.undo' },
@@ -98,6 +102,27 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   { key: '8', mod: false, commandId: 'draw.digit8' },
   { key: '9', mod: false, commandId: 'draw.digit9' },
   { key: '.', mod: false, commandId: 'draw.digitDot' },
+
+  // The wardrobe placement HUD's typed width (P3), directly below the wall
+  // tool's own dimension box and still ABOVE the workspace tabs, for the
+  // identical reason: `place.digit*`'s canExecute (armed AND landed on a free
+  // segment) is a strictly narrower gate than `draw.*`'s, so it is always
+  // safe to try first. `place.backspace` slots between the wall tool's two
+  // backspace rows above and `selection.delete`'s below — an armed def AND a
+  // typed character are both required before it fires, so an empty box, or
+  // no armed def at all, still falls through to deleting the selection.
+  { key: '0', mod: false, commandId: 'place.digit0' },
+  { key: '1', mod: false, commandId: 'place.digit1' },
+  { key: '2', mod: false, commandId: 'place.digit2' },
+  { key: '3', mod: false, commandId: 'place.digit3' },
+  { key: '4', mod: false, commandId: 'place.digit4' },
+  { key: '5', mod: false, commandId: 'place.digit5' },
+  { key: '6', mod: false, commandId: 'place.digit6' },
+  { key: '7', mod: false, commandId: 'place.digit7' },
+  { key: '8', mod: false, commandId: 'place.digit8' },
+  { key: '9', mod: false, commandId: 'place.digit9' },
+  { key: '.', mod: false, commandId: 'place.digitDot' },
+  { key: 'backspace', commandId: 'place.backspace' },
 
   { key: 'delete', commandId: 'selection.delete' },
   { key: 'backspace', commandId: 'selection.delete' },

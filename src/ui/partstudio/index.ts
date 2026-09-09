@@ -82,6 +82,7 @@ const FACTORIES: Record<CustomPartDef['type'], () => CustomPartDef> = {
 export class PartStudio {
   private store: Store;
   private onClose: () => void;
+  private onPlaceRequest?: (defId: string) => void;
   private host: HTMLElement | null = null;
   private overlay: HTMLElement | null = null;
   private part: CustomPartDef | null = null;
@@ -94,9 +95,10 @@ export class PartStudio {
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private offHistory: (() => void) | null = null;
 
-  constructor(store: Store, onClose: () => void) {
+  constructor(store: Store, onClose: () => void, onPlaceRequest?: (defId: string) => void) {
     this.store = store;
     this.onClose = onClose;
+    this.onPlaceRequest = onPlaceRequest;
   }
 
   isOpen(): boolean {
@@ -129,6 +131,7 @@ export class PartStudio {
         </div>
         <div class="studio-scope">
           <span class="studio-scope-text"></span>
+          <button class="btn studio-place" id="studio-place-btn" title="Arms this part in the plan — then click in the room to drop it">Place in room</button>
           <button class="btn studio-fork" title="Copies this part for just this cabinet — the other copies keep the original">Fork for this item only</button>
         </div>
         <div class="studio-tabs" role="tablist">
@@ -274,6 +277,11 @@ export class PartStudio {
     const del = overlay.querySelector('.studio-delete') as HTMLButtonElement;
     const dup = overlay.querySelector('.studio-duplicate') as HTMLButtonElement;
     const fork = overlay.querySelector('.studio-fork') as HTMLButtonElement;
+    const place = overlay.querySelector('#studio-place-btn') as HTMLButtonElement;
+    // every custom part is placeable by definition, so this hides only when
+    // nothing wired a route to the plan (a headless studio in a unit test)
+    place.style.display = this.onPlaceRequest ? '' : 'none';
+    place.addEventListener('click', () => this.onPlaceRequest?.(part.id));
     del.style.display = '';
     dup.style.display = '';
     del.addEventListener('click', () => void this.deletePart());

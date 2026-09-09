@@ -1,4 +1,10 @@
-import { catalogDef, hasCatalogDef, isWallMounted, type CatalogDef } from '../model/catalog';
+import {
+  catalogDef,
+  hasCatalogDef,
+  isDecor,
+  isWallMounted,
+  type CatalogDef,
+} from '../model/catalog';
 import {
   clamp,
   insetPolygon,
@@ -7,6 +13,7 @@ import {
   projectOnWall,
   rot,
   signedArea,
+  wallPoint,
 } from '../model/geometry';
 import {
   closeChainAgainstWalls,
@@ -32,8 +39,15 @@ import {
 } from '../model/snap';
 import { unitPrefs } from '../model/prefs';
 import { parseAngle, parseLength } from '../model/units';
-import { nearestWall, snapItem, type Guide } from '../model/snapping';
+import { fitItem, wallFreeSegments, FIT_MIN_W, type FreeSegment } from '../model/fit';
+import {
+  nearestWall,
+  snapItem,
+  type Guide,
+  type SnapResult as ItemSnapResult,
+} from '../model/snapping';
 import type { Store } from '../model/store';
+import { DROP_CEIL, restingElevation, type Surface } from '../model/surfaces';
 import type { EntityRef, Item, Opening, Point } from '../model/types';
 import { resolveDevice } from '../model/navPref';
 import { isMac, type WheelLike } from '../view3d/wheelInput';
@@ -41,6 +55,7 @@ import { findHost } from '../model/attach';
 import { toCatalogDef } from '../model/parts';
 import type { EditorState, ToolId } from '../editor/editorState';
 import type { DrawField, DrawHudState, DrawOutcome } from '../ui/drawHud';
+import type { PlaceHudState } from '../ui/placeHud';
 import { hitRadius, PinchGesture } from './pinch';
 import type { ContextHit } from './planHit';
 import { underlayCorners, underlayHits } from '../model/underlay';
@@ -55,6 +70,7 @@ import {
   sortedItems,
   underlayImage,
   type DrawRing,
+  type GhostSegment,
   type HoverOverlay,
   type ItemGhost,
   type Measure,
@@ -126,6 +142,15 @@ type Drag =
       ax?: number;
       ay?: number;
       followers?: { id: string; x0: number; y0: number }[];
+      /**
+       * Surfaces as of PRESS time, for dropping decor onto whatever it lands
+       * on. Snapshotted rather than read off `store.surfaces()` each frame:
+       * that cache is invalidated by every notify, transient ones included, so
+       * a pointer-rate read would rebuild `hostContexts` + `partPanels` for
+       * the whole design on every move. The snapshot is exact — no HOST moves
+       * during an item drag, and a decor item is not itself a surface.
+       */
+      surfaces?: readonly Surface[];
     }
   | { type: 'corner'; id: string }
   | { type: 'opening'; id: string }
@@ -144,6 +169,48 @@ type Drag =
 /** px of pointer travel before a press on empty floor becomes a rubber band */
 const MARQUEE_SLOP = 4;
 
+/**
+ * Where a decor item dropped at `p` should rest — the top of the highest
+ * surface under it, or the floor.
+ *
+ * Only decor drops. Everything else keeps the elevation its def gives it: a
+ * wall cabinet's 1.45 m is a design decision, not a consequence of what
+ * happens to be underneath it.
+ *
+ * The plan passes `DROP_CEIL` because a 2D click carries no height — it has to
+ * mean "the counter", not "the shelf 1.8 m above it". The 3D view knows better
+ * and passes its own ray hit.
+ */
+function dropElevation(
+  def: CatalogDef,
+  surfaces: readonly Surface[],
+  p: Point,
+  ceil = DROP_CEIL
+): number | undefined {
+  if (!isDecor(def)) return undefined;
+  return restingElevation(surfaces, p, ceil);
+}
+
+/**
+ * The free stretch a point along the wall picks out, else the nearest one.
+ *
+ * Only the REFUSED branch of `ghostPlacement` needs this — the accepted one
+ * reads its segment straight off `fitItem`'s patch — so it stays a local
+ * shortest-distance walk rather than another export off fit.ts. Ties go to the
+ * wider stretch, mirroring fit.ts's own `segmentAt`.
+ */
+function nearestSegment(segs: readonly FreeSegment[], t: number): FreeSegment | null {
+  let best: FreeSegment | null = null;
+  let bestD = Infinity;
+  for (const s of segs) {
+    const d = Math.max(s.t0 - t, t - s.t1, 0);
+    if (d > bestD || (d === bestD && best && s.t1 - s.t0 <= best.t1 - best.t0)) continue;
+    best = s;
+    bestD = d;
+  }
+  return best;
+}
+
 export class Plan2D {
   private canvas!: HTMLCanvasElement;
   private ctx!: CanvasRenderingContext2D;
@@ -151,6 +218,7 @@ export class Plan2D {
   private editor: EditorState;
   private onHint: (hint: string) => void;
   private onDrawHud: (s: DrawHudState | null) => void;
+  private onPlaceHud: (s: PlaceHudState | null) => void;
 
   private zoom = 90; // px per meter
   private panX = 60;
@@ -192,6 +260,7 @@ export class Plan2D {
    * and always show: a cabinet inside another one is never worth hiding.
    */
   checksOn = false;
+  decorOn = true;
 
   drawRoomOn = false;
   /**
@@ -216,6 +285,17 @@ export class Plan2D {
   private lastAlt = false;
 
   private ghost: ItemGhost | null = null;
+  /**
+   * The free stretch the armed run would fill, resolved alongside `ghost` by
+   * `ghostPlacement`. Null for every def that does not land fitted.
+   */
+  private ghostSegment: GhostSegment | null = null;
+  /**
+   * Typed width for the armed run; '' = fill the whole segment. Parsed like
+   * the wall tool's length box (see `typedPlaceWidth`). P3 wires the keys that
+   * fill it; until then it is always empty and every read takes the '' branch.
+   */
+  private placeWidth = '';
   private ghostOpening: OpeningGhost | null = null;
   /**
    * WP 2.3 (WS-SPEC §5.3): what the cursor sits over in select mode, so
@@ -270,12 +350,19 @@ export class Plan2D {
      * fourth argument, and a callback rather than a `src/ui` import so this
      * module stays framework-free by contract.
      */
-    onDrawHud?: (s: DrawHudState | null) => void
+    onDrawHud?: (s: DrawHudState | null) => void,
+    /**
+     * The wardrobe placement tool's live width readout (P3), pushed out the
+     * same way and for the same reason — OPTIONAL so a headless construction
+     * (unit tests) needs no fifth argument.
+     */
+    onPlaceHud?: (s: PlaceHudState | null) => void
   ) {
     this.store = store;
     this.editor = editor;
     this.onHint = onHint;
     this.onDrawHud = onDrawHud ?? ((): void => {});
+    this.onPlaceHud = onPlaceHud ?? ((): void => {});
     this.editorOff = editor.subscribe(() => this.syncFromEditor());
   }
 
@@ -305,6 +392,41 @@ export class Plan2D {
       field: this.drawField,
       outcome: this.outcome,
       angleLock: this.angleLocked(this.lastShift),
+    });
+  }
+
+  /**
+   * Push the placement tool's typed-width readout, or null to hide it (P3).
+   * Modelled on `pushDrawHud`, and safe to share its 'draw' bridge channel:
+   * `drawRoomOn` and an armed def are mutually exclusive by construction, so
+   * the two producers can never collide.
+   *
+   * Called wherever `ghostSegment` changes: the armed pointermove branch,
+   * `clearGhosts()` and `refreshPlaceGhost()`.
+   */
+  private pushPlaceHud(): void {
+    const def = this.armedDef;
+    const seg = this.ghostSegment;
+    if (!def || !seg) {
+      this.onPlaceHud(null);
+      return;
+    }
+    const wall = this.store.wallById(seg.wallId);
+    if (!wall) {
+      this.onPlaceHud(null);
+      return;
+    }
+    // the readout floats at the segment's midpoint, on the FAR edge of the
+    // band (faceOffset + depth) — exactly where renderPlan draws its own
+    // length label, so the two never compete for the same spot
+    const mid = wallPoint(wall, (seg.t0 + seg.t1) / 2);
+    const far = wall.faceOffset + seg.depth;
+    this.onPlaceHud({
+      at: this.toScreen({ x: mid.x + wall.inward.x * far, y: mid.y + wall.inward.y * far }),
+      span: seg.t1 - seg.t0,
+      typedWidth: this.placeWidth,
+      tooNarrow: seg.tooNarrow,
+      label: def.label,
     });
   }
 
@@ -367,7 +489,7 @@ export class Plan2D {
       () => {
         this.clearHover();
         if (this.drag.type === 'none') {
-          this.ghost = null;
+          this.clearGhosts();
           this.ghostOpening = null;
           this.lastPointer = null;
           this.drawHover = null; // the ring stays; only its rubber band leaves
@@ -542,7 +664,7 @@ export class Plan2D {
           this.resetCalibrate();
           break;
         case 'place':
-          this.ghost = null;
+          this.clearGhosts();
           this.ghostOpening = null;
           break;
         case 'measure':
@@ -559,6 +681,7 @@ export class Plan2D {
     this.calibrateOn = tool === 'calibrate';
     this.drawRoomOn = tool === 'drawRoom';
     this.checksOn = this.editor.checksOn;
+    this.decorOn = this.editor.decorOn;
     if (this.attached) this.canvas.style.cursor = this.toolCursor();
     this.updateHint();
     this.requestDraw();
@@ -599,11 +722,89 @@ export class Plan2D {
    */
 
   setArmed(def: CatalogDef | null): void {
-    this.ghost = null;
+    this.clearGhosts();
     this.ghostOpening = null;
     this.lastArmedDef = def;
     this.editor.setTool(def ? 'place' : 'select', def?.id ?? null);
     this.updateHint();
+    this.requestDraw();
+  }
+
+  /* ---- placement HUD: type-in run width (P3), sibling of the wall tool's box ---- */
+
+  /**
+   * Whether a keystroke should feed the placement width box at all — an armed
+   * def AND a ghost that has actually landed on a free wall segment.
+   * Deliberately TIGHTER than `drawInputActive` (which only asks for a live
+   * ring): without `ghostSegment` there is no width to negotiate, and a bare
+   * `armedDef` gate would let digits steal the workspace-switch keys the
+   * moment ANY def is armed, even one still hovering empty floor.
+   */
+  placeInputActive(): boolean {
+    return !!this.armedDef && !!this.ghostSegment;
+  }
+
+  /** Append one typed character to the run-width buffer. */
+  placeDigit(ch: string): void {
+    if (!this.placeInputActive()) return;
+    if (this.placeWidth.length >= 12) return;
+    this.placeWidth += ch;
+    this.refreshPlaceGhost();
+  }
+
+  /**
+   * Whether the width box holds a character at all — same split as
+   * `drawBufferActive`, so Backspace edits the typed width first and only
+   * falls through to deleting the selection once the box is empty.
+   */
+  placeBufferActive(): boolean {
+    if (!this.placeInputActive()) return false;
+    return this.placeWidth.length > 0;
+  }
+
+  placeBackspace(): void {
+    if (!this.placeInputActive()) return;
+    if (!this.placeWidth) return;
+    this.placeWidth = this.placeWidth.slice(0, -1);
+    this.refreshPlaceGhost();
+  }
+
+  /** Drop the typed width without disarming — `tool.cancel`'s first stage. */
+  clearPlaceWidth(): void {
+    if (!this.placeInputActive()) return;
+    if (!this.placeWidth) return;
+    this.placeWidth = '';
+    this.refreshPlaceGhost();
+  }
+
+  /**
+   * Enter: place at the last known cursor position, exactly as a click would
+   * (`onPointerDown`'s armed branch calls the very same `placeArmed`). False
+   * when there is nothing to place at — the command layer's own
+   * `placeInputActive` gate gets there first in practice, so this is a second
+   * line of defence rather than the primary guard.
+   */
+  commitPlace(): boolean {
+    if (!this.ghost || !this.lastPointer) return false;
+    this.placeArmed(this.lastPointer, false);
+    return true;
+  }
+
+  /**
+   * Re-run the fitted preview from the last known cursor, so a typed digit
+   * narrows the ghost and moves the HUD without waiting for the next
+   * pointermove — mirrors `refreshDrawHover`. Only the general (wall-hugging)
+   * placement case needs this: `placeInputActive` — the only gate that can
+   * ever get here — requires `ghostSegment`, which only that case ever sets.
+   */
+  private refreshPlaceGhost(): void {
+    if (this.lastPointer && this.armedDef) {
+      const w = this.lastPointer;
+      const res = snapItem(this.store, this.armedDef, null, w.x, w.y, 0);
+      const fitted = this.ghostPlacement(res, w);
+      if (this.ghost) this.ghost = { ...this.ghost, ...fitted };
+    }
+    this.pushPlaceHud();
     this.requestDraw();
   }
 
@@ -1619,16 +1820,38 @@ export class Plan2D {
     drawRing: DrawRing | null;
     snap: SnapResult | null;
     hover: HoverOverlay;
+    /** the armed def's placement preview, `w` set when it will land fitted */
+    ghost: ItemGhost | null;
+    /** the free wall stretch that ghost is being fitted into, or null */
+    ghostSegment: GhostSegment | null;
   } {
     return {
       measure: this.measure,
       drawRing: this.drawRing(),
       snap: this.activeSnap(),
       hover: { ...this.hover },
+      ghost: this.ghost && { ...this.ghost },
+      ghostSegment: this.ghostSegment && { ...this.ghostSegment },
     };
   }
 
   /* ---------------- pointer handling ---------------- */
+
+  /**
+   * Drop the armed def's whole preview: the ghost, the free-segment band it
+   * was being fitted into and any typed width.
+   *
+   * One method because the three are ONE affordance. A band left behind after
+   * the ghost went promises a click that can no longer happen, and a width
+   * typed for a run the user walked away from would silently size the next
+   * one.
+   */
+  private clearGhosts(): void {
+    this.ghost = null;
+    this.ghostSegment = null;
+    this.placeWidth = '';
+    this.pushPlaceHud();
+  }
 
   /**
    * Drop the hover affordance and repaint once, iff something was actually
@@ -1729,12 +1952,27 @@ export class Plan2D {
         if (pointInPolygon(local, fp)) out.push(it);
         continue;
       }
-      const pad = ['water', 'outlet', 'spot', 'strip'].includes(this.store.defOf(it.defId).kind)
+      // small things need a bigger target than their own footprint: a 6 cm mug
+      // is otherwise unclickable. Stealing the click from the cabinet beneath
+      // is already handled — hitItems returns every hit top-most first, which
+      // is what drives the "click again for the item beneath" cycle.
+      const pad = ['water', 'outlet', 'spot', 'strip', 'decor'].includes(
+        this.store.defOf(it.defId).kind
+      )
         ? 0.08
         : 0.01;
       if (pointInRect(w, it.x, it.y, it.w + pad * 2, it.d + pad * 2, it.rotation)) out.push(it);
     }
     return out;
+  }
+
+  /**
+   * Surfaces to hold for the duration of an item drag — only for decor, since
+   * nothing else drops. Empty for everything else, so an ordinary cabinet drag
+   * costs no `partPanels` pass at all.
+   */
+  private dragSurfaces(item: Item): readonly Surface[] {
+    return isDecor(this.store.defOf(item.defId)) ? this.store.surfaces() : [];
   }
 
   private hitItem(w: Point): Item | null {
@@ -1921,6 +2159,7 @@ export class Plan2D {
         ax: item.x,
         ay: item.y,
         followers: this.dragFollowers(item.id),
+        surfaces: this.dragSurfaces(item),
       };
       return;
     }
@@ -1960,6 +2199,134 @@ export class Plan2D {
     this.drag = { type: 'marquee', sx: s.x, sy: s.y, add: e.shiftKey, moved: false };
   }
 
+  /**
+   * The typed run width as metres, or null when nothing usable is pending.
+   *
+   * Parsed exactly like the wall tool's length box (src/model/units.ts, in the
+   * user's own unit), so '900' is 0.9 m in a mm profile and '1.2m' works
+   * anywhere. P3 wires the keys that fill `placeWidth`; until then this always
+   * answers null and every caller takes its untyped branch.
+   */
+  private typedPlaceWidth(): number | null {
+    if (!this.placeWidth) return null;
+    const m = parseLength(this.placeWidth, unitPrefs());
+    return m !== null && m > 1e-4 ? m : null;
+  }
+
+  /**
+   * Where the armed def would land and how wide it would be, as a partial
+   * `ItemGhost` — plus, as a side effect, the free-segment band that answer
+   * came out of (`ghostSegment`). Both are one answer, so they resolve in one
+   * place; empty for everything that is not a wall-hugging wardrobe.
+   *
+   * It COMPOSES on top of `snapItem` rather than replacing any of it: the snap
+   * result supplies the rotation and the room, and this only ever adds the
+   * fitted width and the recentred position on top. `store.addItem` seeds
+   * `fit` for a wardrobe (built-in furniture), so without this the ghost would
+   * promise a 3-column run and drop a wall-to-wall one.
+   *
+   * The t it measures at is the RAW pointer projection, never `res.x/res.y`:
+   * `snapItem` clamps the snapped pose's t to `[w / 2, len − w / 2]` so a wide
+   * def cannot hang off either end of its wall (snapping.ts). Reading the
+   * segment off that clamped pose would make every stretch inside the margin
+   * unreachable — hovering the last 40 cm of a wall would silently pick the
+   * middle of it. Rotation, wallId and roomId still come from `snapItem`.
+   *
+   * The item it measures is a THROWAWAY that is deliberately never pushed into
+   * `design.items` — `fitItem`'s obstacle loop walks that array, so a temp item
+   * outside it cannot bound itself.
+   *
+   * Width only: a plan ghost is a footprint, so a ceiling fit has nothing to
+   * draw and would cost a room-style lookup on every pointer move.
+   */
+  private ghostPlacement(res: ItemSnapResult, w: Point): Partial<ItemGhost> {
+    this.ghostSegment = null;
+    const def = this.armedDef;
+    if (!def || !res.wallId) return {};
+    const part = this.store.partOf(def.id);
+    if (part?.type !== 'wardrobe') return {};
+    const wall = this.store.wallById(res.wallId);
+    if (!wall) return {};
+
+    const t = clamp(projectOnWall(wall, w).t, 0, wall.len);
+    const foot = wallPoint(wall, t);
+    const off = wall.faceOffset + def.d / 2;
+    const tmp: Item = {
+      id: '__ghost',
+      defId: def.id,
+      x: foot.x + wall.inward.x * off,
+      y: foot.y + wall.inward.y * off,
+      rotation: res.rotation,
+      w: def.w,
+      d: def.d,
+      h: def.h,
+      elevation: part.elevation,
+      color: def.color,
+      roomId: res.roomId,
+      fit: { width: 'walls' },
+    };
+
+    const patch = fitItem(this.store.design, tmp);
+    if (patch) {
+      // the patch IS the segment: `fitWidth` hands back the free stretch's own
+      // length and centres the item in it, so span and midpoint fall straight
+      // out of the same numbers `syncFits` will settle on after the click
+      const span = patch.w ?? tmp.w;
+      const cx = patch.x ?? tmp.x;
+      const cy = patch.y ?? tmp.y;
+      const mid = projectOnWall(wall, { x: cx, y: cy }).t;
+      this.ghostSegment = {
+        wallId: wall.id,
+        t0: mid - span / 2,
+        t1: mid + span / 2,
+        depth: def.d,
+        tooNarrow: false,
+      };
+      const typed = this.typedPlaceWidth();
+      // the cursor picks a SEGMENT, not a position, so the ghost stays on the
+      // segment's centre whether it fills the stretch or the user narrowed it
+      return { x: cx, y: cy, w: typed === null ? span : clamp(typed, FIT_MIN_W, span) };
+    }
+
+    // `fitItem` refuses when the stretch under the cursor is too short to be a
+    // run at all. Recover it anyway, so the band can say WHY the click will not
+    // land instead of leaving the wall blank under a full-width ghost.
+    const seg = nearestSegment(
+      wallFreeSegments(this.store.design, wall, {
+        depth: def.d,
+        elevation: part.elevation,
+        height: def.h,
+      }),
+      t
+    );
+    if (seg) {
+      // tooNarrow is the SPAN's verdict, not fitItem's: fitItem also returns
+      // null when the segment happens to equal the catalog width to 1e-6,
+      // and that segment is perfectly usable — flag red only when the run
+      // genuinely cannot fit.
+      const span = seg.t1 - seg.t0;
+      const tooNarrow = span < FIT_MIN_W;
+      this.ghostSegment = {
+        wallId: wall.id,
+        t0: seg.t0,
+        t1: seg.t1,
+        depth: def.d,
+        tooNarrow,
+      };
+      if (!tooNarrow) {
+        const typed = this.typedPlaceWidth();
+        const mid = wallPoint(wall, (seg.t0 + seg.t1) / 2);
+        const off = wall.faceOffset + def.d / 2;
+        return {
+          x: mid.x + wall.inward.x * off,
+          y: mid.y + wall.inward.y * off,
+          w: typed === null ? span : clamp(typed, FIT_MIN_W, span),
+        };
+      }
+    }
+    return { valid: false };
+  }
+
   private placeArmed(w: Point, keep: boolean): void {
     const def = this.armedDef!;
     if (def.opening) {
@@ -1981,19 +2348,64 @@ export class Plan2D {
       this.editor.select({ kind: 'item', id: item.id });
       this.store.commit();
       if (!keep) this.setArmed(null);
-      this.drag = { type: 'item', id: item.id, ox: 0, oy: 0, moved: false };
+      this.drag = {
+        type: 'item',
+        id: item.id,
+        ox: 0,
+        oy: 0,
+        moved: false,
+        surfaces: this.dragSurfaces(item),
+      };
       this.postPlaceHint(keep);
       return;
     }
     const snapped = snapItem(this.store, def, null, w.x, w.y, 0);
     if ((def.marker || isWallMounted(def)) && !snapped.wallId) return; // markers need a wall
-    const item = this.store.addItem(def, snapped.x, snapped.y, snapped.rotation);
+    // the band is the promise: a stretch the ghost already called too short to
+    // be a run cannot take one, and placing anyway would strand it across the
+    // doorway the band is drawn red around
+    if (this.ghostSegment?.tooNarrow) {
+      this.onHint('That gap is too narrow for this run');
+      return;
+    }
+    // a fitted ghost sits at its SEGMENT's centre, which is not where `snapItem`
+    // put the pose (its t is clamped) — place exactly where the preview promised
+    const ghost = this.ghost;
+    const px = ghost?.w !== undefined ? ghost.x : snapped.x;
+    const py = ghost?.w !== undefined ? ghost.y : snapped.y;
+    const item = this.store.addItem(def, px, py, snapped.rotation);
     item.roomId = snapped.roomId;
+    const rest = dropElevation(def, this.store.surfaces(), { x: px, y: py });
+    if (rest !== undefined) item.elevation = rest;
+    // a typed width is an explicit answer, so it lands at birth: `updateItem`'s
+    // own rule drops `fit.width` (the user just overrode that axis) and keeps
+    // `fit.height`, and the x/y hold the item on the segment's centre that
+    // `addItem`'s fit pass has just stretched it away from
+    const typed = this.typedPlaceWidth();
+    if (typed !== null && ghost?.w !== undefined) {
+      this.store.updateItem(item.id, { w: ghost.w, x: px, y: py });
+    }
     this.editor.select({ kind: 'item', id: item.id });
     this.store.commit();
     if (!keep) this.setArmed(null);
     // continue dragging the fresh item for fine placement
-    this.drag = { type: 'item', id: item.id, ox: 0, oy: 0, moved: false };
+    this.drag = {
+      type: 'item',
+      id: item.id,
+      ox: 0,
+      oy: 0,
+      moved: false,
+      surfaces: this.dragSurfaces(item),
+    };
+    // `store.addItem` fits a wardrobe to its alcove on arrival, so the width
+    // the user just got is not the width the catalog tile showed. Say so once,
+    // where they are looking. Nothing else seeds `fit` on a fresh item, so the
+    // flag plus a changed width identifies exactly that case — and a width the
+    // user TYPED is not a surprise, so it gets no hint.
+    if (typed === null && item.fit && Math.abs(item.w - def.w) > 1e-6) {
+      this.onHint('Fitted wall to wall — editing Width unfits it');
+      return;
+    }
     this.postPlaceHint(keep);
   }
 
@@ -2110,9 +2522,16 @@ export class Plan2D {
         }
         const res = snapItem(this.store, def, it.id, w.x - d.ox, w.y - d.oy, it.rotation);
         this.guides = res.guides;
+        const rest = dropElevation(def, d.surfaces ?? [], { x: res.x, y: res.y });
         this.store.updateItem(
           it.id,
-          { x: res.x, y: res.y, rotation: res.rotation, roomId: res.roomId },
+          {
+            x: res.x,
+            y: res.y,
+            rotation: res.rotation,
+            roomId: res.roomId,
+            ...(rest !== undefined ? { elevation: rest } : {}),
+          },
           { structural: false, transient: true }
         );
         // the PRIMARY is what snapped; everything else takes its delta, so the
@@ -2200,10 +2619,13 @@ export class Plan2D {
 
     // not dragging: ghost preview / hover cursor
     if (this.armedDef) {
+      // remembered so a typed width can re-fit without waiting for the next
+      // move — refreshPlaceGhost / commitPlace read it (P3)
+      this.lastPointer = w;
       if (this.armedDef.opening) {
         const near = nearestWall(this.store, w, 0.6);
         this.ghostOpening = near ? { wallId: near.wall.id, t: near.t, valid: true } : null;
-        this.ghost = null;
+        this.clearGhosts();
       } else if (
         this.armedDef.appliance?.mount === 'counter' ||
         this.armedDef.appliance?.mount === 'zone'
@@ -2211,20 +2633,26 @@ export class Plan2D {
         // hosted appliances preview on their would-be host, red off-host
         const hit = findHost(this.store.design, this.armedDef, w, null);
         this.ghost = { x: w.x, y: w.y, rotation: 0, valid: !!hit };
+        this.ghostSegment = null;
         this.ghostOpening = null;
         this.guides = [];
       } else {
         const res = snapItem(this.store, this.armedDef, null, w.x, w.y, 0);
         const needWall = this.armedDef.marker || isWallMounted(this.armedDef);
+        // resolves `ghostSegment` too — the band and the ghost are one answer
+        const fitted = this.ghostPlacement(res, w);
         this.ghost = {
           x: res.x,
           y: res.y,
           rotation: res.rotation,
           valid: !needWall || !!res.wallId,
+          // adds nothing at all unless this def lands fitted (see ghostPlacement)
+          ...fitted,
         };
         this.ghostOpening = null;
         this.guides = res.guides;
       }
+      this.pushPlaceHud();
       this.requestDraw();
       return;
     }
@@ -2542,6 +2970,7 @@ export class Plan2D {
         measure: this.measureOn || this.calibrateOn,
         checks: true,
         roomEmphasis: true,
+        decor: this.decorOn,
       },
       {
         // the snap engine's guides are additive: `this.guides` still carries
@@ -2551,6 +2980,7 @@ export class Plan2D {
         marquee: this.marquee,
         armedDef: this.armedDef,
         ghost: this.ghost,
+        ghostSegment: this.ghostSegment,
         ghostOpening: this.ghostOpening,
         drawRing: this.drawRing(),
         snap: this.activeSnap(),

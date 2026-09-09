@@ -4,7 +4,7 @@ import type { ToolId } from '../../editor/editorState';
 import type { CamPreset } from '../../view3d/view3d';
 import { wallLabel } from '../shellState';
 import { workspace } from '../workspaceState';
-import { DrawHud, SceneOverlay, ViewOverlay } from './CanvasOverlays';
+import { DrawHud, PlaceHud, SceneOverlay, ViewOverlay } from './CanvasOverlays';
 import { ContextMenu } from './ContextMenu';
 import { FurnishNudge, PlanStarterCard } from './EmptyState';
 import { HintChip } from './HintChip';
@@ -98,6 +98,7 @@ export function Workspace(): ReactElement {
           <PlanStarterCard />
           <FurnishNudge />
           <DrawHud />
+          <PlaceHud />
         </div>
         <div id="pane3d" className="pane">
           <canvas id="canvas3d" ref={viewCanvas}></canvas>

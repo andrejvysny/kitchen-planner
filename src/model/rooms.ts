@@ -21,6 +21,7 @@ import {
   insetPolygon,
   pointInPolygon,
   polygonIsSimple,
+  sectorPolygon,
   segmentIntersection,
   projectOnWall,
   signedArea,
@@ -1499,4 +1500,29 @@ export function openingsOfWall(design: Design, wall: RoomWall): WallOpening[] {
     else if (twinId && o.wallId === twinId) out.push(mirrorOpening(o, wall.id, wall.len));
   }
   return out;
+}
+
+/** arc segments per door swing sector */
+export const SWING_SEGS = 8;
+
+/**
+ * The door leaf's quarter-disc, mirroring the plan symbol exactly (symbols.ts
+ * case 'door': hinge at the jamb, `arc(-hw, 0, w, 0, π/2)`, flipped in x for a
+ * right hinge and in y for an outward swing). Local +x is the wall direction
+ * and local +y its inward normal, so the sweep runs from the opposite jamb
+ * round to the fully-open leaf. Radius = the door WIDTH, exactly as drawn.
+ *
+ * The hinge sits on the room-side wall face rather than the plan's slab band
+ * centre: half a wall thickness nearer the room is where items actually are.
+ */
+export function swingSector(g: RoomWall, o: WallOpening): Point[] {
+  const sx = (o.hinge ?? 'left') === 'right' ? -1 : 1;
+  const sy = (o.swing ?? 'in') === 'out' ? -1 : 1;
+  const jamb = wallPoint(g, o.offset - (sx * o.width) / 2);
+  const hinge = {
+    x: jamb.x + g.inward.x * g.faceOffset,
+    y: jamb.y + g.inward.y * g.faceOffset,
+  };
+  const a0 = g.angle + (sx > 0 ? 0 : Math.PI);
+  return sectorPolygon(hinge, o.width, a0, a0 + (sx * sy * Math.PI) / 2, SWING_SEGS);
 }

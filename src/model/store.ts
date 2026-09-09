@@ -15,7 +15,8 @@ import {
 } from './geometry';
 import { hasMaterial } from './materials';
 import { DESIGN_VERSION, migrateDesign } from './migrate';
-import { applianceTowerPart, samplePart, sanitizePart, toCatalogDef } from './parts';
+import { applianceTowerPart, DIM_LIMITS, samplePart, sanitizePart, toCatalogDef } from './parts';
+import { instancesOf } from './partUsage';
 import {
   allWalls,
   DEFAULT_WALL_W,
@@ -71,6 +72,8 @@ import {
   RECOVERY_KEY,
   UNDERLAY_KEY,
 } from './storageKeys';
+import { isStagedItem, planStaging } from './staging';
+import { surfacesOf, type Surface } from './surfaces';
 import { sanitizeUnderlay } from './underlay';
 import { detach, isVarRef, refId, toVarRef, VAR_FALLBACK } from './variables';
 
@@ -163,6 +166,10 @@ export class Store {
   private checksCache: Warning[] = [];
   private checksDirty = true;
 
+  /** usable flat surfaces, same contract as the checks cache above */
+  private surfacesCache: Surface[] = [];
+  private surfacesDirty = true;
+
   /** true once a localStorage write has thrown, until one succeeds again */
   private saveFailing = false;
 
@@ -205,8 +212,9 @@ export class Store {
 
   notify(info: ChangeInfo): void {
     // every mutation announces itself here, so this is the one place the
-    // checks cache has to be invalidated (restore/replaceDesign included)
+    // derived caches have to be invalidated (restore/replaceDesign included)
     this.checksDirty = true;
+    this.surfacesDirty = true;
     this.emit('change', info);
   }
 
@@ -221,6 +229,27 @@ export class Store {
       this.checksDirty = false;
     }
     return this.checksCache;
+  }
+
+  /**
+   * Usable flat surfaces for the current design (src/model/surfaces.ts).
+   * Derived and ephemeral exactly like `warnings()` — never serialized, never
+   * an undo step.
+   *
+   * Invalidated by `notify()` on EVERY tick, transient ones included. That is
+   * not laziness: `Plan2D.endGesture` finishes an item drag with `commit()` and
+   * no trailing non-transient notify, so a cache that skipped transient ticks
+   * would go stale after any drag and stay stale.
+   *
+   * A gesture must NOT call this per pointermove — snapshot it once at gesture
+   * start instead (no host moves mid-drag, so the snapshot stays exact).
+   */
+  surfaces(): Surface[] {
+    if (this.surfacesDirty) {
+      this.surfacesCache = surfacesOf(this.design);
+      this.surfacesDirty = false;
+    }
+    return this.surfacesCache;
   }
 
   /* ---------------- history ---------------- */
@@ -1238,6 +1267,14 @@ export class Store {
     // instances of user parts start at the part's configured elevation
     const part = this.partOf(def.id);
     if (part) item.elevation = part.elevation;
+    // A wardrobe is BUILT-IN furniture: it is measured to the alcove it lands
+    // in, not bought at a catalog width. So it arrives already asking to be
+    // fitted and the `syncDerived()` below settles it against whatever wall it
+    // was dropped on — `fitItem` returns null when it hugs none, so one placed
+    // mid-room simply keeps its catalog size until it is dragged to a wall.
+    // Opting out is the inspector's two toggles, or just typing a width:
+    // `updateItem` drops the matching flag on any manual w/h edit.
+    if (part?.type === 'wardrobe') item.fit = { width: 'walls', height: 'ceiling' };
     // bind new items to the configured default variables where applicable
     const { defaultFrontVar, defaultAccentVar } = this.design;
     if (defaultFrontVar && !def.opening && !def.marker && this.variableById(defaultFrontVar)) {
@@ -1250,6 +1287,77 @@ export class Store {
     this.syncDerived();
     this.notify({ structural: true });
     return item;
+  }
+
+  /* ---------------- room staging ---------------- */
+
+  /**
+   * Fill a room with set dressing (src/model/staging.ts) in ONE undo step.
+   *
+   * "One step" is a property of the code, not an accident: `commit()` is the
+   * only thing that pushes an undo snapshot and no mutator calls it itself, so
+   * this pushes every item and fires a SINGLE structural notify, leaving the
+   * commit to the caller like every other mutation. Batching is not needed for
+   * correctness — View3D coalesces N notifies into one rAF rebuild — but it
+   * makes the property visible rather than incidental.
+   *
+   * It CLEARS FIRST, so the button is "Restage": pressing it twice must not
+   * leave sixty mugs behind, and both halves land in the one commit.
+   *
+   * Deterministic in the ARRANGEMENT, never in the ids — `uid()` is random.
+   */
+  stageRoom(roomId?: string, density = 0.5, seed?: number): Item[] {
+    const rid = roomId ?? this.activeRoomId;
+    if (!rid) return [];
+    this.dropStaged(rid);
+    const specs = planStaging(this.design, rid, density, seed);
+    const made = specs.map((sp) => {
+      const def = this.defOf(sp.defId);
+      const item: Item = {
+        id: uid('i'),
+        defId: sp.defId,
+        x: sp.x,
+        y: sp.y,
+        rotation: sp.rotation,
+        w: def.w,
+        d: def.d,
+        h: def.h,
+        elevation: sp.elevation,
+        color: def.color,
+        params: sp.params ?? defaultParams(def),
+        roomId: rid,
+      };
+      return item;
+    });
+    this.design.items.push(...made);
+    this.syncDerived();
+    this.notify({ structural: true });
+    return made;
+  }
+
+  /** Remove every staged item from a room. Caller commits. */
+  unstageRoom(roomId?: string): void {
+    const rid = roomId ?? this.activeRoomId;
+    if (!rid) return;
+    if (!this.dropStaged(rid)) return;
+    this.syncDerived();
+    this.notify({ structural: true });
+  }
+
+  /** True when anything was removed. No notify — both callers own that. */
+  private dropStaged(roomId: string): boolean {
+    const before = this.design.items.length;
+    this.design.items = this.design.items.filter(
+      (it) => !(it.roomId === roomId && isStagedItem(this.design, it))
+    );
+    return this.design.items.length !== before;
+  }
+
+  /** Does this room currently hold any set dressing? (Drives the UI's label.) */
+  hasStaging(roomId?: string): boolean {
+    const rid = roomId ?? this.activeRoomId;
+    if (!rid) return false;
+    return this.design.items.some((it) => it.roomId === rid && isStagedItem(this.design, it));
   }
 
   /* ---------------- custom parts ---------------- */
@@ -1381,6 +1489,77 @@ export class Store {
     it.defId = copy.id;
     this.notify({ structural: true });
     return copy;
+  }
+
+  /**
+   * Adopt a PLACED wardrobe's own dimensions into the part def it resolves to
+   * — what the Workshop runs on the way in when it was opened FROM an item
+   * (src/ui/react/WorkshopPane.tsx).
+   *
+   * The two numbers were always allowed to differ: the column canvas lays the
+   * run out at `part.w` while the instance is built at `item.w`, and a fitted
+   * wardrobe takes its width from the free wall segment it landed in. So the
+   * editor would draw a 3.0 m run for a wardrobe that is really 4.0 m wide,
+   * and every column the user sized was sized against the wrong total — the
+   * whole delta silently living in the one `'fill'` column. Adopting first
+   * makes the canvas WYSIWYG for the instance that opened it.
+   *
+   * Four rules, each load-bearing:
+   *  - **Wardrobes only.** A cabinet's zone tree is proportional, and its
+   *    instances are deliberately free to differ from the def; only the fitted
+   *    column run has a fixed/fill split that a wrong total mis-solves.
+   *  - **w/d/h only, never `elevation`.** Off-floor height is instance state
+   *    (`updateItem`), not a property of the part.
+   *  - **A SHARED def forks** (≥2 placed instances → `forkPartForItem`),
+   *    because one instance's fitted width is not the other's. A def with a
+   *    single instance is `materializePart`d instead, so that instance keeps
+   *    FOLLOWING the part rather than forking away from it.
+   *  - **The write is clamped to `DIM_LIMITS` up front**, and the gate compares
+   *    the clamped values. `sanitizePart` would clamp them anyway, so writing a
+   *    raw over-limit `item.w` would leave a def that can never match its item
+   *    and a caller that retargets forever. Clamping ONE WAY (the part follows
+   *    the item, the item is never written back) is also what keeps
+   *    `syncDerived` a fixed point: a fitted item's width comes from its wall
+   *    segment, not from `part.w`.
+   *
+   * Returns null for anything out of scope (no such item, no part def — a
+   * bought catalog product — or not a wardrobe); `{defId, changed:false}` when
+   * the def already matches, which costs no fork, no write and no undo step;
+   * `{defId, changed:true}` when it wrote, in which case the CALLER commits
+   * (one undo step) and retargets onto `defId`, which a fork will have changed.
+   *
+   * Accepted consequence of the single-instance branch: `materializePart`
+   * shadows a PRESET design-wide under its own id (decision D4), so the adopted
+   * width becomes that preset's width for the rest of this design and a later
+   * catalog placement of it starts there. Invisible in practice — `addItem`
+   * seeds `fit` on a wardrobe, so `syncFits` re-measures the new instance
+   * against its own wall immediately.
+   */
+  adoptItemDims(itemId: string): { defId: string; changed: boolean } | null {
+    const it = this.itemById(itemId);
+    const src = it && this.partOf(it.defId);
+    if (!it || !src || src.type !== 'wardrobe') return null;
+
+    const lim = DIM_LIMITS.wardrobe;
+    const w = clamp(it.w, lim.w[0], lim.w[1]);
+    const d = clamp(it.d, lim.d[0], lim.d[1]);
+    const h = clamp(it.h, lim.h[0], lim.h[1]);
+    const same = (a: number, b: number): boolean => Math.abs(a - b) < 1e-6;
+    if (same(src.w, w) && same(src.d, d) && same(src.h, h)) {
+      return { defId: src.id, changed: false };
+    }
+
+    const target =
+      instancesOf(this.design, it.defId) > 1
+        ? this.forkPartForItem(itemId)
+        : this.materializePart(src);
+    if (!target) return null;
+    this.updateCustomPart(target.id, (p) => {
+      p.w = w;
+      p.d = d;
+      p.h = h;
+    });
+    return { defId: target.id, changed: true };
   }
 
   /** Delete a part and any placed instances of it (plus appliances mounted on them). */

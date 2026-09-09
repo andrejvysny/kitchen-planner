@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactElement } from 'react';
 import { presetPart } from '../../model/presets';
-import { workshopTarget, workspace, type WorkshopTarget } from '../workspaceState';
+import { openInWorkshop, workshopTarget, workspace, type WorkshopTarget } from '../workspaceState';
 import { useChannel } from './hooks/useStore';
 import { useAppServices } from './services';
 
@@ -50,6 +50,23 @@ export function WorkshopPane(): ReactElement | null {
       return;
     }
     opened.current = target;
+
+    // Opened FROM a placed item: the def the editor is about to draw has to be
+    // the size that item actually IS. A fitted wardrobe took its width from the
+    // wall segment it landed in, so the def is still at its catalog width and
+    // every column would be laid out against the wrong total. `adoptItemDims`
+    // is scope-gated and idempotent, and it FORKS a def shared by more than one
+    // instance — so the answer can be a different id than the target carried.
+    // Retarget onto it and let the effect re-enter: the second pass adopts
+    // nothing and opens the studio.
+    if (target?.itemId) {
+      const adopted = store.adoptItemDims(target.itemId);
+      if (adopted?.changed) {
+        store.commit();
+        openInWorkshop(adopted.defId, target.itemId);
+        return;
+      }
+    }
 
     // A stale id — a custom part deleted since the target was set — resolves
     // to nothing and lands on the picker rather than throwing.

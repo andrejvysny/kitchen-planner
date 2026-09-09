@@ -52,7 +52,8 @@ export const CatalogTile = memo(function CatalogTile({
       def.d,
       def.color,
       part ? (footprintPolygon(part, def.w, def.d) ?? undefined) : undefined,
-      part?.type === 'wardrobe' ? wardrobePlanSymbol(part, def.w, def.d) : undefined
+      part?.type === 'wardrobe' ? wardrobePlanSymbol(part, def.w, def.d) : undefined,
+      def.decor?.form
     );
   }, [def, store]);
 

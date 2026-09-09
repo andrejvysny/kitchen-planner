@@ -1561,7 +1561,13 @@ body {
   color: var(--ink-soft);
 }
 
-.studio-fork {
+/* the scope line takes the slack, so both buttons sit together on the right */
+.studio-scope-text {
+  flex: 1;
+}
+
+.studio-fork,
+.studio-place {
   flex: none;
   padding: 6px 12px;
   font-size: 12px;
@@ -2569,4 +2575,87 @@ body {
   50% {
     opacity: 0;
   }
+}
+
+/* ---- placement tool: live run-width readout (P3) ------------------------ */
+/* Sibling of #draw-hud, same floating idiom and z-index — the two are
+   mutually exclusive by construction (an armed def vs. drawRoomOn), so they
+   never fight for the same spot. Width-only: the free segment already fixed
+   the position, so there is no angle box to carry. */
+#place-hud {
+  position: absolute;
+  z-index: 26;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  transform: translate(14px, calc(-100% - 10px));
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: rgba(244, 243, 240, 0.94);
+  border: 1px solid #d6d3cb;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #3a3934;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* the free segment cannot take this def at all — the click ahead will refuse */
+#place-hud.narrow {
+  border-color: #d66;
+  color: #a33;
+}
+
+.place-hud-label {
+  opacity: 0.7;
+  font-weight: 600;
+}
+
+/* the box the digits are going into */
+.place-hud-field {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: #2f6f5e;
+  color: #fff;
+}
+
+#place-hud.narrow .place-hud-field {
+  background: #d66;
+}
+
+.place-hud-value {
+  font-weight: 600;
+}
+
+.place-hud-unit {
+  opacity: 0.65;
+  font-size: 10px;
+}
+
+/* only shown while a width has been typed, so it reads as an edit in progress */
+.place-hud-caret {
+  width: 1px;
+  align-self: stretch;
+  background: currentColor;
+  animation: draw-hud-blink 1s steps(1) infinite;
+}
+
+/* the free segment's own length, ALWAYS shown — a reference even while typing
+   a narrower width */
+.place-hud-span {
+  padding-left: 6px;
+  border-left: 1px solid #d6d3cb;
+  opacity: 0.7;
+}
+
+.place-hud-hint {
+  padding-left: 6px;
+  margin-left: 2px;
+  border-left: 1px solid #d6d3cb;
+  color: #6b6961;
+  font-weight: 600;
 }

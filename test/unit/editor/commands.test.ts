@@ -17,8 +17,20 @@ import { demoDesign, Store } from '../../../src/model/store';
 // used to hold as `if` branches. These tests are the parity gate for that
 // lift: same mutations, same guards, same `store.commit()` discipline.
 
-/** Records every port call so a command's tool-cancelling path is observable. */
-function fakePlan(drawing = false, buffered = drawing): PlanToolPort & { calls: string[] } {
+/**
+ * Records every port call so a command's tool-cancelling path is observable.
+ *
+ * `placing`/`placeBuffered` are the P3 placement-HUD twins of `drawing`/
+ * `buffered` — kept as separate parameters (not derived from `drawing`)
+ * because the wall tool and the placement tool are never live at once, so a
+ * test wires exactly one pair non-default.
+ */
+function fakePlan(
+  drawing = false,
+  buffered = drawing,
+  placing = false,
+  placeBuffered = placing
+): PlanToolPort & { calls: string[] } {
   const calls: string[] = [];
   return {
     calls,
@@ -33,6 +45,15 @@ function fakePlan(drawing = false, buffered = drawing): PlanToolPort & { calls: 
     drawBackspace: () => calls.push('drawBackspace'),
     undoDrawVertex: () => calls.push('undoDrawVertex'),
     drawToggleField: () => calls.push('drawToggleField'),
+    placeInputActive: () => placing,
+    placeBufferActive: () => placeBuffered,
+    placeDigit: (ch) => calls.push(`placeDigit:${ch}`),
+    placeBackspace: () => calls.push('placeBackspace'),
+    clearPlaceWidth: () => calls.push('clearPlaceWidth'),
+    commitPlace: () => {
+      calls.push('commitPlace');
+      return placing;
+    },
   };
 }
 
@@ -348,6 +369,80 @@ describe('app commands', () => {
       expect(reg.execute('draw.backspace')).toBe(false);
       expect(reg.execute('draw.undoVertex')).toBe(true);
       expect(plan.calls).toEqual(['undoDrawVertex']);
+    });
+
+    it('place.* only runs once an armed def has landed on a free segment', () => {
+      const idle = fakePlan(false, false, false);
+      const idleReg = new CommandRegistry({
+        store,
+        editor,
+        plan: idle,
+        modal,
+        workspace: ws,
+        help,
+      });
+      idleReg.registerAll(APP_COMMANDS);
+      expect(idleReg.execute('place.digit4')).toBe(false);
+      expect(idleReg.execute('place.backspace')).toBe(false);
+      expect(idleReg.execute('place.commit')).toBe(false);
+      expect(idle.calls).toEqual([]);
+
+      const live = fakePlan(false, false, true, true);
+      const liveReg = new CommandRegistry({
+        store,
+        editor,
+        plan: live,
+        modal,
+        workspace: ws,
+        help,
+      });
+      liveReg.registerAll(APP_COMMANDS);
+      expect(liveReg.execute('place.digit4')).toBe(true);
+      expect(liveReg.execute('place.digitDot')).toBe(true);
+      expect(liveReg.execute('place.backspace')).toBe(true);
+      expect(liveReg.execute('place.commit')).toBe(true);
+      expect(live.calls).toEqual(['placeDigit:4', 'placeDigit:.', 'placeBackspace', 'commitPlace']);
+    });
+
+    it('an EMPTY placement width box hands Backspace on, not placeBackspace', () => {
+      // landed on a segment (placeInputActive) but nothing typed yet
+      // (placeBufferActive false) — mirrors the draw.* split above
+      const plan = fakePlan(false, false, true, false);
+      const reg = new CommandRegistry({ store, editor, plan, modal, workspace: ws, help });
+      reg.registerAll(APP_COMMANDS);
+      expect(reg.execute('place.backspace')).toBe(false);
+      expect(plan.calls).toEqual([]);
+    });
+
+    it('place: a typed width clears FIRST, then disarms — two-stage like the wall tool', () => {
+      editor.setTool('place');
+
+      const typed = fakePlan(false, false, true, true);
+      const typedReg = new CommandRegistry({
+        store,
+        editor,
+        plan: typed,
+        modal,
+        workspace: ws,
+        help,
+      });
+      typedReg.registerAll(APP_COMMANDS);
+      typedReg.execute('tool.cancel');
+      expect(typed.calls).toEqual(['clearPlaceWidth']);
+
+      // the box is now empty — the SAME command disarms instead
+      const empty = fakePlan(false, false, true, false);
+      const emptyReg = new CommandRegistry({
+        store,
+        editor,
+        plan: empty,
+        modal,
+        workspace: ws,
+        help,
+      });
+      emptyReg.registerAll(APP_COMMANDS);
+      emptyReg.execute('tool.cancel');
+      expect(empty.calls).toEqual(['setArmed']);
     });
 
     it.each([

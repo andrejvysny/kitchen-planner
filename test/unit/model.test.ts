@@ -696,6 +696,21 @@ describe('Store mutations', () => {
     expect(store.itemById(item.id)!.w).toBeCloseTo(0.086);
   });
 
+  it('addItem seeds fit flags on a wardrobe-TYPE part and on nothing else', () => {
+    const store = new Store(rectDesign());
+    // a fitted run is built-in furniture: it arrives measured to its alcove
+    expect(store.addItem(presetDef('wardrobe-fitted'), 1, 1).fit).toEqual({
+      width: 'walls',
+      height: 'ceiling',
+    });
+    // the discrimination is part.TYPE, not the name: 'wardrobe' is a cabinet
+    // carcass that happens to be wardrobe-shaped, and a freestanding 1.0 m box
+    // must not stretch itself wall to wall
+    expect(store.addItem(presetDef('wardrobe'), 2, 1).fit).toBeUndefined();
+    expect(store.addItem(presetDef('base-cabinet'), 3, 1).fit).toBeUndefined();
+    expect(store.addItem(catalogDef('table'), 3.5, 1).fit).toBeUndefined();
+  });
+
   it('undo with an uncommitted gesture lands on the last committed state', () => {
     const store = new Store(rectDesign());
     const item = store.addItem(presetDef('base-cabinet'), 1, 1);
@@ -1384,6 +1399,23 @@ describe('snapItem', () => {
     expect(res.wallId).toBeTruthy();
     expect(res.x).toBeLessThanOrEqual(3.71);
     expect(res.x).toBeGreaterThanOrEqual(0.29);
+  });
+
+  it('never aligns to a DECORATIVE item', () => {
+    // a staged room leaves clutter sitting exactly where a cabinet's own edge
+    // would be; aligning to it makes every later drag jump to a mug
+    const store = new Store(rectDesign());
+    const clean = snapItem(store, catalogDef('table'), null, 2, 1.5, 0);
+    store.addItem(catalogDef('decor-plant'), clean.x + 0.03, clean.y + 0.03, 0);
+    const after = snapItem(store, catalogDef('table'), null, 2, 1.5, 0);
+    expect(after.x).toBeCloseTo(clean.x, 9);
+    expect(after.y).toBeCloseTo(clean.y, 9);
+
+    // a non-decorative neighbour at the same offset still pulls it
+    const store2 = new Store(rectDesign());
+    store2.addItem(catalogDef('table'), clean.x + 0.03, clean.y + 0.03, 0);
+    const pulled = snapItem(store2, catalogDef('table'), null, 2, 1.5, 0);
+    expect(pulled.x).toBeCloseTo(clean.x + 0.03, 9);
   });
 });
 

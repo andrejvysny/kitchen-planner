@@ -241,8 +241,12 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     execute: (ctx) => {
       const { editor, plan, modal } = ctx;
       if (modal.isOpen()) modal.handleEscape();
-      else if (editor.isTool('place')) plan.setArmed(null);
-      else if (editor.isTool('calibrate')) plan.setCalibrate(false);
+      else if (editor.isTool('place')) {
+        // two-stage, like the wall tool's ring: a typed width goes first, the
+        // def disarms only once the box is already empty
+        if (plan.placeBufferActive()) plan.clearPlaceWidth();
+        else plan.setArmed(null);
+      } else if (editor.isTool('calibrate')) plan.setCalibrate(false);
       else if (editor.isTool('measure')) plan.setMeasure(false);
       // two-stage: the ring in progress goes first, the tool only when empty
       else if (editor.isTool('drawRoom')) plan.cancelDrawRoom();
@@ -293,6 +297,36 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
     label: 'Dimension: length / angle',
     canExecute: (ctx) => onCanvas(ctx) && ctx.plan.drawInputActive(),
     execute: (ctx) => ctx.plan.drawToggleField(),
+  },
+
+  /*
+   * Type-in width for the wardrobe placement HUD (P3) — the same
+   * DIMENSION_KEYS box as the wall tool, one gate narrower:
+   * `placeInputActive` requires an armed def AND a ghost that has actually
+   * landed on a free segment, so a digit never steals a workspace switch
+   * while some OTHER def is merely armed over empty floor.
+   */
+  ...DIMENSION_KEYS.map((ch) => ({
+    id: `place.digit${ch === '.' ? 'Dot' : ch}`,
+    label: `Placement width ${ch}`,
+    canExecute: (ctx: EditorContext) => onCanvas(ctx) && ctx.plan.placeInputActive(),
+    execute: (ctx: EditorContext) => ctx.plan.placeDigit(ch),
+  })),
+  {
+    id: 'place.backspace',
+    label: 'Placement width backspace',
+    // an EMPTY box hands Backspace on to `selection.delete`, exactly the
+    // split `draw.backspace` makes against `draw.undoVertex`
+    canExecute: (ctx) => onCanvas(ctx) && ctx.plan.placeBufferActive(),
+    execute: (ctx) => ctx.plan.placeBackspace(),
+  },
+  {
+    id: 'place.commit',
+    label: 'Place here',
+    canExecute: (ctx) => onCanvas(ctx) && ctx.plan.placeInputActive(),
+    execute: (ctx) => {
+      ctx.plan.commitPlace();
+    },
   },
 
   /**

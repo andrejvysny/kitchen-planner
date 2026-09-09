@@ -96,9 +96,12 @@ test('the Furnish room panel is the finish half of the same registry', async ({ 
   // storage), so this is the panel the app opens on
   expect(await app.evaluate(() => window.__kp.workspace())).toBe('furnish');
 
-  await expect.poll(() => sections(app)).toEqual(['Walls', 'Floor', 'Worktops', 'Lighting']);
+  await expect
+    .poll(() => sections(app))
+    .toEqual(['Walls', 'Floor', 'Worktops', 'Lighting', 'Staging']);
   await expect(app.locator('#props-inner .props-title')).toHaveCount(0);
-  await expect(app.locator('#props-inner input[type=range]')).toHaveCount(3); // the three Lighting sliders
+  // the three Lighting sliders + Staging's density
+  await expect(app.locator('#props-inner input[type=range]')).toHaveCount(4);
 
   // the context menu's "Wall colour…" destination lives here, not in Plan
   await expect(app.locator('#section-walls')).toBeVisible();

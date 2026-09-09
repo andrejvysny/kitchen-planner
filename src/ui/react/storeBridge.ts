@@ -2,6 +2,7 @@ import type { Store } from '../../model/store';
 import type { EditorState } from '../../editor/editorState';
 import { onUnitPrefsChange } from '../../model/prefs';
 import { onDrawHudChange } from '../drawHud';
+import { onPlaceHudChange } from '../placeHud';
 import { onShellChange } from '../shellState';
 import { onWorkspaceChange } from '../workspaceState';
 
@@ -89,7 +90,10 @@ export class StoreBridge {
       onUnitPrefsChange(() => this.bump('units')),
       onWorkspaceChange(() => this.bump('workspace')),
       // pointer-rate, hence its own channel: only <DrawHud/> may re-render on it
-      onDrawHudChange(() => this.bump('draw'))
+      onDrawHudChange(() => this.bump('draw')),
+      // <PlaceHud/>'s sibling producer — see src/ui/placeHud.ts — shares it:
+      // the two are mutually exclusive by construction, never live at once
+      onPlaceHudChange(() => this.bump('draw'))
     );
   }
 

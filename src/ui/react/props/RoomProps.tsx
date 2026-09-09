@@ -23,6 +23,7 @@ import { confirmDeleteRoom } from '../roomActions';
 import { WORKSPACE_ROOM_SECTIONS, type RoomSectionId } from './roomSections';
 import { ChecksSection } from './ChecksSection';
 import { LightingProps } from './LightingProps';
+import { StagingSection } from './StagingSection';
 import { UnderlaySection } from './UnderlaySection';
 
 /** The three global wall-visibility buttons, as [mode, label] pairs. */
@@ -77,6 +78,7 @@ export function RoomProps(): ReactElement | null {
     floor: () => <FloorSection style={style} />,
     worktops: () => <WorktopsSection style={style} />,
     lighting: () => <LightingProps />,
+    staging: () => <StagingSection />,
   };
 
   return (

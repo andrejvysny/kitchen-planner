@@ -54,6 +54,8 @@ export const PRINT_OPTS: PlanRenderOpts = {
   measure: false,
   checks: false,
   roomEmphasis: false,
+  // a printed plan is a build document; a printed mug is noise
+  decor: false,
 };
 
 export interface Bounds {

@@ -5,7 +5,8 @@ import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUnifo
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { EditorState } from '../editor/editorState';
 import { withoutCarried } from '../editor/selectionOps';
-import { itemBaseY, SPOT_AIM, type CatalogDef } from '../model/catalog';
+import { isDecor, itemBaseY, SPOT_AIM, type CatalogDef } from '../model/catalog';
+import { restingElevation, type Surface } from '../model/surfaces';
 import { polygonCentroid, wallPoint } from '../model/geometry';
 import { findHost } from '../model/attach';
 import { hostContexts } from '../model/worktops';
@@ -190,6 +191,8 @@ export class View3D {
   private framed = false;
   /** reframes once on the 0→1 room transition — a fresh design has nothing to frame yet */
   private hadRooms = false;
+  /** read-only mirror of EditorState.decorOn (see the subscription in attach) */
+  private decorShown = true;
   /** context-loss curtain of the bound canvas, removed with the renderer */
   private lostOverlay: HTMLElement | null = null;
 
@@ -212,6 +215,9 @@ export class View3D {
     pointerId: number;
     grabX: number;
     grabY: number;
+    /** surfaces at press time — see Plan2D's dragSurfaces for why a
+     *  pointer-rate `store.surfaces()` would be wrong */
+    surfaces: readonly Surface[];
     /** OrbitControls' flag from before the gesture, restored when it ends */
     orbitWasEnabled: boolean;
     moved: boolean;
@@ -308,7 +314,15 @@ export class View3D {
         else this.softUpdate();
       }),
       this.editor.subscribeSelection(() => this.applySelectionTint()),
-      this.store.on('pose', () => this.applyFrontPoses())
+      this.store.on('pose', () => this.applyFrontPoses()),
+      // MIRROR GUARD, not an optimisation: the editor bumps on every tool
+      // change and every arm/disarm, so an unguarded handler would rebuild the
+      // whole scene each time a catalog tile is clicked.
+      this.editor.subscribe(() => {
+        if (this.decorShown === this.editor.decorOn) return;
+        this.decorShown = this.editor.decorOn;
+        this.queueRebuild();
+      })
     );
 
     canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e), { signal });
@@ -640,7 +654,13 @@ export class View3D {
     this.buildRooms();
     // one hosting pass per rebuild: appliance cutouts/niches + merged worktops
     const hosting = hostContexts(this.store.design);
-    for (const item of this.store.design.items) this.buildItem(item, hosting.get(item.id));
+    for (const item of this.store.design.items) {
+      // the decor layer is a display switch (EditorState.decorOn), and this is
+      // where turning it off actually buys something: dozens of item groups
+      // that no longer get torn down and rebuilt on every structural change
+      if (!this.decorShown && isDecor(this.store.defOf(item.defId))) continue;
+      this.buildItem(item, hosting.get(item.id));
+    }
     this.relight();
     this.applySelectionTint();
 
@@ -1405,6 +1425,13 @@ export class View3D {
         const snapped = snapItem(this.store, armed, null, p.x, p.z, 0);
         const item = this.store.addItem(armed, snapped.x, snapped.y, snapped.rotation);
         item.roomId = snapped.roomId;
+        if (isDecor(armed)) {
+          item.elevation = restingElevation(
+            this.store.surfaces(),
+            { x: snapped.x, y: snapped.y },
+            p.y + 0.02
+          );
+        }
         this.editor.select({ kind: 'item', id: item.id });
         this.store.commit();
         if (!e.shiftKey) this.clearArmed();
@@ -1448,6 +1475,7 @@ export class View3D {
     this.moveDrag = {
       id: item.id,
       pointerId: e.pointerId,
+      surfaces: isDecor(this.store.defOf(item.defId)) ? this.store.surfaces() : [],
       grabX: item.x - floor.x,
       grabY: item.y - floor.z,
       orbitWasEnabled: this.controls.enabled,
@@ -1470,8 +1498,15 @@ export class View3D {
     const p = this.floorPoint(e);
     const it = this.store.itemById(drag.id);
     if (!p || !it) return;
-    // a floor drag is x/y only — the item keeps whatever elevation it had
-    this.snapMoveItem(drag.id, p.x + drag.grabX, p.z + drag.grabY, it.elevation);
+    // A floor drag is x/y only — the item keeps whatever elevation it had.
+    // Except set dressing, which comes to rest on whatever it is dragged over:
+    // the 3D ray knows the real height under the cursor, so unlike the plan it
+    // needs no DROP_CEIL guess.
+    const def = this.store.defOf(it.defId);
+    const rest = isDecor(def)
+      ? restingElevation(drag.surfaces, { x: p.x + drag.grabX, y: p.z + drag.grabY }, p.y + 0.02)
+      : it.elevation;
+    this.snapMoveItem(drag.id, p.x + drag.grabX, p.z + drag.grabY, rest);
   }
 
   /**

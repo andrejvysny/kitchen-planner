@@ -14,7 +14,7 @@
  */
 
 import { emptySelection, isSelected, type SelectionState } from '../editor/selection';
-import type { CatalogDef } from '../model/catalog';
+import { isDecor, type CatalogDef } from '../model/catalog';
 import type { Severity, Warning } from '../model/checks';
 import { convexHull, fmtCm, polygonCentroid, rot, wallPoint } from '../model/geometry';
 import { footprintPolygon } from '../model/parts';
@@ -161,6 +161,30 @@ export interface ItemGhost {
   y: number;
   rotation: number;
   valid: boolean;
+  /**
+   * Stretched width for a ghost that will land FITTED — a wardrobe against a
+   * wall, which `store.addItem` seeds `fit.width` on, so the plan has to
+   * preview the width the user will actually get rather than the catalog's.
+   * Absent for everything else, which keeps the draw below unchanged.
+   */
+  w?: number;
+}
+
+/**
+ * The free stretch of wall the armed run would fill, drawn under its ghost.
+ *
+ * The cursor picks a SEGMENT, not a position — so the band is what the click
+ * is really choosing, and its length label is the width the user will get.
+ * `t0`/`t1` are along-wall metres from the wall's start, `depth` is how far
+ * into the room the run reaches (the item's own depth).
+ */
+export interface GhostSegment {
+  wallId: string;
+  t0: number;
+  t1: number;
+  depth: number;
+  /** the stretch is too short to be a run at all — the click will be refused */
+  tooNarrow: boolean;
 }
 
 /** Where an opening would land on a wall. */
@@ -211,6 +235,11 @@ export interface PlanRenderOpts {
   checks: boolean;
   /** dim the rooms that are not active; false = every room in full ink */
   roomEmphasis: boolean;
+  /**
+   * Set dressing (books, plants, kitchen mess). OFF for the print sheet: a
+   * printed plan is a build document, and a printed mug is noise.
+   */
+  decor: boolean;
 }
 
 /** Plan2D's in-flight gesture state — absent for a static (print) render. */
@@ -218,6 +247,8 @@ export interface PlanOverlays {
   guides: Guide[];
   armedDef: CatalogDef | null;
   ghost: ItemGhost | null;
+  /** the free stretch that ghost is being fitted into, or null when it fits none */
+  ghostSegment: GhostSegment | null;
   ghostOpening: OpeningGhost | null;
   drawRing: DrawRing | null;
   /**
@@ -346,6 +377,9 @@ export function sortedItems(store: Store): Item[] {
     const def = store.defOf(it.defId);
     // wall panels and rugs are surfaces: everything else paints over them
     if (def.kind === 'backsplash' || def.kind === 'rug') return 0;
+    // set dressing paints ON the thing it rests on: counter clutter over base
+    // units, shelf clutter alongside the wall units it sits in
+    if (isDecor(def)) return it.elevation > 0.5 ? 4 : 3;
     // mounted appliances paint above their host cabinets and worktops
     if (it.attach) return 3;
     if (def.marker) return 3;
@@ -494,6 +528,7 @@ export function renderPlan(
   // ---- items ----
   for (const it of sortedItems(store)) {
     const def = store.defOf(it.defId);
+    if (!opts.decor && isDecor(def)) continue;
     // every member of the selection is highlighted; the handles below belong to
     // the PRIMARY alone, since it is the one a drag snaps and a rotate turns
     const selected = isSelected(selState, { kind: 'item', id: it.id });
@@ -522,6 +557,7 @@ export function renderPlan(
       plan: planOf(store, it) ?? undefined,
       gangs: it.params?.gangs,
       seats: it.params?.seats,
+      decorForm: def.decor?.form,
     });
     ctx.restore();
 
@@ -553,6 +589,56 @@ export function renderPlan(
     }
   }
 
+  // ---- free-segment band, under the ghost that fills it ----
+  // The band answers "how much wall is this click actually claiming" — it
+  // stops at doorways, swings, windows and neighbours, which is exactly where
+  // the fitted width will stop. Red says the stretch is too short to take the
+  // run at all, so the click ahead will be refused rather than shrink it.
+  if (opts.ghosts && overlays?.ghostSegment) {
+    const seg = overlays.ghostSegment;
+    const g = store.wallById(seg.wallId);
+    if (g) {
+      const at = (t: number, side: number): Point => ({
+        x: g.a.x + g.dir.x * t + g.inward.x * side,
+        y: g.a.y + g.dir.y * t + g.inward.y * side,
+      });
+      const near = g.faceOffset;
+      const far = g.faceOffset + seg.depth;
+      const tint = seg.tooNarrow ? '#d66' : ACCENT;
+
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = tint;
+      fillPoly(ctx, [at(seg.t0, near), at(seg.t1, near), at(seg.t1, far), at(seg.t0, far)]);
+      ctx.restore();
+
+      // end ticks: the two stops the length label is measured between
+      ctx.strokeStyle = tint;
+      ctx.lineWidth = hair * 2;
+      for (const t of [seg.t0, seg.t1]) {
+        const a = at(t, near);
+        const b = at(t, far);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+
+      let ang = g.angle;
+      if (ang > Math.PI / 2 || ang <= -Math.PI / 2) ang += Math.PI; // keep text upright
+      const mid = at((seg.t0 + seg.t1) / 2, far);
+      labels.push({
+        x: mid.x,
+        y: mid.y,
+        text: fmtCm(seg.t1 - seg.t0),
+        angle: ang,
+        color: tint,
+        size: 12,
+        bold: true,
+      });
+    }
+  }
+
   // ---- ghost preview ----
   if (opts.ghosts && overlays?.ghost && overlays.armedDef) {
     const armed = overlays.armedDef;
@@ -562,17 +648,14 @@ export function renderPlan(
     ctx.translate(ghost.x, ghost.y);
     ctx.rotate(ghost.rotation);
     const armedPart = store.partOf(armed.id);
-    drawPlanSymbol(ctx, armed.kind, armed.w, armed.d, {
+    // a fitted ghost draws at the width it will BE, not the width it came at
+    const gw = ghost.w ?? armed.w;
+    drawPlanSymbol(ctx, armed.kind, gw, armed.d, {
       color: ghost.valid ? armed.color : '#d66',
       selected: false,
       pxPerM: zoom,
-      footprint: armedPart
-        ? (footprintPolygon(armedPart, armed.w, armed.d) ?? undefined)
-        : undefined,
-      plan:
-        armedPart?.type === 'wardrobe'
-          ? wardrobePlanSymbol(armedPart, armed.w, armed.d)
-          : undefined,
+      footprint: armedPart ? (footprintPolygon(armedPart, gw, armed.d) ?? undefined) : undefined,
+      plan: armedPart?.type === 'wardrobe' ? wardrobePlanSymbol(armedPart, gw, armed.d) : undefined,
     });
     ctx.restore();
     ctx.globalAlpha = 1;

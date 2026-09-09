@@ -15,7 +15,7 @@
  */
 
 import { defOfDesign, partOfDesign } from './attach';
-import { catalogSection, PLINTH_COLOR } from './catalog';
+import { catalogSection, isStaging, PLINTH_COLOR } from './catalog';
 import { polygonBounds, signedArea } from './geometry';
 import { materialDef } from './materials';
 import { partPanels, type Panel, type PanelRole } from './panels';
@@ -355,7 +355,14 @@ function attachNote(design: Design, item: Item): string {
     : `Mounted in ${hostLabel}`;
 }
 
-/** Bought products (appliances, furniture, lighting, markers) + wall openings. */
+/**
+ * Bought products (appliances, furniture, lighting, markers) + wall openings.
+ *
+ * Set dressing is skipped: a fruit bowl is not a purchase decision, and
+ * `paramOptions` would split "Books: 7" and "Books: 8" into two shopping-list
+ * lines besides. `cutRows` needs no equivalent guard — a decor def never
+ * resolves through `partOfDesign`, so it can never reach the cut list.
+ */
 export function buyRows(design: Design): BuyRow[] {
   const out: BuyRow[] = [];
   const byKey = new Map<string, BuyRow>();
@@ -363,6 +370,7 @@ export function buyRows(design: Design): BuyRow[] {
     if (partOfDesign(design, item.defId)) continue; // manufactured — cut list
     const def = defOfDesign(design, item.defId);
     if (!def) continue; // dangling defId; sanitizeDesign drops these on load
+    if (isStaging(def)) continue; // set dressing is not a purchase
     const room = roomOfItem(design, item);
     const roomId = room?.id ?? '';
     const options = paramOptions(item, def.params);

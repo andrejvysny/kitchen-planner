@@ -22,7 +22,8 @@ export type RoomSectionId =
   | 'walls'
   | 'floor'
   | 'worktops'
-  | 'lighting';
+  | 'lighting'
+  | 'staging';
 
 export const WORKSPACE_ROOM_SECTIONS: Record<'plan' | 'furnish', readonly RoomSectionId[]> = {
   plan: [
@@ -36,5 +37,7 @@ export const WORKSPACE_ROOM_SECTIONS: Record<'plan' | 'furnish', readonly RoomSe
     'deleteRoom',
     'tip',
   ],
-  furnish: ['checks', 'walls', 'floor', 'worktops', 'lighting'],
+  // staging goes LAST: appending keeps test/interact.mjs's "the room panel's
+  // first numeric field" ordinal intact
+  furnish: ['checks', 'walls', 'floor', 'worktops', 'lighting', 'staging'],
 };

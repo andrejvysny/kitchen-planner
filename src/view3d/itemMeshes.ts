@@ -24,6 +24,7 @@ import {
   surfMat,
   wood,
 } from './meshKit';
+import { DECOR_FORMS } from './decorMeshes';
 import { buildCustomPart } from './partMeshes';
 
 /**
@@ -632,6 +633,17 @@ const custom: Builder = (g, { item, part, design, host, finish }) => {
 
 /* ---------------- registry ---------------- */
 
+/**
+ * Set dressing. ONE builder for the whole family: the def names a silhouette
+ * form and src/view3d/decorMeshes.ts draws it, so a new mug is a catalog entry
+ * and not a new kind. A def with no `decor` cannot reach here (decor.test.ts
+ * pins that), but the fallback keeps the map total rather than throwing into
+ * a render loop.
+ */
+const decor: Builder = (g, c) => {
+  DECOR_FORMS[c.def.decor?.form ?? 'vessel'](g, { item: c.item, def: c.def, finish: c.finish });
+};
+
 const BUILDERS: Record<string, Builder> = {
   sink,
   hob,
@@ -654,6 +666,7 @@ const BUILDERS: Record<string, Builder> = {
   strip,
   water,
   outlet,
+  decor,
   custom,
 };
 

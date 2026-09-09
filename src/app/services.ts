@@ -11,6 +11,7 @@ import { KeyboardController } from '../editor/keyboard/KeyboardController';
 import { StoreBridge } from '../ui/react/storeBridge';
 import { setDrawHud } from '../ui/drawHud';
 import { onboarded } from '../ui/onboarded';
+import { setPlaceHud } from '../ui/placeHud';
 import {
   cheatsheetOpen,
   setCatalogOpen,
@@ -130,7 +131,8 @@ export function createServices(): AppServices {
     store,
     editor,
     (hint) => setHint(hint),
-    (s) => setDrawHud(s)
+    (s) => setDrawHud(s),
+    (s) => setPlaceHud(s)
   );
   const elevation = new ElevationView(store, editor, () => setWallLabel(elevation.wallLabel()));
 
@@ -139,19 +141,6 @@ export function createServices(): AppServices {
     clearArmed: () => plan.setArmed(null),
     editor,
   });
-
-  /**
-   * One Part Studio for the whole app. Every route in — the catalog's ＋/✎
-   * tiles, the Workshop sidebar's rows, the props panel's "Edit in Workshop…"
-   * / "Customize in Workshop…" — goes through `openInWorkshop`, and <WorkshopPane/> is
-   * what actually hands it a host to build into. Its constructor is DOM-free
-   * (only `open()` touches the document), so it belongs with the singletons.
-   *
-   * Its close callback is a no-op: every path that changes the parts library
-   * commits (live-apply writes through on each field change, and so do create /
-   * duplicate / delete), so the 'history' channel already wakes <CatalogPanel/>.
-   */
-  const studio = new PartStudio(store, () => {});
 
   /**
    * The one workspace switch. Everything that changes workspace — the topbar
@@ -177,6 +166,39 @@ export function createServices(): AppServices {
     setWorkspace(w);
     return true;
   };
+
+  /**
+   * One Part Studio for the whole app. Every route in — the catalog's ＋/✎
+   * tiles, the Workshop sidebar's rows, the props panel's "Edit in Workshop…"
+   * / "Customize in Workshop…" — goes through `openInWorkshop`, and <WorkshopPane/> is
+   * what actually hands it a host to build into. Its constructor is DOM-free
+   * (only `open()` touches the document), so it belongs with the singletons.
+   * It is declared AFTER `switchWorkspace` only because its place route below
+   * calls it — nothing about the switch depends on the studio any more.
+   *
+   * Its close callback is a no-op: every path that changes the parts library
+   * commits (live-apply writes through on each field change, and so do create /
+   * duplicate / delete), so the 'history' channel already wakes <CatalogPanel/>.
+   *
+   * The third argument is "Place in room": the Workshop's way out to the plan
+   * with the part on the cursor, so designing a fitted wardrobe and putting it
+   * in the room is one gesture instead of a trip through the catalog.
+   */
+  const studio = new PartStudio(
+    store,
+    () => {},
+    (defId) => {
+      // FURNISH FIRST. The one switch resets the tool to 'select', so arming
+      // before it would immediately disarm what we just armed. Leaving the
+      // Workshop is otherwise ordinary: <WorkshopPane/>'s cleanup closes the
+      // studio and discards a pristine preset shadow, and the preset id still
+      // resolves through `defOf`, so the armed def outlives that teardown.
+      switchWorkspace('furnish');
+      // the exact call <CatalogTile/> makes, so the ghost, the status hint and
+      // the place gesture are the very same path a catalog click takes
+      plan.setArmed(store.defOf(defId));
+    }
+  );
 
   /**
    * `plan` and `studio` go in as the STRUCTURAL `PlanToolPort` / `ModalPort`

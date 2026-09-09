@@ -42,6 +42,18 @@ export class EditorState {
   /** clearance-warning overlay: a display layer, not a tool, so it is orthogonal */
   checksOn = false;
   /**
+   * Set dressing (books, plants, kitchen mess) visible in the plan and in 3D.
+   * A display layer like `checksOn`, ephemeral like `armedDefId` — never
+   * serialized, never in an undo step.
+   *
+   * ON by default: an object you placed must not be invisible. The switch
+   * exists because a fully staged room is dozens of extra item groups, and
+   * `View3D.rebuild` tears down and rebuilds every one of them on every
+   * structural change — so this, not `noCollide`, is the lever when a heavy
+   * scene gets sluggish while you are still moving cabinets around.
+   */
+  decorOn = true;
+  /**
    * Width (m) the wall tool draws with — `DEFAULT_WALL_W` (src/model/rooms.ts)
    * repeated as a literal, because this module stays import-free by contract.
    * A tool PREFERENCE, exactly like
@@ -122,6 +134,12 @@ export class EditorState {
   setChecks(on: boolean): void {
     if (this.checksOn === on) return;
     this.checksOn = on;
+    this.bump();
+  }
+
+  setDecor(on: boolean): void {
+    if (this.decorOn === on) return;
+    this.decorOn = on;
     this.bump();
   }
 

@@ -53,6 +53,15 @@ describe('key bindings', () => {
     expect(finish.canExecute).toBeTypeOf('function');
   });
 
+  it('the placement HUD’s Enter sits below the wall tool’s two rows', () => {
+    // plain Enter: no ring in flight, so tool.finish declines and place.commit
+    // is the fallback the controller reaches for
+    expect(hits('enter')).toEqual(['tool.finish', 'place.commit']);
+    // Shift+Enter still opens on tool.finishOpen — place.commit carries no
+    // shift constraint of its own, so it trails rather than jumping the queue
+    expect(hits('enter', false, true)[0]).toBe('tool.finishOpen');
+  });
+
   it('undo/redo: Shift+Ctrl+Z beats Ctrl+Z on order, and Ctrl+Y is redo', () => {
     expect(hit('z', true, false)).toBe('history.undo');
     expect(hit('z', true, true)).toBe('history.redo');
@@ -70,11 +79,17 @@ describe('key bindings', () => {
   it('Delete and Backspace both delete, with or without modifiers', () => {
     expect(hit('delete')).toBe('selection.delete');
     expect(hit('delete', true, true)).toBe('selection.delete');
-    // Backspace carries THREE meanings told apart by context, not by
+    // Backspace carries FOUR meanings told apart by context, not by
     // modifiers: the wall tool's dimension box first (only while a character
-    // is typed), then stepping the drawn ring back one corner, then deleting
-    // the selection once no ring is in flight at all
-    expect(hits('backspace')).toEqual(['draw.backspace', 'draw.undoVertex', 'selection.delete']);
+    // is typed), then stepping the drawn ring back one corner, then the
+    // placement HUD's own typed width, then deleting the selection once
+    // nothing else claims the key
+    expect(hits('backspace')).toEqual([
+      'draw.backspace',
+      'draw.undoVertex',
+      'place.backspace',
+      'selection.delete',
+    ]);
   });
 
   it('r rotates 90°, Shift+R rotates 15°', () => {
@@ -99,18 +114,19 @@ describe('key bindings', () => {
   });
 
   it('1-4 pick a workspace, and Ctrl/Cmd+digit is left to the browser', () => {
-    // the wall tool's dimension box sits above them, and falls through when no
-    // ring is being drawn — so a digit at rest is still the workspace switch
-    expect(hits('1')).toEqual(['draw.digit1', 'workspace.plan']);
-    expect(hits('2')).toEqual(['draw.digit2', 'workspace.furnish']);
-    expect(hits('3')).toEqual(['draw.digit3', 'workspace.workshop']);
-    expect(hits('4')).toEqual(['draw.digit4', 'workspace.output']);
+    // the wall tool's dimension box sits above them, then the placement HUD's
+    // own — both fall through when neither is live, so a digit at rest is
+    // still the workspace switch
+    expect(hits('1')).toEqual(['draw.digit1', 'place.digit1', 'workspace.plan']);
+    expect(hits('2')).toEqual(['draw.digit2', 'place.digit2', 'workspace.furnish']);
+    expect(hits('3')).toEqual(['draw.digit3', 'place.digit3', 'workspace.workshop']);
+    expect(hits('4')).toEqual(['draw.digit4', 'place.digit4', 'workspace.output']);
     // Ctrl/Cmd+digit switches BROWSER tabs — `mod: false` is a hard exclusion
     // here, not the usual don't-care
     expect(hit('1', true)).toBe(null);
     expect(hit('4', true)).toBe(null);
     // Shift is don't-care, as everywhere else in the table
-    expect(hits('1', false, true)).toEqual(['draw.digit1', 'workspace.plan']);
+    expect(hits('1', false, true)).toEqual(['draw.digit1', 'place.digit1', 'workspace.plan']);
   });
 
   it('the dimension keys outrank their at-rest twins, and only those', () => {
@@ -234,9 +250,10 @@ function setup(): {
       },
     }))
   );
-  // the wall tool is NOT drawing in these gate tests, so its dimension
-  // bindings decline the key exactly as `draw.*`'s canExecute does in the app
-  for (const id of ids) if (id.startsWith('draw.')) blocked.add(id);
+  // neither the wall tool nor the placement HUD is live in these gate tests,
+  // so both dimension boxes decline the key exactly as `draw.*`'s and
+  // `place.*`'s canExecute do in the app
+  for (const id of ids) if (id.startsWith('draw.') || id.startsWith('place.')) blocked.add(id);
   return { kb: new KeyboardController(reg), ran, blocked };
 }
 

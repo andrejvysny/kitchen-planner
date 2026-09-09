@@ -56,6 +56,7 @@ export type ItemKind =
   | 'window'
   | 'water'
   | 'outlet'
+  | 'decor'
   | 'custom';
 
 /**
@@ -71,6 +72,39 @@ export interface ApplianceSpec {
   cutout?: { w: number; d: number };
   /** zone: minimum niche the product fits into */
   niche?: { minW: number; minH: number };
+}
+
+/**
+ * Set dressing — the silhouette family a decor item is drawn from.
+ *
+ * ONE `ItemKind` covers all of them on purpose: a kind decides PLACEMENT
+ * semantics (does it hug a wall, does it collide, can it host), and every
+ * decor object answers those identically. What differs is the shape, which is
+ * data on the def, exactly as `appliance` and `light` already are. Twenty
+ * kinds would mean twenty builders and twenty plan-symbol cases for no gain.
+ */
+export type DecorForm =
+  /** lathed body of revolution: kettle, jar, canister, vase, bottle */
+  | 'vessel'
+  /** shallow lathed dish, optionally with contents: fruit bowl, plate stack */
+  | 'bowl'
+  /** a jittered pile of slabs: books, magazines, folded boards */
+  | 'stack'
+  /** tapered pot + foliage mass: floor plant, tabletop pot, herbs */
+  | 'plant'
+  /** open rod lattice: dish rack, wire basket, utensil crock */
+  | 'rack'
+  /** soft folded textile: tea towel, throw, cushion */
+  | 'cloth'
+  /** thin upright or lying slab: picture frame, tray, cutting board */
+  | 'frame'
+  /** tapered open box with a rim: crate, storage box, laundry basket */
+  | 'basket';
+
+export interface DecorSpec {
+  form: DecorForm;
+  /** what this belongs on. `planStaging` reads it; hand placement ignores it. */
+  rest: 'counter' | 'shelf' | 'floor' | 'table' | 'any';
 }
 
 export interface ParamDef {
@@ -117,6 +151,25 @@ export interface CatalogDef {
    * checks engine never keeps its own kind list.
    */
   noCollide?: true;
+  /**
+   * Procedural set dressing: which silhouette to draw and what it rests on.
+   * Every def carrying this must also be `kind: 'decor'`, `placement: 'free'`,
+   * `noCollide: true` and `staging: true` — pinned by decor.test.ts.
+   *
+   * Note what it must NOT carry: an `appliance` spec. `Plan2D.placeArmed`
+   * refuses to place a `mount: 'counter'` def when no host is under the
+   * cursor, which would make a mug unplaceable anywhere but a worktop.
+   */
+  decor?: DecorSpec;
+  /**
+   * Staging, not procurement: this item appears on NO export list — not the
+   * cut list, not the shopping list, not the printed item schedule.
+   *
+   * Deliberately a separate flag from `noCollide`, which answers a different
+   * question. A rug is `noCollide` and IS bought; folding the two together
+   * would silently drop it from the shopping list.
+   */
+  staging?: true;
 }
 
 export interface CatalogSection {
@@ -127,6 +180,43 @@ export interface CatalogSection {
 }
 
 const def = (d: CatalogDef) => d;
+
+/**
+ * A set-dressing entry. Every decor def carries the same five fields, so they
+ * are written once here rather than repeated (and eventually mis-typed) two
+ * dozen times: `kind: 'decor'` · `placement: 'free'` · `noCollide: true` ·
+ * `staging: true` · a `decor` spec.
+ *
+ * `placement: 'free'` is not cosmetic. `throughWallChecks` does NOT skip
+ * decorative items, and it reports `error` severity — a red 3D tint — for
+ * anything `snapsToWall`; free placement is what downgrades a tea towel
+ * nudged against a wall to an advisory.
+ */
+const dec = (
+  id: string,
+  label: string,
+  form: DecorForm,
+  rest: DecorSpec['rest'],
+  w: number,
+  d: number,
+  h: number,
+  color: string,
+  params?: ParamDef[]
+): CatalogDef => ({
+  id,
+  kind: 'decor',
+  label,
+  w,
+  d,
+  h,
+  elevation: 0,
+  color,
+  placement: 'free',
+  noCollide: true,
+  staging: true,
+  decor: { form, rest },
+  ...(params ? { params } : {}),
+});
 
 export const CATALOG: CatalogSection[] = [
   {
@@ -518,6 +608,99 @@ export const CATALOG: CatalogSection[] = [
       }),
     ],
   },
+  /**
+   * Set dressing. APPENDED, never inserted: CatalogPanel injects "My parts"
+   * after catalog section index 0, and outlineModel derives OUTLINE_ORDER from
+   * this array's order, so a section added at the front silently moves both.
+   *
+   * Every entry here carries the same five fields — see `DecorSpec`.
+   */
+  {
+    title: 'Decor · kitchen',
+    items: [
+      dec('decor-kettle', 'Kettle', 'vessel', 'counter', 0.16, 0.16, 0.24, '#2f3336', [
+        { key: 'neck', label: 'Taper', min: 6, max: 10, def: 9 },
+      ]),
+      dec('decor-jars', 'Storage jar', 'vessel', 'counter', 0.11, 0.11, 0.19, '#d9d2c4', [
+        { key: 'neck', label: 'Taper', min: 2, max: 10, def: 7 },
+      ]),
+      dec('decor-fruit-bowl', 'Fruit bowl', 'bowl', 'counter', 0.28, 0.28, 0.1, '#e6e2d8', [
+        { key: 'fill', label: 'Fruit', min: 0, max: 9, def: 5 },
+      ]),
+      dec('decor-dish-rack', 'Dish rack', 'rack', 'counter', 0.4, 0.3, 0.16, '#b6babd', [
+        { key: 'bars', label: 'Tines', min: 4, max: 12, def: 8 },
+      ]),
+      dec('decor-board', 'Chopping board', 'frame', 'counter', 0.34, 0.06, 0.26, '#b98a52', [
+        { key: 'lean', label: 'Lean', min: 4, max: 16, def: 9 },
+      ]),
+      dec('decor-tea-towel', 'Tea towel', 'cloth', 'counter', 0.22, 0.16, 0.05, '#8fa7a3', [
+        { key: 'folds', label: 'Folds', min: 1, max: 5, def: 3 },
+      ]),
+      dec('decor-crock', 'Utensil crock', 'vessel', 'counter', 0.13, 0.13, 0.17, '#5c5f57', [
+        { key: 'neck', label: 'Taper', min: 8, max: 10, def: 10 },
+      ]),
+      dec('decor-oil', 'Oil bottle', 'vessel', 'counter', 0.08, 0.08, 0.26, '#7a6a3f', [
+        { key: 'neck', label: 'Taper', min: 2, max: 5, def: 2 },
+      ]),
+      dec('decor-mugs', 'Mugs', 'vessel', 'counter', 0.09, 0.09, 0.1, '#e4e0d6', [
+        { key: 'neck', label: 'Taper', min: 8, max: 10, def: 10 },
+      ]),
+      dec('decor-plates', 'Plate stack', 'stack', 'counter', 0.24, 0.24, 0.09, '#eceae3', [
+        { key: 'count', label: 'Plates', min: 2, max: 8, def: 5 },
+      ]),
+      dec('decor-bread-bin', 'Bread bin', 'basket', 'counter', 0.32, 0.22, 0.2, '#cbbfa8', [
+        { key: 'taper', label: 'Taper', min: 0, max: 2, def: 0 },
+      ]),
+      dec('decor-wire-basket', 'Wire basket', 'rack', 'counter', 0.26, 0.2, 0.12, '#b6babd', [
+        { key: 'bars', label: 'Wires', min: 4, max: 10, def: 6 },
+      ]),
+    ],
+  },
+  {
+    title: 'Decor · living',
+    items: [
+      dec('decor-books', 'Book stack', 'stack', 'shelf', 0.16, 0.22, 0.14, '#7b5e4a', [
+        { key: 'count', label: 'Books', min: 1, max: 8, def: 4 },
+      ]),
+      dec('decor-vase', 'Vase', 'vessel', 'shelf', 0.14, 0.14, 0.28, '#6f7d74', [
+        { key: 'neck', label: 'Taper', min: 2, max: 10, def: 4 },
+      ]),
+      dec('decor-frame', 'Picture frame', 'frame', 'shelf', 0.18, 0.05, 0.23, '#4a4340', [
+        { key: 'lean', label: 'Lean', min: 4, max: 16, def: 10 },
+        { key: 'mount', label: 'Mount', min: 0, max: 1, def: 1 },
+      ]),
+      dec('decor-plant', 'Floor plant', 'plant', 'floor', 0.42, 0.42, 0.95, '#9c6b4f', [
+        { key: 'pot', label: 'Pot height', min: 2, max: 6, def: 4 },
+        { key: 'leaves', label: 'Foliage', min: 2, max: 9, def: 5 },
+      ]),
+      dec('decor-pot', 'Tabletop plant', 'plant', 'table', 0.16, 0.16, 0.3, '#b08968', [
+        { key: 'pot', label: 'Pot height', min: 3, max: 7, def: 5 },
+        { key: 'leaves', label: 'Foliage', min: 2, max: 7, def: 4 },
+      ]),
+      dec('decor-basket', 'Storage basket', 'basket', 'floor', 0.36, 0.28, 0.26, '#c3a887', [
+        { key: 'taper', label: 'Taper', min: 0, max: 3, def: 1 },
+      ]),
+      dec('decor-magazines', 'Magazines', 'stack', 'table', 0.21, 0.28, 0.05, '#8a8f96', [
+        { key: 'count', label: 'Issues', min: 1, max: 6, def: 3 },
+      ]),
+      dec('decor-candles', 'Candles', 'vessel', 'table', 0.07, 0.07, 0.15, '#e8ded0', [
+        { key: 'neck', label: 'Taper', min: 8, max: 10, def: 10 },
+      ]),
+      dec('decor-tray', 'Tray', 'frame', 'table', 0.36, 0.26, 0.04, '#8d6e4e', [
+        { key: 'lean', label: 'Lean', min: 4, max: 8, def: 4 },
+      ]),
+      dec('decor-herbs', 'Herb pots', 'plant', 'shelf', 0.24, 0.1, 0.2, '#b8836a', [
+        { key: 'pot', label: 'Pot height', min: 3, max: 6, def: 5 },
+        { key: 'leaves', label: 'Foliage', min: 3, max: 8, def: 6 },
+      ]),
+      dec('decor-cushion', 'Cushion', 'cloth', 'any', 0.44, 0.44, 0.12, '#9aa8a0', [
+        { key: 'folds', label: 'Layers', min: 1, max: 3, def: 1 },
+      ]),
+      dec('decor-throw', 'Folded throw', 'cloth', 'any', 0.42, 0.3, 0.11, '#b8a48c', [
+        { key: 'folds', label: 'Folds', min: 2, max: 6, def: 4 },
+      ]),
+    ],
+  },
 ];
 
 const byId = new Map<string, CatalogDef>();
@@ -579,6 +762,16 @@ export function isWallMounted(def: CatalogDef): boolean {
  */
 export function isDecorative(def: CatalogDef): boolean {
   return def.noCollide === true;
+}
+
+/** Procedural set dressing (books, plants, kitchen mess) — see `DecorSpec`. */
+export function isDecor(def: CatalogDef): boolean {
+  return def.decor !== undefined;
+}
+
+/** Never a line item: excluded from the cut list, shopping list and schedule. */
+export function isStaging(def: CatalogDef): boolean {
+  return def.staging === true;
 }
 
 /** Where the actual light source sits, in item-local coordinates. */

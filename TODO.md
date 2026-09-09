@@ -663,7 +663,7 @@ executed.
 
 ---
 
-# M19 — Built-in wardrobes (fitted furniture) (active)
+# M19 — Built-in wardrobes (fitted furniture)
 
 Plan: `~/.claude/plans/act-as-senior-software-robust-willow.md` (design D1-D6,
 phases, verification). New part type `wardrobe` (columns + section stacks +
@@ -683,3 +683,88 @@ Workshop column editor, elevation front drawing, BOM hardware.
 - [x] P3.1 fit.ts (+tests) · P3.2 store syncDerived · P3.3 inspector/menu/command
 - [x] P4.1 wardrobeCanvas · P4.2 wardrobePanel · P4.3 e2e wardrobe + dom-contract
 - [x] P5 docs (CLAUDE.md, TODO) + full green gate
+
+---
+
+# M20 — Decor & staging (lived-in interiors) — phase 1 shipped
+
+Plan: `~/.claude/plans/act-as-expert-on-toasty-boole.md` (decisions D1-D6,
+increments I1-I6). The shell was modelled well and the *contents* of a room not
+at all, so renders came out as an empty showroom. The blocker was that the app
+had no notion of a usable flat surface: `elevation + h` was re-derived at six
+call sites and no two agreed about overhangs, merged runs or shelf thickness.
+
+Phase 1 is drop-to-surface (the item stays world-positioned); phase 2 (I6, not
+started) makes decor FOLLOW its host through a `{kind:'surface'}` `Attachment`.
+
+- [x] I1 `src/model/surfaces.ts` + `store.surfaces()` — pure `Surface` IR
+      derived from the panel IR (`worktop|shelf|niche|table|floor`), world-plan
+      outlines, cutouts as holes, `visible` from a geometric front test.
+      `zonePanelId` exported from panels.ts. **surfaces.test.ts (23)** +
+      **surfaceMeshParity.test.ts (21)**, the anti-drift gate that pins every
+      `Surface.top` against the real mesh bbox.
+      Four corrections to the design notes are encoded there: the uniform
+      `panel.y + shape.h` top rule; `−panel.rotY` for a rotated box; a prism's
+      `x`/`z` ignored; and the TWO `.niche-bottom` ids (appliance housing vs
+      open zone) separated by zone fill. A carcass board that reaches the
+      part's own height is the unit's top, which is what gives a dresser,
+      nightstand, TV bench and wardrobe a surface at all.
+- [x] I2 the decor family — one `'decor'` `ItemKind`, `DecorSpec`/`DecorForm`
+      on the def, `sphere`/`torus`/`lathe` in meshKit (no `cone`: `cyl`'s
+      `rTop` already is one), `decorMeshes.ts` `DECOR_FORMS` ×8, **24 defs** in
+      two appended catalog sections, `staging` BOM opt-out in `buyRows`.
+      Two pre-existing bugs fixed on the way: `throughWallChecks` never skipped
+      decoratives despite CLAUDE.md saying `noCollide` opts out of every check;
+      and `snapItem` aligned to them, so a staged room would make every cabinet
+      drag jump to a mug. **decor.test.ts (32).**
+- [x] I3 plan legibility + drop-to-surface — `decor` symbol case + `DECOR_GLYPH`,
+      both symbol opt-out lists, hit padding 0.08, paint layer, thumbnail
+      exemption from the 0.3 m floor, `PlanRenderOpts.decor` (**false in
+      `PRINT_OPTS`**), `restingElevation` at the four placement sites with the
+      surfaces snapshotted at press time.
+- [x] I4 `EditorState.decorOn` + `#btn-decor` in `<SceneOverlay/>`, View3D's
+      mirror-guarded subscription and per-item build filter.
+- [x] I5 `planStaging` (pure, seeded `mulberry32`) + `store.stageRoom` /
+      `unstageRoom` / `hasStaging`, `StagingSection` in the Furnish room panel.
+      Clears before staging, one structural notify, one undo step.
+      **staging.test.ts (18)**, **e2e/decor.spec.ts (7)**.
+- [ ] I6 (phase 2) `Attachment |= {kind:'surface', hostId, surfaceId, u, v}` so
+      decor follows a moved host. Needs `partOfDesign`/`defOfDesign` extracted
+      to `src/model/resolve.ts` first (`attach.ts → surfaces.ts → attach.ts`
+      is otherwise a real cycle), a third clause in `sanitizeAttachments`'
+      `shapeOk` (miss it and every surface attachment is dropped on load AND on
+      every undo), and `DESIGN_VERSION` 8→9 with an empty migration.
+
+Deviations from the plan, all deliberate:
+
+- `StagingSection` calls the store directly instead of going through
+  `CommandRegistry`: `execute(id)` carries no payload, so routing a density
+  through it would mean widening that contract for a button with no shortcut.
+  Every other room section mutates the store directly too.
+- `PREP_MIN` is 0.4 m, not 0.6: a three-unit run with a central sink has no
+  60 cm clear stretch, and staging nothing in a real kitchen is the wrong
+  answer.
+- The kettle goes to the end away from the WET ZONE, not "the end furthest from
+  the sink" — with a central sink those are the same end, and the kettle landed
+  inside the dish rack.
+- The floor rule uses a POINT clearance test, not `clearanceAbove`: a room-sized
+  floor's bounds overlap every worktop in the room, so the bounds test reported
+  50 cm of headroom and no plant was ever staged.
+
+Gates green at each increment: lint · typecheck (both projects) · **1245 unit**
+· build · interact **109/109** · Playwright **138/138**.
+
+---
+
+# M21 — Segment-aware wall-first placement
+
+Plan: `~/.claude/plans/act-as-senior-software-robust-willow.md` (rewritten for
+this task). Free-segment fit (doors+swings/windows/items), segment ghost +
+typed-width HUD, Workshop adopts instance dims.
+
+- [x] P0 swingSector → rooms.ts (mechanical)
+- [x] P1 wallFreeSegments + segment-clamped fitWidth (+tests)
+- [x] P2 ghost + segment highlight + placeArmed (+e2e)
+- [x] P3 typed-width HUD (placeHud, commands, bindings) (+tests)
+- [x] P4 adoptItemDims + WorkshopPane (+tests, e2e)
+- [x] Gate: full suite + manual walk

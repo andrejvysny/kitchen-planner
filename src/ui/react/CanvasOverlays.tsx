@@ -3,9 +3,10 @@ import type { View3D } from '../../view3d/view3d';
 import { formatAngle, formatLength } from '../../model/units';
 import { unitPrefs } from '../../model/prefs';
 import { drawHud, type DrawField, type DrawOutcome } from '../drawHud';
+import { placeHud } from '../placeHud';
 import { workspace } from '../workspaceState';
 import { useChannel } from './hooks/useStore';
-import { useAppServices, useStore } from './services';
+import { useAppServices, useEditor, useStore } from './services';
 
 /**
  * The two control clusters WS-SPEC §2.3 took off the top bar and put on the
@@ -103,15 +104,19 @@ export function ViewOverlay(): ReactElement | null {
 }
 
 /**
- * Day/night and the open-front pose, in the corner of #pane3d — both only
- * change what that pane draws. Two toggles, two sources: night is design data
- * (committed, so it lands on 'history'), the pose is ephemeral view state on
- * the 'pose' channel, never in the Design and never in an undo step.
+ * Day/night, the open-front pose and the set-dressing layer, in the corner of
+ * #pane3d — all three only change what the panes draw. Three toggles, three
+ * sources: night is design data (committed, so it lands on 'history'), the
+ * pose is ephemeral view state on the 'pose' channel, and decor is a display
+ * layer on `EditorState` (the 'editor' channel), like `checksOn`. None of the
+ * last two is ever in the Design or in an undo step.
  */
 export function SceneOverlay(): ReactElement | null {
   const store = useStore();
+  const editor = useEditor();
   useChannel('history');
   useChannel('pose');
+  useChannel('editor');
   useChannel('workspace');
   const ws = workspace();
 
@@ -137,6 +142,14 @@ export function SceneOverlay(): ReactElement | null {
           onClick={() => store.openFronts.setAll(!store.openFronts.allOpen)}
         >
           Open fronts
+        </button>
+        <button
+          id="btn-decor"
+          className={editor.decorOn ? 'active' : undefined}
+          title="Show books, plants and kitchen clutter (never printed)"
+          onClick={() => editor.setDecor(!editor.decorOn)}
+        >
+          Decor
         </button>
       </div>
     </div>
@@ -200,6 +213,43 @@ export function DrawHud(): ReactElement | null {
           {OUTCOME[hud.outcome]}
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * The wardrobe placement tool's live width readout, floating over the free
+ * wall segment the ghost is fitted into (P3, sibling of <DrawHud/> — the two
+ * are mutually exclusive by construction, `drawRoomOn` XOR an armed def, so
+ * sharing the 'draw' bridge channel above never risks a collision).
+ *
+ * NOT a form, for the same reason as <DrawHud/>: digits reach the tool
+ * through the `place.digit*` commands, and a real focused `<input>` would
+ * trip the `allowWhileTyping` gates that make every other shortcut work.
+ */
+export function PlaceHud(): ReactElement | null {
+  useChannel('draw');
+  useChannel('units');
+  const hud = placeHud();
+  if (!hud) return null;
+
+  const prefs = unitPrefs();
+  const span = formatLength(hud.span, prefs);
+
+  return (
+    <div
+      id="place-hud"
+      className={hud.tooNarrow ? 'narrow' : undefined}
+      style={{ left: `${hud.at.x}px`, top: `${hud.at.y}px` }}
+    >
+      <span className="place-hud-label">{hud.label}</span>
+      <span className="place-hud-field" data-field="width">
+        <span className="place-hud-value">{hud.typedWidth === '' ? span : hud.typedWidth}</span>
+        {hud.typedWidth !== '' && <span className="place-hud-caret" />}
+        <span className="place-hud-unit">{prefs.unit}</span>
+      </span>
+      <span className="place-hud-span">of {span}</span>
+      <span className="place-hud-hint">⏎ place</span>
     </div>
   );
 }

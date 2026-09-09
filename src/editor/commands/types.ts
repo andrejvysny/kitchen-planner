@@ -30,7 +30,8 @@ export type CommandId = string;
  * concrete import back would be a module cycle. This structural port is the
  * inversion: `Plan2D` satisfies it as-is, and src/app does the wiring. Only the
  * tool-cancelling surface is here — commands have no business reaching further
- * into the view.
+ * into the view — plus (P3) the wardrobe placement HUD's typed width, which is
+ * the same kind of surface one tool over.
  */
 export interface PlanToolPort {
   /** null disarms placement; the wider signature stays in Plan2D itself */
@@ -50,6 +51,23 @@ export interface PlanToolPort {
   undoDrawVertex(): void;
   /** Tab: move between the wall tool's length and angle boxes. */
   drawToggleField(): void;
+  /**
+   * Whether a keystroke should feed the placement width box (P3) — an armed
+   * def AND a ghost that has actually landed on a free wall segment. Tighter
+   * than `drawInputActive`'s "a ring is live": without a landed segment there
+   * is no width to type, and a bare "something is armed" gate would let
+   * digits steal the workspace-switch keys the moment ANY def is armed, even
+   * one still hovering empty floor.
+   */
+  placeInputActive(): boolean;
+  /** whether the placement width box holds a character Backspace could delete */
+  placeBufferActive(): boolean;
+  placeDigit(ch: string): void;
+  placeBackspace(): void;
+  /** drop the typed width without disarming — `tool.cancel`'s first stage */
+  clearPlaceWidth(): void;
+  /** place at the last known cursor position, exactly as a click would */
+  commitPlace(): boolean;
 }
 
 /**

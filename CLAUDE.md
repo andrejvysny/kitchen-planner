@@ -142,7 +142,21 @@ height?: 'ceiling'}` are persistent flags recomputed by `syncFits`
 (src/model/fit.ts, pure) — width probes both ways along the hugged wall
 against other walls' room-side FACES (`slabQuad`, never the corner ring — a
 partition's ring is its centreline) and other items' OBBs; height reads
-`styleOfItem().wallHeight`. `store.syncDerived()` = `syncFits` THEN
+`styleOfItem().wallHeight`. Width is clamped to the FREE SEGMENT under the
+item (`wallFreeSegments(design, wall, opts)` — cuts: neighbouring wall faces,
+openings via `openingsOfWall` ONLY (doors AND windows, always; partition
+twins arrive mirrored — never scan `design.openings` raw), every in-swinging
+door of the room projected onto the wall (`swingSector` lives in rooms.ts),
+and wall-snapped items; an item over a cut slides to the NEAREST segment,
+ties to the wider one). Placement previews it: the `GhostSegment` band +
+`#place-hud` (src/ui/placeHud.ts, drawHud's sibling on the 'draw' channel) —
+digits type an exact width while a run is armed on a wall (the `place.*`
+commands sit between `draw.*` and the workspace keys in bindings.ts; the
+order is pinned by keyboard tests). A typed width places centred in the
+segment and drops `fit.width`; untyped fills the segment and keeps it.
+Opening a PLACED wardrobe in the Workshop ADOPTS the instance dims into the
+design-local part (`store.adoptItemDims` — auto-fork when the def is shared),
+so the studio lays the interior out at the true fitted width. `store.syncDerived()` = `syncFits` THEN
 `syncAttachments` (a fitted host's centre moves, and counter anchors are
 host-local from the centre) and runs from every mutator that used to call
 syncAttachments plus the room/wall/item mutators; the load-time pass sits in
@@ -166,6 +180,95 @@ w/d/h/color/elevation ("Duplicate part" in the studio and "Customize part…"
 in the props panel cover variants). `DESIGN_VERSION` is 8; sanitizeDesign
 migrates v5 forward (src/model/migrate.ts) and returns null for anything
 older or unknown (callers fall back to a fresh/demo design).
+
+**Usable flat SURFACES are derived, never declared.** `surfacesOf(design,
+hosting?)` (src/model/surfaces.ts, pure) is the one answer to "what could an
+object be put down on": it reads the panel IR the renderer already draws and
+returns world-plan `Surface`s (`worktop | shelf | niche | table | floor`) with
+a `top` in metres, a CCW `outline`, appliance cutouts as `holes`, the host's
+`rotation`, and `visible` (false behind a door front). `store.surfaces()`
+memoises it exactly like `store.warnings()`, invalidated by every `notify()`
+including transient ones — `Plan2D.endGesture` ends an item drag with
+`commit()` and no trailing non-transient notify, so a cache that skipped
+transient ticks would go stale after any drag. A GESTURE must therefore
+snapshot it once at press time (`Plan2D.dragSurfaces`), never read it per
+pointermove.
+
+Four things it does that are easy to get wrong, each pinned by a test:
+
+- **One uniform rule: `topLocal = panel.y + panel.shape.h`.** `panel.y` is the
+  panel BOTTOM for every shape (meshKit's `box` sets `position.y = y + h/2`,
+  its `prism` sets `y0 + h`), so per-role thickness constants would drift.
+- **A rotated box yaws by `−panel.rotY`.** `panels.ts`'s `Place` closure is
+  `rot(·, −ry)` in geometry.ts's convention; the wrong sign mirrors a shelf
+  about its face and fails silently on chamfer/cornerL cabinets.
+- **A PRISM's `x`/`z` are ignored**, exactly as partMeshes.ts ignores them.
+- **`${zid}.niche-bottom` is emitted twice** — panels.ts:513 is an APPLIANCE
+  housing floor, :574 an OPEN zone floor. Matching the id alone puts a fruit
+  bowl inside an oven, so a cabinet's zone tree is walked to recover the fill.
+
+It never calls `itemRuns`: merged worktops are already baked into
+`hostContexts`, so `partPanels` hands a run leader the whole slab and every
+follower none, and surfaces.ts cannot disagree with the renderer about the
+joint. `visible` is GEOMETRIC (does a `front`-role panel stand in front of it),
+so wardrobes and any future part type work with no branch of their own.
+Windowsills are out of scope in both phases — `Opening.sill` is a scalar with
+no geometry, and inventing a ledge would be a second source of truth.
+`test/unit/surfaceMeshParity.test.ts` is the anti-drift gate: every
+`Surface.top` must equal the world bbox top of the mesh named by its `localId`.
+
+**Decor is set dressing, and it is ONE `ItemKind`.** `kind: 'decor'` covers
+books, plants, kitchen mess and soft goods; the silhouette is data on the def
+(`decor: {form, rest}`, `DecorForm` in catalog.ts) and src/view3d/decorMeshes.ts
+`DECOR_FORMS` draws it, so a new mug is a catalog entry, not a new kind.
+`itemMeshes.ts` holds exactly one `BUILDERS` entry for the family. Every decor
+def declares the same five fields, and each is load-bearing:
+
+- `placement: 'free'` — **required**. `throughWallChecks` reports `error`
+  severity for anything `snapsToWall`, and free placement is what downgrades a
+  tea towel nudged against a wall to an advisory.
+- `noCollide: true` — kills the quadratic term in `runChecks`. (It is a weaker
+  perf lever than it looks: the outer loop still builds a shape per item. The
+  real lever is `EditorState.decorOn`, below.)
+- `staging: true` — the BOM opt-out, one `continue` in `buyRows`. Deliberately
+  a SEPARATE flag from `noCollide`, because a rug is `noCollide` and IS bought.
+- **never an `appliance` spec** — `Plan2D.placeArmed` refuses to place a
+  `mount:'counter'` def with no host under the cursor, which would make a mug
+  unplaceable on the floor.
+
+`meshKit` gained `sphere`/`torus`/`lathe` for them (no `cone`: `cyl`'s trailing
+`rTop` already is one). Decor builders may mint materials ONLY through meshKit
+and must never mutate a colour after minting, or materialStamping.test.ts fails.
+Plain colours stamp `kp:c:<hex>:matte|wood`, so the 19-material cross-language
+contract is untouched. Decor is also skipped by `snapItem` — once a room is
+staged, aligning cabinets to mug centres would make every drag jump.
+
+**Drop-to-surface writes `item.elevation`, and only for decor.** `restingElevation`
+is called at four sites: `placeArmed` and the plan's item drag (both with
+`DROP_CEIL` = 1.15, because a 2D click carries no height and must mean "the
+counter", not "the shelf above it"), and View3D's armed place and body drag,
+which pass their own ray-hit Y. `transform.nudge*` does NOT re-drop — a known
+phase-1 gap that a persistent `{kind:'surface'}` `Attachment` would close.
+
+**`EditorState.decorOn`** (default ON, `#btn-decor` in `<SceneOverlay/>`) is a
+display layer like `checksOn` — ephemeral, never serialized, never undone. It
+gates `PlanRenderOpts.decor` (**false in `PRINT_OPTS`**: a printed plan is a
+build document) and View3D's per-item build filter, which is where it earns its
+keep. View3D subscribes to it with a MIRROR GUARD, or arming a catalog tile
+would rebuild the whole scene.
+
+**`planStaging(design, roomId, density, seed)`** (src/model/staging.ts, pure)
+fills a room in one go and returns POSES, never items — `uid()` is random, so
+only the arrangement can be deterministic. Seeded `mulberry32`, never
+`Math.random`; the default seed is a hash of the room id. `store.stageRoom`
+**clears first** (so the button is "Restage" and pressing it twice does not
+leave sixty mugs) and fires ONE structural notify, leaving `commit()` to the
+caller like every other mutation — which is what makes "one undo step" a
+property of the code rather than an accident. The rules encode a working
+kitchen: nothing within `HOT_REACH` of the hob, washing-up at the sink, kettle
+and jars at the DRY end (the end away from the wet zone — sending both to "the
+end furthest from the sink" collides them when the sink is central), and the
+back/front depth bands scale with the run rather than assuming 600 mm.
 
 ## Extending custom parts
 
@@ -574,6 +677,13 @@ may legally share space — lights, sockets, rugs, wall panels — set
 `noCollide: true` so the spatial checks skip them), a builder in
 itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
 `snapsToWall`/`isWallMounted`/`isOverhead`.
+
+**Adding a DECOR item needs only catalog.ts** — one `dec(...)` call in a
+`Decor · …` section, which stamps the five contract fields for you. A new
+`DecorForm` additionally needs a `DECOR_FORMS` builder and a `DECOR_GLYPH`
+entry (symbols.ts); decor.test.ts fails on either miss. Append decor sections
+at the END of `CATALOG`: `CatalogPanel` injects "My parts" after section index
+0, and `outlineModel` derives `OUTLINE_ORDER` from that array's order.
 
 ## Editor infrastructure contracts (Phase A — baseline lock)
 
@@ -1013,7 +1123,9 @@ itemMeshes.ts `BUILDERS`, a symbol case in symbols.ts, and a check of
   status bar's issue total). Each `CLEARANCE` constant carries its
   NKBA/Neufert source in a comment. `catalog.ts`'s `isDecorative`/
   `noCollide` opts an item out of every collision check (lights, sockets,
-  rugs, wall panels).
+  rugs, wall panels, and the whole `decor` family) — `throughWallChecks`
+  included, which used to be the one check that still looked despite this
+  paragraph claiming otherwise.
 - `window.__kp` is exposed for tests/debugging — keep it, and keep it FLAT:
   {store, plan, view, elev, editor, bridge, workspace, setWorkspace, navInput,
   setNavInput, debug}. Its shape is a contract typed in e2e/kp.d.ts, so a

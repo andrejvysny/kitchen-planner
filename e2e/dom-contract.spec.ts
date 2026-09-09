@@ -89,6 +89,7 @@ const ALWAYS: readonly ContractEntry[] = [
   vis('button[data-view="3d"]'),
   vis('#btn-daynight'),
   vis('#btn-openfronts'),
+  vis('#btn-decor'),
 
   // plan overlays
   vis('#zoom-controls'),
@@ -269,6 +270,9 @@ const STUDIO_EDITOR: readonly ContractEntry[] = [
   vis('#pane-workshop .studio-hosted'),
   vis('.studio-name'),
   vis('.studio-type-badge'),
+  // the Workshop's way out to the plan with the part armed — a shared header
+  // button, so it is pinned here rather than in the wardrobe group
+  vis('#studio-place-btn'),
   vis('.studio-tabs'),
   vis('.studio-tab[data-tab="simple"]'),
   vis('.studio-tab[data-tab="advanced"]'),

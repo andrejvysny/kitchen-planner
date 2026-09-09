@@ -222,6 +222,14 @@ describe('through-wall check', () => {
     expect(w[0].severity).toBe('warn');
   });
 
+  it('ignores DECORATIVE items entirely, like every other check does', () => {
+    // a tea towel nudged against a wall is not a construction problem, and
+    // `noCollide`'s documented contract is "the checks skip it" — this was
+    // the one check that still looked
+    const towel = item('decor-tea-towel', 0.5, 0.01);
+    expect(runChecks(design({ items: [towel] }))).toEqual([]);
+  });
+
   it('is faceOffset-aware: a cabinet flush against a partition is fine', () => {
     const a = rectRoom('A');
     const b = rectRoom('B', 4); // shares the x = 4 edge, so faceOffset = 0.05 each

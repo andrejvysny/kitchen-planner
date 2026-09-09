@@ -1,9 +1,9 @@
-import { snapsToWall, type CatalogDef } from './catalog';
+import { isDecorative, snapsToWall, type CatalogDef } from './catalog';
 import { angleClose, clamp, fmtCm, projectOnWall, wallPoint } from './geometry';
 import type { RoomWall } from './rooms';
 import type { SnapKind } from './snap';
 import type { Store } from './store';
-import type { Point } from './types';
+import type { Item, Point } from './types';
 
 export interface Guide {
   a: Point;
@@ -73,6 +73,26 @@ export function nearestWall(
  * Snaps: back-to-wall (with auto-rotation), edge-to-edge against neighbours
  * on the same run, center alignment for free-standing items, fine grid.
  */
+/**
+ * Should this item be invisible to snapping?
+ *
+ * Decoratives are: a rug, a socket, a mug. They are placed ON other things and
+ * `checks.ts` already exempts them from every spatial rule, so treating one as
+ * an edge or a centreline to align against is a pure false positive — and once
+ * a room is staged there are dozens of them sitting exactly where a cabinet's
+ * own edge is.
+ *
+ * `defOf` THROWS on an unknown id, so this resolves defensively: an item whose
+ * def has gone missing is simply not a snap target.
+ */
+function isSnapDecoy(store: Store, o: Item): boolean {
+  try {
+    return isDecorative(store.defOf(o.defId));
+  } catch {
+    return true;
+  }
+}
+
 export function snapItem(
   store: Store,
   def: CatalogDef,
@@ -137,6 +157,9 @@ export function snapItem(
     if (o.id === itemId) continue;
     // attached appliances overlap their hosts — they'd feed the snap back
     if (o.attach) continue;
+    // set dressing is not geometry: once a room is staged, snapping to mugs
+    // would make every cabinet drag jump to whatever was left on the counter
+    if (isSnapDecoy(store, o)) continue;
     if (!angleClose(o.rotation, rotation)) continue;
     const oDepth = o.x * depthAxis.x + o.y * depthAxis.y;
     if (Math.abs(oDepth - myDepthPos) > (d + o.d) / 2 + 0.4) continue; // different run
@@ -181,7 +204,7 @@ export function snapItem(
   // ---- center alignment for free-standing items ----
   if (!wallId) {
     for (const o of store.design.items) {
-      if (o.id === itemId || o.attach) continue;
+      if (o.id === itemId || o.attach || isSnapDecoy(store, o)) continue;
       if (Math.abs(o.x - x) < ALIGN_SNAP_DIST) {
         x = o.x;
         guides.push({ a: { x: o.x, y: Math.min(o.y, y) }, b: { x: o.x, y: Math.max(o.y, y) } });
@@ -189,7 +212,7 @@ export function snapItem(
       }
     }
     for (const o of store.design.items) {
-      if (o.id === itemId || o.attach) continue;
+      if (o.id === itemId || o.attach || isSnapDecoy(store, o)) continue;
       if (Math.abs(o.y - y) < ALIGN_SNAP_DIST) {
         y = o.y;
         guides.push({ a: { x: Math.min(o.x, x), y: o.y }, b: { x: Math.max(o.x, x), y: o.y } });
