@@ -983,11 +983,43 @@ at the END of `CATALOG`: `CatalogPanel` injects "My parts" after section index
   used to discard the whole chain, which made it the most expensive key in the
   tool: nothing else could take a corner back, so one mis-click on a ten-corner
   outline cost the outline. e2e/tools.spec.ts pins the walk.
-- `src/editor/input/types.ts` and `src/editor/tools/Tool.ts` are **type
-  declarations with no runtime** — the Phase C contracts. No `ToolManager`
-  yet, on purpose; it lands with the first tool that exercises it. See
-  src/editor/README.md for the extraction order (Measure first, **Select
-  last**).
+- **`src/editor/tools/` is the editor core, and it started with Measure.**
+  `Tool`/`ToolContext`/`ToolResult` (tools/Tool.ts) and `PointerInput`/`KeyInput`
+  (input/types.ts) were types-only contracts until M12-A; `ToolManager`,
+  `input/normalize.ts` and `MeasureTool` are the first runtime behind them.
+  Plan2D is still the HOST — it keeps the listeners, the viewport and every
+  gesture that has not moved — and offers each normalized pointer event to the
+  manager first. Five rules hold the migration together, and each is easy to
+  break:
+  - **`'passthrough'` is the default.** A tool id with nothing registered means
+    "no tool of mine is live", and Plan2D's existing code runs untouched. That
+    is what makes the extraction incremental rather than a rewrite; the order
+    it proceeds in (Measure → Calibrate → DrawRoom → Place → **Select last**)
+    is in src/editor/README.md.
+  - **ONE subscriber to `EditorState`.** `Plan2D.syncFromEditor()` drives
+    `ToolManager.setTool`, which runs `deactivate`/`activate`. The manager
+    deliberately does not subscribe: two subscribers would make "clean up the
+    tool being left" race the mirror update, ordered by registration.
+  - **per-tool needs are CONSTRUCTOR arguments**, never new `ToolContext`
+    fields — `MeasureTool` takes `snapContext` (plan geometry, which still
+    lives in renderPlan.ts) and `hitRadius` (it reads `matchMedia`) that way.
+    `ToolContext` is the shape every tool shares, and widening it once per tool
+    ends with it being the app. `commands` is optional there for the same
+    reason it is unused: `createServices` builds Plan2D BEFORE the registry
+    that takes Plan2D as a port.
+  - **`cancel()` is two-stage, and only over a gesture IN PROGRESS.** A
+    half-placed measure span is dropped and the tool keeps the floor
+    (`tool.cancel` → `plan.cancelActiveTool()` → `setMeasure(false)` only on
+    `'passthrough'`); a COMPLETED span is a result, not a gesture, so Escape
+    over one leaves the tool exactly as it always did. interact.mjs's
+    'measure tool: Esc exits' is what pins the second half.
+  - **no DOM crosses the boundary**, enforced by an eslint
+    `no-restricted-imports` block over `src/editor/**` (plan2d / view3d / ui /
+    print / app), which REPLACES the framework-free block above it — flat
+    config is last-wins per rule, so that block repeats the React patterns
+    rather than inheriting them. A tool is therefore driven from plain
+    `PointerInput` objects in test/unit/editor/measureTool.test.ts; a gesture
+    that needs a browser to test means the boundary leaked.
 - **The right-click menu is a pure model plus a thin hit façade.**
   `contextMenu(hit, workspace, opts)` (src/ui/contextMenuModel.ts, framework-free
   and unit-tested) decides WHICH entries a hit earns; src/ui/react/ContextMenu.tsx

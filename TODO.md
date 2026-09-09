@@ -442,11 +442,12 @@ interact 109/109 · Playwright 103/103.
 
 ---
 
-# M12 — Editor core (next)
+# M12 — Editor core (superseded below by M22, which is where it actually ran)
 
 See ROADMAP.md. In short: `ToolManager` + `InputRouter` land together with
-`MeasureTool`, then Calibrate → DrawRoom → AddRoom → Place → **Select last**.
-Nothing starts until the M11 gates are green on CI.
+`MeasureTool`, then Calibrate → DrawRoom → Place → **Select last**. (AddRoom is
+gone from that list: the separate `room` drop-tool was absorbed by the unified
+wall tool in M13.)
 
 ---
 
@@ -753,6 +754,71 @@ Deviations from the plan, all deliberate:
 
 Gates green at each increment: lint · typecheck (both projects) · **1245 unit**
 · build · interact **109/109** · Playwright **138/138**.
+
+---
+
+# M22 — Editor core, step 1: the first tool leaves Plan2D (active)
+
+ROADMAP.md plans this as its **M12**; this is the chronological number (see the
+note at the top of ROADMAP.md). Plan:
+`~/.claude/plans/help-me-plan-next-stateless-bonbon.md`.
+
+The contracts had been written and left unimplemented on purpose — a manager
+with nothing registered is dead code. This is the milestone that gives them a
+runtime, starting with the gesture already closest to the target shape.
+
+- [x] M12-A `ToolManager` + `input/normalize.ts` + `MeasureTool`
+      - `src/editor/tools/ToolManager.ts` — register / `setTool` (runs
+        `deactivate`/`activate`, idempotent for the live tool) / pointer
+        routing / `cancel`. An unregistered id means "no tool of mine is live"
+        and answers `'passthrough'`, the same "unknown id is a no-op, never a
+        throw" rule `CommandRegistry` follows — which is what lets the other
+        four gestures stay inside Plan2D untouched.
+      - `src/editor/input/normalize.ts` — `toPointerInput`/`toKeyInput` as pure
+        FUNCTIONS, not a listener-owning `InputRouter`: Plan2D already owns the
+        listeners behind an `AbortController` and the canvas transform, so a
+        second owner would duplicate both and add a teardown path to leak.
+      - `src/editor/tools/MeasureTool.ts` + `measureState.ts` — the `Measure`
+        interface moved OUT of renderPlan.ts (src/editor may not import
+        src/plan2d) and is re-exported there, so no consumer's import moved.
+        `snapContext` and `hitRadius` are constructor deps rather than new
+        `ToolContext` fields.
+      - Plan2D keeps `setMeasure`, `overlayState().measure` and the snap glyph
+        byte-identical in shape — the test façade is a contract — and its
+        measure branches, the `'measure'` drag-union member and `measureSnap`
+        are gone.
+      - `test/unit/editor/measureTool.test.ts` (18) drives the whole gesture
+        from plain `PointerInput` objects, with no canvas anywhere.
+- [x] M12-A' two-stage cancel — `PlanToolPort.cancelActiveTool()`; `tool.cancel`
+      drops a HALF-PLACED span and keeps the tool, and falls through to
+      `setMeasure(false)` when there is nothing pending. A COMPLETED span
+      deliberately does not count as pending: Escape over a result leaves the
+      tool, which is what interact.mjs already asserted and what nearly got
+      broken here.
+- [x] M12-C boundary + docs — eslint `no-restricted-imports` over
+      `src/editor/**` (plan2d / view3d / ui / print / app), repeating the
+      React patterns because flat config is last-wins per rule; CLAUDE.md's
+      editor-core contract; src/editor/README.md's rules table.
+
+Gate: lint · format:check · typecheck · **1297 unit** · build · interact
+**109/109** · Playwright **150/150** (plus tools.spec re-run for the new
+Escape assertion).
+
+- [ ] M12-B `CalibrateTool` — measure's twin with a different commit.
+      `onCalibrateDone` stays Plan2D's public field (async: the span stays
+      drawn until the dialog settles) and becomes a constructor dep;
+      `overlayState()`'s `calibrateOn ? calibrate : measure` becomes a manager
+      lookup.
+- [ ] M12-D `DrawRoomTool` — the big one, deliberately not bundled with the
+      first: accumulated ring state, the length/angle HUD, the digit bindings,
+      the cached `drawOutcome` and all four commit readings.
+
+Open, from the M12-A build:
+
+- `itemOutlineWorld` / `sortedItems` / `footprintOf` still live in
+  renderPlan.ts, which is why `MeasureTool` needs a `snapContext` dep at all.
+  Moving them to src/model would let a tool build its own material. Worth doing
+  when a SECOND tool needs more than one of them, not before.
 
 ---
 

@@ -146,14 +146,14 @@ export interface DrawRing {
   angleSnap: boolean;
 }
 
-/** Transient two-point distance measurement (overlay only — never touches the model). */
-export interface Measure {
-  a: Point | null; // first point
-  b: Point | null; // second point, set once the measurement is complete
-  hover: Point | null; // snapped cursor while measuring / before the first click
-  snapped: boolean; // whether `hover` locked onto a corner/edge (vs. a free point)
-  measuring: boolean; // first point placed, waiting for the second
-}
+/**
+ * Transient two-point distance measurement. It is `MeasureTool`'s state now
+ * (src/editor/tools/measureState.ts) and re-exported here, where every existing
+ * consumer already imports it from: `src/editor` may not import `src/plan2d`,
+ * so the type had to move down, not the tool up.
+ */
+import type { Measure } from '../editor/tools/measureState';
+export type { Measure };
 
 /** Placement preview of the armed catalog def. */
 export interface ItemGhost {

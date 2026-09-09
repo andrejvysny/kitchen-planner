@@ -29,7 +29,9 @@ function fakePlan(
   drawing = false,
   buffered = drawing,
   placing = false,
-  placeBuffered = placing
+  placeBuffered = placing,
+  /** an extracted tool has a gesture in flight and will swallow Escape */
+  toolCancels = false
 ): PlanToolPort & { calls: string[] } {
   const calls: string[] = [];
   return {
@@ -39,6 +41,9 @@ function fakePlan(
     setMeasure: (on) => calls.push(`setMeasure:${on}`),
     cancelDrawRoom: () => calls.push('cancelDrawRoom'),
     closeDrawRoom: (open) => calls.push(`closeDrawRoom:${open ?? false}`),
+    // a QUERY, like the two *Active predicates below — it must not appear in
+    // `calls`, or every cancel assertion would have to spell it out
+    cancelActiveTool: () => toolCancels,
     drawInputActive: () => drawing,
     drawBufferActive: () => buffered,
     drawDigit: (ch) => calls.push(`drawDigit:${ch}`),
@@ -455,6 +460,23 @@ describe('app commands', () => {
       reg.execute('tool.cancel');
       expect(plan.calls).toEqual([call]);
       expect(modal.calls).toEqual([]);
+    });
+
+    it('measure keeps the tool while a span is half-placed', () => {
+      const pending = fakePlan(false, false, false, false, true);
+      const pendingReg = new CommandRegistry({
+        store,
+        editor,
+        plan: pending,
+        modal,
+        workspace: ws,
+        help,
+      });
+      pendingReg.registerAll(APP_COMMANDS);
+      editor.setTool('measure');
+      pendingReg.execute('tool.cancel');
+      expect(pending.calls).toEqual([]);
+      expect(editor.tool).toBe('measure');
     });
 
     it('under select it drops the selection', () => {

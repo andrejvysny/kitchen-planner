@@ -38,6 +38,13 @@ export interface PlanToolPort {
   setArmed(def: null): void;
   setCalibrate(on: boolean): void;
   setMeasure(on: boolean): void;
+  /**
+   * Escape offered to whichever tool has been extracted into `src/editor/tools`.
+   * True when it dropped a gesture in progress and keeps the floor — the same
+   * two-stage rule the wall tool's ring follows, now available to every tool
+   * that moves out of Plan2D.
+   */
+  cancelActiveTool(): boolean;
   cancelDrawRoom(): void;
   /** `finishOpen` skips the room readings and commits the chain as walls */
   closeDrawRoom(finishOpen?: boolean): void;

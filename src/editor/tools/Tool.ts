@@ -31,7 +31,15 @@ import type { Cursor, KeyInput, PointerInput } from '../input/types';
 export interface ToolContext {
   store: Store;
   editor: EditorState;
-  commands: CommandRegistry;
+  /**
+   * OPTIONAL, because the host that owns the registry is not always the host
+   * that owns the tools: `createServices` builds Plan2D BEFORE the registry
+   * (the registry takes Plan2D as a `PlanToolPort`), and a headless Plan2D in a
+   * unit test has none at all. The first two tools measure and calibrate —
+   * neither mutates the design — so nothing needs it yet; make it required the
+   * day a tool genuinely does.
+   */
+  commands?: CommandRegistry;
   /** current zoom in px per metre — screen-space tolerances derive from it */
   zoom: number;
   /** ask the host to repaint; coalesced by the host, never synchronous */

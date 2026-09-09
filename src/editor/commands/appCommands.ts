@@ -247,7 +247,11 @@ export const APP_COMMANDS: readonly CommandDefinition[] = [
         if (plan.placeBufferActive()) plan.clearPlaceWidth();
         else plan.setArmed(null);
       } else if (editor.isTool('calibrate')) plan.setCalibrate(false);
-      else if (editor.isTool('measure')) plan.setMeasure(false);
+      // two-stage, like the ring and the typed width: a half-placed span goes
+      // first, the tool only once there is nothing left to drop
+      else if (editor.isTool('measure')) {
+        if (!plan.cancelActiveTool()) plan.setMeasure(false);
+      }
       // two-stage: the ring in progress goes first, the tool only when empty
       else if (editor.isTool('drawRoom')) plan.cancelDrawRoom();
       else editor.select({ kind: 'none' });

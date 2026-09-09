@@ -19,12 +19,30 @@ does the wiring.
 | `editorState.ts` | tool truth: `tool`, `armedDefId`, `checksOn`. Ephemeral — never serialized, never undone. |
 | `commands/` | named editor behaviours + the registry that runs them. |
 | `keyboard/` | the key map as data (`bindings.ts`, pure) and its DOM adapter. |
-| `input/types.ts` | **types only** — the DOM-free `PointerInput`/`KeyInput` a tool will receive. |
-| `tools/Tool.ts` | **types only** — the `Tool` / `ToolContext` / `ToolResult` contract. |
+| `input/types.ts` | the DOM-free `PointerInput`/`KeyInput` a tool receives (types only). |
+| `input/normalize.ts` | `PointerEvent`/`KeyboardEvent` → those types. Pure functions, not a class. |
+| `tools/Tool.ts` | the `Tool` / `ToolContext` / `ToolResult` contract (types only). |
+| `tools/ToolManager.ts` | tool id → `activate`/`deactivate`, and input routing. |
+| `tools/MeasureTool.ts` | the first extracted gesture (M12-A). |
+| `tools/measureState.ts` | its `Measure` overlay state, re-exported by `plan2d/renderPlan.ts`. |
 
-`input/types.ts` and `tools/Tool.ts` carry no runtime. There is deliberately no
-`ToolManager` yet: a manager with nothing registered is dead code, so it lands
-with the first tool that exercises it.
+Four rules the first extraction settled, each one a thing the next tool should
+copy rather than re-decide:
+
+- **the HOST keeps the listeners.** Plan2D already attaches them behind an
+  `AbortController` and owns the canvas transform, so `input/normalize.ts` is
+  functions, not an `InputRouter` class with a second teardown path to leak.
+- **`'passthrough'` is the default, everywhere.** An id with no registered tool
+  means "no tool of mine is live" and the host's existing code runs untouched.
+  That is what makes the migration incremental instead of all-or-nothing.
+- **one subscriber to `EditorState`.** Plan2D's `syncFromEditor()` drives
+  `ToolManager.setTool`; the manager does not subscribe, or the order of "clean
+  up the tool being left" against "the view's mirrors are updated" would depend
+  on registration order.
+- **per-tool needs are CONSTRUCTOR arguments, not `ToolContext` fields.**
+  `ToolContext` is the shape every tool shares; widening it once per tool ends
+  with it being the app. `MeasureTool` takes `snapContext` and `hitRadius` that
+  way — the first is plan geometry, the second reads `matchMedia`.
 
 ## The tool migration order (M12)
 
@@ -50,4 +68,6 @@ Measure  →  Calibrate  →  DrawRoom  →  Place  →  Select
   abstraction around the hardest case before the easy ones had a say.
 
 Each step is behaviour-preserving; `test/interact.mjs` and `e2e/tools.spec.ts`
-are the gates.
+are the gates. A tool's own behaviour is unit-tested from plain `PointerInput`
+objects (`test/unit/editor/measureTool.test.ts`) — if a gesture needs a browser
+to test, the DOM-free boundary has leaked.

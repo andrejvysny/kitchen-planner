@@ -173,6 +173,24 @@ test('Escape walks the tools in order, and the draw ring goes before its tool', 
     expect(await isActive(app, btn)).toBe(false);
   }
 
+  // measure is two-stage the same way (M12-A): a HALF-PLACED span goes first,
+  // so a mis-clicked first point costs the point and not the tool. A COMPLETED
+  // span deliberately does not count — Escape over a number you are still
+  // reading leaves the tool, which is what it has always done.
+  await app.click('#btn-measure');
+  await clickPlan(app, 6, 1);
+  await expect
+    .poll(() => app.evaluate(() => window.__kp.plan.overlayState().measure.measuring))
+    .toBe(true);
+  await app.keyboard.press('Escape');
+  expect(await editorTool(app)).toBe('measure');
+  expect(await app.evaluate(() => window.__kp.plan.overlayState().measure)).toMatchObject({
+    a: null,
+    measuring: false,
+  });
+  await app.keyboard.press('Escape');
+  expect(await editorTool(app)).toBe('select');
+
   // two-stage: the ring first, the tool only once the ring is EMPTY — and the
   // ring empties one corner at a time, so a mis-click never costs the outline
   await app.click('#btn-draw-room');

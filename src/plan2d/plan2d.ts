@@ -34,7 +34,6 @@ import {
   resolveSnap,
   type SnapConfig,
   type SnapContext,
-  type SnapKind,
   type SnapResult,
 } from '../model/snap';
 import { unitPrefs } from '../model/prefs';
@@ -57,6 +56,11 @@ import type { EditorState, ToolId } from '../editor/editorState';
 import type { DrawField, DrawHudState, DrawOutcome } from '../ui/drawHud';
 import type { PlaceHudState } from '../ui/placeHud';
 import { hitRadius, PinchGesture } from './pinch';
+import { toPointerInput } from '../editor/input/normalize';
+import type { PointerInput } from '../editor/input/types';
+import type { ToolContext } from '../editor/tools/Tool';
+import { ToolManager } from '../editor/tools/ToolManager';
+import { MeasureTool } from '../editor/tools/MeasureTool';
 import type { ContextHit } from './planHit';
 import { underlayCorners, underlayHits } from '../model/underlay';
 import {
@@ -76,18 +80,6 @@ import {
   type Measure,
   type OpeningGhost,
 } from './renderPlan';
-
-/**
- * What the measure tool may snap to: real geometry only. Inference lines
- * (align / perpendicular / parallel / extension) are deliberately absent —
- * they would put the point where nothing is.
- */
-const MEASURE_KINDS: ReadonlySet<SnapKind> = new Set<SnapKind>([
-  'endpoint',
-  'midpoint',
-  'intersection',
-  'onSegment',
-]);
 
 /** Shift locks the pending segment to this angular step (15°). */
 /** Screen reach of the close target, kept in step with the engine's own. */
@@ -155,7 +147,6 @@ type Drag =
   | { type: 'corner'; id: string }
   | { type: 'opening'; id: string }
   | { type: 'rotate'; id: string }
-  | { type: 'measure'; sx: number; sy: number; moved: boolean }
   /**
    * Rubber-band selection from empty floor. Below MARQUEE_SLOP it releases as
    * the plain click on nothing it looks like (deselect, switch room); past it
@@ -238,7 +229,20 @@ export class Plan2D {
   private lastArmedDef: CatalogDef | null = null;
 
   measureOn = false;
-  private measure: Measure = { a: null, b: null, hover: null, snapped: false, measuring: false };
+
+  /**
+   * The editor-core tools that have been extracted out of this class, and the
+   * manager that routes normalized input at whichever one `EditorState.tool`
+   * names. Everything still listed in the drag union below is a gesture that
+   * has NOT moved yet: the manager answers 'passthrough' for those ids and the
+   * code underneath runs exactly as it did. See src/editor/README.md for the
+   * order the rest come out in.
+   */
+  private readonly tools = new ToolManager();
+  private readonly measureTool = new MeasureTool({
+    snapContext: () => this.measureCtx(),
+    hitRadius,
+  });
 
   /**
    * Underlay scale calibration: the measure tool's two-click gesture, but the
@@ -363,6 +367,7 @@ export class Plan2D {
     this.onHint = onHint;
     this.onDrawHud = onDrawHud ?? ((): void => {});
     this.onPlaceHud = onPlaceHud ?? ((): void => {});
+    this.tools.register(this.measureTool);
     this.editorOff = editor.subscribe(() => this.syncFromEditor());
   }
 
@@ -667,15 +672,16 @@ export class Plan2D {
           this.clearGhosts();
           this.ghostOpening = null;
           break;
-        case 'measure':
-          this.resetMeasure();
-          break;
         case 'drawRoom':
           this.resetDrawRing();
           break;
       }
       this.lastTool = tool;
     }
+    // an extracted tool cleans up in its own deactivate(); the manager is
+    // driven from HERE rather than from its own subscription, so there is
+    // exactly one subscriber and the order against the mirrors below is fixed
+    this.tools.setTool(tool, this.toolCtx());
     this.armedDef = tool === 'place' ? this.resolveArmed(this.editor.armedDefId) : null;
     this.measureOn = tool === 'measure';
     this.calibrateOn = tool === 'calibrate';
@@ -685,6 +691,39 @@ export class Plan2D {
     if (this.attached) this.canvas.style.cursor = this.toolCursor();
     this.updateHint();
     this.requestDraw();
+  }
+
+  /**
+   * The `ToolContext` an extracted tool is handed. Rebuilt per call rather than
+   * cached: `zoom` changes with every scroll, and a stale one would put a
+   * screen-px tolerance at the wrong world distance.
+   *
+   * `commands` is deliberately absent — see the note on `ToolContext`.
+   */
+  private toolCtx(): ToolContext {
+    return {
+      store: this.store,
+      editor: this.editor,
+      zoom: this.zoom,
+      requestDraw: () => this.requestDraw(),
+      setHint: (t: string) => this.onHint(t),
+    };
+  }
+
+  /** Normalize a DOM pointer event for the tool layer. */
+  private toolInput(e: PointerEvent, phase: 'down' | 'move' | 'up'): PointerInput {
+    const s = { x: e.offsetX, y: e.offsetY };
+    return toPointerInput(e, phase, s, this.toWorld(s.x, s.y));
+  }
+
+  /**
+   * Escape reaching the live tool. `true` means the tool dropped a gesture in
+   * progress and keeps the floor; `false` means the caller should go on to
+   * leave the tool — `tool.cancel`'s two-stage rule, for the tools that have
+   * moved out of this class.
+   */
+  cancelActiveTool(): boolean {
+    return this.tools.cancel(this.toolCtx()) === 'handled';
   }
 
   /**
@@ -810,12 +849,8 @@ export class Plan2D {
 
   /* ---------------- measure tool ---------------- */
 
-  private resetMeasure(): void {
-    this.measure = { a: null, b: null, hover: null, snapped: false, measuring: false };
-  }
-
   setMeasure(on: boolean): void {
-    this.resetMeasure();
+    this.measureTool.clear();
     this.editor.setTool(on ? 'measure' : 'select');
     this.updateHint();
     this.requestDraw();
@@ -1597,30 +1632,6 @@ export class Plan2D {
     return w >= MIN_RECT_SIDE && h >= MIN_RECT_SIDE;
   }
 
-  /**
-   * Snap a screen point to the nearest meaningful spot for measuring. Vertices
-   * (corners, item centres & outline corners) win over edges (walls, item
-   * outlines); with nothing near, the bare cursor is returned as a free point.
-   */
-  private measureSnap(sx: number, sy: number): { p: Point; snapped: boolean } {
-    const w = this.toWorld(sx, sy);
-    const res = resolveSnap(w, this.measureCtx(), {
-      ...DEFAULT_SNAP_CONFIG,
-      zoom: this.zoom,
-      pointReachPx: hitRadius(11),
-      lineReachPx: hitRadius(11),
-      // Measuring READS the drawing; it must never round or infer. No grid (a
-      // measurement is not a placement), no angle lock, and none of the
-      // inference lines — an alignment guide would move the point somewhere no
-      // geometry actually is, and the number under it would be fiction.
-      gridStep: null,
-      angleStep: null,
-      enabled: MEASURE_KINDS,
-    });
-    this.lastSnap = res;
-    return { p: res.p, snapped: res.kind !== 'free' };
-  }
-
   /* ---------------- hints ---------------- */
 
   /**
@@ -1698,11 +1709,7 @@ export class Plan2D {
       return;
     }
     if (this.measureOn) {
-      this.onHint(
-        this.measure.measuring
-          ? 'Click the second point · snaps to corners, edges & walls · Esc exits'
-          : 'Click two points to measure · snaps to corners, edges & walls · Esc exits'
-      );
+      this.onHint(this.measureTool.hintText());
       return;
     }
     if (this.armedDef) {
@@ -1806,7 +1813,7 @@ export class Plan2D {
     // the measure tool snaps through the same engine, so it earns the same
     // glyph — what the cursor has locked onto is exactly what a measurement
     // needs the user to be sure of
-    if (this.measureOn) return this.measure.hover ? this.lastSnap : null;
+    if (this.measureOn) return this.measureTool.state.hover ? this.measureTool.snap : null;
     // dragging a corner resolves through the engine too, so it earns the glyph:
     // "this landed exactly on the neighbour's wall" is the whole question when
     // the gesture's purpose is to make two rooms weld
@@ -1826,7 +1833,7 @@ export class Plan2D {
     ghostSegment: GhostSegment | null;
   } {
     return {
-      measure: this.measure,
+      measure: this.measureTool.state,
       drawRing: this.drawRing(),
       snap: this.activeSnap(),
       hover: { ...this.hover },
@@ -2054,27 +2061,9 @@ export class Plan2D {
     }
     if (e.button !== 0) return;
 
-    // measuring: click sets a point; a second click (or a drag) sets the other
-    if (this.measureOn) {
-      const snap = this.measureSnap(s.x, s.y);
-      if (this.measure.measuring) {
-        this.measure.b = snap.p;
-        this.measure.measuring = false;
-        this.drag = { type: 'none' };
-      } else {
-        this.measure = {
-          a: snap.p,
-          b: null,
-          hover: snap.p,
-          snapped: snap.snapped,
-          measuring: true,
-        };
-        this.drag = { type: 'measure', sx: s.x, sy: s.y, moved: false };
-      }
-      this.updateHint();
-      this.requestDraw();
-      return;
-    }
+    // an extracted tool gets first refusal; 'passthrough' leaves everything
+    // below exactly as it was
+    if (this.tools.pointerDown(this.toolInput(e, 'down'), this.toolCtx()) === 'handled') return;
 
     // calibrating the underlay: two raw (never snapped) clicks on the photo
     if (this.calibrateOn) {
@@ -2558,15 +2547,6 @@ export class Plan2D {
         this.requestDraw();
         return;
       }
-      case 'measure': {
-        const d = this.drag;
-        if (Math.hypot(s.x - d.sx, s.y - d.sy) > 4) d.moved = true;
-        const snap = this.measureSnap(s.x, s.y);
-        this.measure.hover = snap.p;
-        this.measure.snapped = snap.snapped;
-        this.requestDraw();
-        return;
-      }
       case 'underlay': {
         const d = this.drag;
         // below the threshold this is still a click (which deselects), so the
@@ -2607,13 +2587,9 @@ export class Plan2D {
       return;
     }
 
-    // measuring, between clicks: keep the snapped hover / rubber-band live
-    if (this.measureOn) {
-      const snap = this.measureSnap(s.x, s.y);
-      this.measure.hover = snap.p;
-      this.measure.snapped = snap.snapped;
-      this.canvas.style.cursor = 'crosshair';
-      this.requestDraw();
+    // an extracted tool tracks its own hover
+    if (this.tools.pointerMove(this.toolInput(e, 'move'), this.toolCtx()) === 'handled') {
+      this.canvas.style.cursor = this.tools.active?.cursor?.(this.toolCtx()) ?? 'crosshair';
       return;
     }
 
@@ -2766,17 +2742,9 @@ export class Plan2D {
       this.drag = { type: 'none' };
       return;
     }
-    if (wasDrag.type === 'measure') {
-      // a real drag completes the measurement; a bare click waits for a 2nd click
-      if (wasDrag.moved) {
-        const snap = this.measureSnap(e.offsetX, e.offsetY);
-        this.measure.b = snap.p;
-        this.measure.measuring = false;
-      }
+    if (this.tools.pointerUp(this.toolInput(e, 'up'), this.toolCtx()) === 'handled') {
       this.drag = { type: 'none' };
-      this.canvas.style.cursor = 'crosshair';
-      this.updateHint();
-      this.requestDraw();
+      this.canvas.style.cursor = this.tools.active?.cursor?.(this.toolCtx()) ?? 'crosshair';
       return;
     }
     if (wasDrag.type === 'marquee' && wasDrag.moved) {
@@ -2984,7 +2952,7 @@ export class Plan2D {
         ghostOpening: this.ghostOpening,
         drawRing: this.drawRing(),
         snap: this.activeSnap(),
-        measure: this.calibrateOn ? this.calibrate : this.measure,
+        measure: this.calibrateOn ? this.calibrate : this.measureTool.state,
         advisoryChecks: this.checksOn,
         hover: this.hover,
       }

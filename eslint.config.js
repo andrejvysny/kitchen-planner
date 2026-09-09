@@ -65,6 +65,39 @@ export default defineConfig([
     },
   },
   {
+    // EDITOR-CORE BOUNDARY: dependencies point INTO src/editor. It may reach
+    // src/model (geometry, the snap engine, the Store) and nothing else — a
+    // tool that imported Plan2D would make the extraction circular, and the
+    // whole point of `PointerInput`/`ToolContext` is that a tool runs with no
+    // view at all. Where the editor genuinely needs a view it declares a
+    // structural port (commands/types.ts) and src/app wires it.
+    //
+    // This was prose in src/editor/README.md until M12-A; the first real tool
+    // is when it starts being easy to break by accident.
+    files: ['src/editor/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          // flat config is LAST WINS per rule, so this block REPLACES the
+          // framework-free one above for src/editor — its patterns are
+          // repeated here rather than inherited
+          patterns: [
+            {
+              group: ['react', 'react-dom', 'react/**', 'react-dom/**'],
+              message: 'Model/editor/view code must stay framework-free — no React here.',
+            },
+            {
+              group: ['**/plan2d/**', '**/view3d/**', '**/ui/**', '**/print/**', '**/app/**'],
+              message:
+                'src/editor must not import a view, the UI or the bootstrap — declare a port in commands/types.ts (or take the dependency as a constructor argument) and let src/app wire it.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // COMPOSITION BOUNDARY: components take the app's object graph off the
     // AppServices context (src/ui/react/services.tsx), never by importing the
     // singletons out of the bootstrap. src/ui/react/App.tsx is the ONE
